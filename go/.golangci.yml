@@ -1,0 +1,95 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    # correctness and bugs
+    - errcheck
+    - errchkjson
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - noctx
+    - contextcheck
+    - exhaustive
+    - durationcheck
+    - forcetypeassert
+    # style and quality
+    - gocritic
+    - godot
+    - misspell
+    - revive
+    - sloglint
+    - unparam
+    # security
+    - gosec
+
+  settings:
+    errchkjson:
+      # Only flag types that can actually fail marshaling (e.g. time.Time, interface{}).
+      # Ignores structs / maps that are always safe.
+      check-error-free-encoding: false
+
+    exhaustive:
+      # A default case satisfies exhaustiveness; avoids noise on open-ended switches.
+      default-signifies-exhaustive: true
+
+    godot:
+      scope: declarations
+
+    gosec:
+      excludes:
+        # SHA-1 is required by the BBB API spec; call sites carry //nolint:gosec.
+        - G401
+        - G501
+        # Config loader and fixture reader intentionally accept file paths from variables.
+        - G304
+        # Data files (Parquet, JSONL) are world-readable by design — they live in the
+        # user's home directory and are not security-sensitive.
+        - G301
+        - G302
+        # Internal-only HTTP server (localhost webhook); Slowloris not a realistic threat.
+        - G112
+        # ParseForm without MaxBytesReader: same reasoning as G112.
+        - G120
+        # Goroutines that intentionally outlive a request context for cleanup carry
+        # //nolint:gosec at their definition site.
+        - G118
+
+    govet:
+      enable-all: true
+      disable:
+        # fieldalignment: micro-optimisation that harms readability; not worth it here.
+        - fieldalignment
+        # shadow: flags the common `if err := f(); err != nil` pattern used project-wide.
+        - shadow
+
+    revive:
+      # Explicitly list only the rules to run; this replaces revive's defaults.
+      rules:
+        # Style
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: range
+        - name: receiver-naming
+        - name: var-naming
+        - name: package-comments
+        # Correctness
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: error-return
+        - name: error-strings
+        - name: unexported-return
+        # Intentionally excluded:
+        #   exported       — internal packages; godoc on every method is overkill
+        #   unused-parameter — interface implementations must carry ctx even when
+        #                      the current body doesn't use it
+
+    sloglint:
+      # Reject mixed positional/key-value calls.
+      no-mixed-args: true
+      kv-only: false
+      attr-only: false
+      key-naming-case: snake

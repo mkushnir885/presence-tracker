@@ -1,0 +1,18 @@
+default:
+  @just --list
+
+build:
+  mkdir -p bin
+  uv run pyinstaller --onefile --name ptrack_py \
+    --distpath bin src/ptrack_analytics/__main__.py
+
+test:
+  uv run pytest
+
+lint:
+  uv run ruff check src
+  uv run ty check src
+
+fmt:
+  uv run ruff format src
+  uv run ruff check --fix-only src

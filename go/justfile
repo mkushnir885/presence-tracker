@@ -1,0 +1,15 @@
+default:
+  @just --list
+
+build:
+  mkdir -p bin
+  go build -o bin/ptrack src/cmd/ptrack
+
+test:
+  go test src/...
+
+lint:
+  golangci-lint run src/...
+
+fmt:
+  gofmt -w src

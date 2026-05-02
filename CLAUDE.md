@@ -254,11 +254,28 @@ For releases: PyInstaller single-file binary (`ptrack_py`).
 
 ## Current status
 
-**Pre-code.** Project is in the design phase. No Go or Python source
-files exist yet. When asked to add code, first confirm the module layout
-in this file and `@docs/ARCHITECTURE.md` are still current, and prefer
-updating the docs before writing code when a design decision differs from
-what's documented.
+**Core implementation complete.** The following are implemented and compile
+cleanly:
+
+- Go: config loader, BBB provider (webhook), mock provider (fixture replay),
+  Telegram messenger, mock messenger, file-based challenge type + poller,
+  BoltDB participant registry, Arrow/Parquet event store, session coordinator,
+  `ptrack track` CLI command.
+- Python: `ptrack_analytics` library with schema, `load()`, derived frames
+  (`presence`, `challenge_results`), and `ptrack_py` CLI skeleton.
+
+**Not yet implemented (TODO stubs in code):**
+
+- GUI (`ptrack serve`) and associated `internal/gui/` + `internal/reporter/` packages.
+- PDF report generation (`ptrack report`; Python `generate_pdf`).
+- AI-generated challenges (`challenges/aigenerated/`, `py/src/challenger/`).
+- Meet and Zoom provider adapters.
+- `ptrack export` CLI command.
+- Named GUI analyses (`py/src/ptrack_analytics/analyses.py`).
+
+When adding code, confirm the module layout in this file and
+`@docs/ARCHITECTURE.md` are still current, and prefer updating docs first
+when a design decision differs from what is documented.
 
 ## Staging
 

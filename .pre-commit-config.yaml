@@ -1,0 +1,18 @@
+repos:
+  - repo: local
+    hooks:
+      - id: fmt
+        name: Format code
+        entry: just fmt
+        language: system
+        pass_filenames: false
+        types: [go, python]
+        stages: [pre-commit]
+
+      - id: lint
+        name: Check code linting
+        entry: just lint
+        language: system
+        pass_filenames: false
+        types: [go, python]
+        stages: [pre-commit]
