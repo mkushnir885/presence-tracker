@@ -1,9 +1,9 @@
 # Analytics library
 
 `ptrack_analytics` is a regular Python library (`py/src/ptrack_analytics/`)
-that provides meeting analysis, chart generation, and PDF report generation.
-It is the same code whether called from the Go CLI, displayed in the GUI,
-or used interactively in a Jupyter Notebook.
+that provides meeting analysis and CSV report generation. It is the same
+code whether called from the Go CLI, used internally by the GUI server, or
+used interactively in a Jupyter Notebook.
 
 ## Using in Jupyter
 
@@ -22,7 +22,7 @@ data: pl.LazyFrame         # all events from loaded files, concatenated
 meetings: pl.LazyFrame     # one row per meeting (id, start, end, duration)
 participants: pl.LazyFrame # one row per known participant (id, display_name)
 
-# Derived frames (also lazy; shared code path with PDF reports)
+# Derived frames (also lazy; shared code path with CSV reports)
 from ptrack_analytics import presence, challenges, questions
 
 presence: pl.LazyFrame     # (participant_id, meeting_id, presence_seconds, ...)
@@ -67,14 +67,27 @@ challenges.group_by("meeting_id") \
 )
 ```
 
-### PDF generation from a notebook
+### CSV generation from a notebook
 
 ```python
-from ptrack_analytics import generate_pdf, generate_aggregate_pdf
+from ptrack_analytics import generate_csv, generate_aggregate_csv
 
-generate_pdf("meetings/2026-04-21.parquet", "reports/2026-04-21.pdf")
-generate_aggregate_pdf("meetings/spring-2026-*.parquet", "reports/semester.pdf")
+# Single meeting CSV
+generate_csv("meetings/2026-04-21.parquet", "reports/2026-04-21.csv")
+
+# Cross-meeting CSV for all meetings matching a glob
+generate_aggregate_csv("meetings/spring-2026-*.parquet", "reports/semester.csv")
 ```
+
+`generate_csv` produces one row per participant with columns:
+`display_name`, `presence_ratio`, `challenges_issued`, `challenges_correct`.
+
+`generate_aggregate_csv` produces one row per (participant, meeting) with
+the same statistics columns plus `meeting` (ISO datetime of start), sorted
+by `display_name` then `meeting`.
+
+Both functions return the DataFrame before writing so the result can be
+inspected or piped further in a notebook cell.
 
 ## Named analyses (GUI)
 
@@ -86,7 +99,7 @@ the `@analysis` decorator — no YAML, no user-editable expressions.
 
 The GUI fetches analysis results via `POST /analysis/{name}` and renders:
 
-- `pl.DataFrame` → HTML table with sticky header, first 200 rows, CSV
+- `pl.DataFrame` → HTML table with sticky header, CSV
   download button.
 - `matplotlib.Figure` → inline PNG.
 - Scalar → formatted value, large.

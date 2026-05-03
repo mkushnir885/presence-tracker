@@ -15,12 +15,12 @@ choices matter as much as shipping features.
 - **Go** — main binary, CLI (cobra), HTTP server, provider adapters,
   messenger adapters, challenge scheduler, Parquet event log (via
   `github.com/apache/arrow/go/v17`), orchestration.
-- **Python** — data analysis (Polars), PDF and chart generation
-  (matplotlib + fpdf2), and (v1 stretch / v2) AI-generated question
-  pipeline: ASR, small-LLM question generation. Distributed as a single
-  self-contained binary built with **PyInstaller** (`ptrack_py` /
-  `ptrack_py.exe`). Users install the Go binary and the Python binary;
-  no Python runtime or `uv` required.
+- **Python** — data analysis (Polars), CSV report generation, and
+  (v1 stretch / v2) AI-generated question pipeline: ASR, small-LLM
+  question generation. Distributed as a single self-contained binary
+  built with **PyInstaller** (`ptrack_py` / `ptrack_py.exe`). Users
+  install the Go binary and the Python binary; no Python runtime or
+  `uv` required.
 - **templ + htmx** — server-rendered GUI with minimal client-side JS.
   Supports dark/light/system color themes and English/Ukrainian UI
   languages (easily extended by adding translation files). Opened in
@@ -108,9 +108,26 @@ If a participant joins a meeting but is not yet paired, challenges are
 skipped and a `participant_unregistered` event is logged. The teacher
 sees this in the GUI and can remind the student to complete pairing.
 
-Teachers can set a **custom display name** for any participant via the
-GUI. The custom name overrides the platform-provided name in all
-analytics and reports.
+Teachers can rename a participant by rewriting the `display_name`
+column directly in the relevant Parquet file(s). All renames are
+file-scoped — they never propagate to future meetings automatically:
+
+- **Single-file rename** (`PATCH /meetings/{id}/participants/{p}/display-name`):
+  rewrites `display_name` for that participant in one Parquet file.
+- **Multi-file rename** (from the cross-meeting view): applies the same
+  new name to all Parquet files currently shown in that view. The
+  teacher selects the scope explicitly; files outside the current view
+  are never touched.
+
+Future meetings always record whatever name the platform provides. A
+rename never sets a persistent override for meetings that have not yet
+happened.
+
+If a participant's display name changed mid-meeting (the platform or the
+user sent different names), the Parquet file may contain several distinct
+`display_name` values for the same `participant_id`. The GUI detects
+this, shows all variants as **Name1 | Name2 | Name3**, and hints the
+teacher to pick a canonical name with the single-file rename button.
 
 ## Challenge system
 
@@ -235,22 +252,22 @@ For releases: PyInstaller single-file binary (`ptrack_py`).
 
 ## Common commands
 
-| Task                             | Command                                                                  |
-| -------------------------------- | ------------------------------------------------------------------------ |
-| Build Go binary                  | `cd go && just build` → `./go/bin/ptrack`                                |
-| Build Python binary              | `cd py && just build` → `./py/bin/ptrack_py`                             |
-| Build both                       | `just build` → `./bin/ptrack` and `./bin/ptrack_py`                      |
-| Run Go tests                     | `cd go && just test`                                                     |
-| Run Python tests                 | `cd py && just test`                                                     |
-| Run all tests                    | `just test`                                                              |
-| Format                           | `just fmt`                                                               |
-| Lint                             | `just lint`                                                              |
-| Run a fixture end-to-end         | `./bin/ptrack track --provider=mock --fixture=test/fixtures/bbb/lesson1` |
-| Track without GUI (headless)     | `./bin/ptrack track --provider=bbb --meeting=<id>`                       |
-| Start GUI                        | `./bin/ptrack serve --port=8080`                                         |
-| Generate PDF from a meeting file | `./bin/ptrack report --in meeting.parquet --out report.pdf`              |
-| Aggregate a semester             | `./bin/ptrack report --in 'meetings/*.parquet' --out semester.pdf`       |
-| Ad-hoc analysis (Jupyter)        | `cd py && jupyter notebook` — import `ptrack_analytics`, call `load()`   |
+| Task                            | Command                                                                  |
+| ------------------------------- | ------------------------------------------------------------------------ |
+| Build Go binary                 | `cd go && just build` → `./go/bin/ptrack`                                |
+| Build Python binary             | `cd py && just build` → `./py/bin/ptrack_py`                             |
+| Build both                      | `just build` → `./bin/ptrack` and `./bin/ptrack_py`                      |
+| Run Go tests                    | `cd go && just test`                                                     |
+| Run Python tests                | `cd py && just test`                                                     |
+| Run all tests                   | `just test`                                                              |
+| Format                          | `just fmt`                                                               |
+| Lint                            | `just lint`                                                              |
+| Run a fixture end-to-end        | `./bin/ptrack track --provider=mock --fixture=test/fixtures/bbb/lesson1` |
+| Track without GUI (headless)    | `./bin/ptrack track --provider=bbb --meeting=<id>`                       |
+| Start GUI (connect via browser) | `./bin/ptrack serve --port=8080` — use the Connect form on the dashboard |
+| Export CSV report for a meeting | `./bin/ptrack report --in meeting.parquet --out report.csv`              |
+| Export cross-meeting CSV report | `./bin/ptrack report --in 'meetings/*.parquet' --out semester.csv`       |
+| Ad-hoc analysis (Jupyter)       | `cd py && jupyter notebook` — import `ptrack_analytics`, call `load()`   |
 
 ## Current status
 
@@ -267,7 +284,7 @@ cleanly:
 **Not yet implemented (TODO stubs in code):**
 
 - GUI (`ptrack serve`) and associated `internal/gui/` + `internal/reporter/` packages.
-- PDF report generation (`ptrack report`; Python `generate_pdf`).
+- CSV report generation (`ptrack report`; Python `generate_csv`).
 - AI-generated challenges (`challenges/aigenerated/`, `py/src/challenger/`).
 - Meet and Zoom provider adapters.
 - `ptrack export` CLI command.
@@ -285,7 +302,7 @@ when a design decision differs from what is documented.
 - Messenger: Telegram
 - Challenges: file-based
 - GUI: live meeting view + multi-meeting aggregate + config editor
-- PDF reports
+- CSV reports (single meeting and cross-meeting)
 - Polars analytics via `ptrack_analytics` library and CLI
 
 **v1 stretch:**

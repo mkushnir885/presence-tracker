@@ -13,23 +13,23 @@ it.
 
 ```
 ┌──────────────────────────────── ptrack (Go) ────────────────────────────┐
-│                                                                          │
-│   cobra CLI ── session.Coordinator ── eventstore (Parquet)               │
-│                       │                                                  │
+│                                                                         │
+│   cobra CLI ── session.Coordinator ── eventstore (Parquet)              │
+│                       │                                                 │
 │      ┌────────────────┼────────────────┬─────────────────────┐          │
 │      ▼                ▼                ▼                     ▼          │
-│  providers.*    messengers.*     challenges.Poller        gui.Server     │
+│  providers.*    messengers.*     challenges.Poller        gui.Server    │
 │  (zoom/meet/   (telegram/...)    + challenges.*          (templ+htmx)   │
 │   bbb/mock)                      (filebased/aigenerated)  optional      │
-│                                                                          │
-└──────────────────────────────────────────────────────────────────────────┘
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
          │                                        │
          ▼                                        ▼
 ┌─────────────────────────────┐    ┌─────────────────────────────────────┐
 │ ptrack_py (PyInstaller)     │    │ ptrack_py (PyInstaller)             │
 │  challenger service         │    │  ptrack_analytics subcommand        │
 │  (long-running, AI-gen only)│    │  (one-shot: report / generate)      │
-│  faster-whisper + LLM       │    │  Polars + matplotlib + fpdf2        │
+│  faster-whisper + LLM       │    │  Polars (CSV generation)            │
 └─────────────────────────────┘    └─────────────────────────────────────┘
 ```
 
@@ -61,9 +61,11 @@ it.
    `challenge_unanswered` event is emitted.
 7. All events are written to `<meetings_dir>/<meeting_id>.parquet` by
    `eventstore`.
-8. For PDF and chart generation, Go invokes
-   `ptrack_py report --in meeting.parquet --out report.pdf`.
-   Advanced users can import `ptrack_analytics` directly in Jupyter.
+8. For CSV report generation, Go invokes
+   `ptrack_py report --in meeting.parquet --format csv --out -` (stdout)
+   and caches the result for the GUI stats columns. The same CSV is also
+   offered as a download. Advanced users can import `ptrack_analytics`
+   directly in Jupyter.
 
 ## Interfaces
 
@@ -141,34 +143,51 @@ type Registry interface {
     // the Telegram handle that initiated pairing.
     CompletePairing(platform string, platformID string, code string) (ParticipantID, error)
 
-    // SetDisplayName stores a teacher-defined override name for a participant.
-    // This name takes precedence over the platform-provided display_name in
-    // all analytics and reports.
-    SetDisplayName(p ParticipantID, name string) error
-
     Handle(p ParticipantID, messengerName string) (Handle, bool)
-    All() []Participant
+
+    // Clear removes all pairing records. Called by DELETE /participants.
+    // Parquet files are not affected.
+    Clear() error
 }
 ```
 
 Backed by a small on-disk store (BoltDB or JSON file). Persists across
 meetings so pairing is one-time per platform.
 
+### Per-file display name rewrite (`eventstore`)
+
+A function in `go/src/internal/eventstore/` handles all rename
+operations. Both the single-file and multi-file rename buttons in the
+GUI call it once per file:
+
+```go
+// RenameParticipant rewrites the display_name column for all events
+// belonging to participantID in the given Parquet file. It reads the
+// file into memory, patches the column, and atomically replaces the file.
+func RenameParticipant(ctx context.Context, path string, participantID ParticipantID, newName string) error
+```
+
+This is the backend for `PATCH /meetings/{id}/participants/{p}/display-name`.
+Renames are always scoped to the files explicitly selected by the
+teacher. They never create a persistent name override — future meetings
+record the platform-provided name until the teacher renames them too.
+
 ## Cross-process model
 
 ### Go ↔ Python: ptrack_analytics (one-shot subprocess)
 
-The analytics binary runs only when a PDF or chart is requested:
+The analytics binary runs when a CSV report is requested or when the
+GUI needs statistics for a meeting page:
 
 ```
-ptrack_py report   --in <parquet> --out <pdf>
-ptrack_py aggregate --in '<glob>'  --out <pdf>
+ptrack_py report    --in <parquet> --format csv --out <csv-or->
+ptrack_py aggregate --in '<glob>'  --format csv --out <csv-or->
 ```
 
-Exit code + stderr is the contract. The same library code is importable
-in Jupyter Notebooks (`from ptrack_analytics import load, presence,
-challenges`). PDF and chart generation use matplotlib + fpdf2 in both
-contexts.
+Passing `--out -` writes the CSV to stdout, which Go reads directly to
+populate GUI stats columns without a temporary file. Exit code + stderr
+is the contract. The same library code is importable in Jupyter Notebooks
+(`from ptrack_analytics import load, presence, challenges`).
 
 ### Go ↔ Python: challenger (long-running, AI challenges only)
 
@@ -227,7 +246,7 @@ The config key `data_dir` and `meetings_dir` (etc.) override defaults.
 │   ├── 2026-04-21-algebra.jsonl    # question records for that meeting
 │   └── 2026-04-23-algebra.jsonl
 └── reports/
-    └── 2026-04-21-algebra.pdf
+    └── 2026-04-21-algebra.csv
 
 ~/.cache/ptrack/
 └── models/                  # ASR + LLM model weights
@@ -249,6 +268,7 @@ The config key `data_dir` and `meetings_dir` (etc.) override defaults.
 ├── questions\
 │   └── 2026-04-21-algebra.jsonl
 └── reports\
+    └── 2026-04-21-algebra.csv
 
 %LOCALAPPDATA%\ptrack\cache\
 └── models\
