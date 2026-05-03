@@ -1,5 +1,5 @@
 // Command ptrack is the main CLI binary for the presence tracker.
-// Sub-commands: track, poll, serve, report, export.
+// Sub-commands: track, poll, serve, report.
 package main
 
 import (
@@ -45,7 +45,7 @@ func rootCmd() *cobra.Command {
 	root.AddCommand(trackCmd())
 	root.AddCommand(pollCmd())
 	root.AddCommand(reportCmd())
-	// TODO: add serve, export commands
+	// TODO: add serve command
 	return root
 }
 

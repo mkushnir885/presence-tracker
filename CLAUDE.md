@@ -39,7 +39,7 @@ presence-tracker/
 │   ├── go.mod
 │   ├── go.sum
 │   └── src/
-│       ├── cmd/ptrack/             # single CLI binary: serve, track, report, export
+│       ├── cmd/ptrack/             # single CLI binary: serve, track, report
 │       └── internal/
 │           ├── providers/          # video-conferencing adapters (Zoom, Meet, BBB)
 │           ├── messengers/         # messenger adapters (Telegram first)
@@ -289,7 +289,6 @@ cleanly:
 - GUI (`ptrack serve`) and associated `internal/gui/` package.
 - AI-generated challenges (`challenges/aigenerated/`, `py/src/challenger/`).
 - Meet and Zoom provider adapters.
-- `ptrack export` CLI command.
 - Named GUI analyses (`py/src/ptrack_analytics/analyses.py`).
 
 When adding code, confirm the module layout in this file and
