@@ -21,13 +21,14 @@ import (
 	"presence-tracker/src/internal/challenges/filebased"
 	"presence-tracker/src/internal/config"
 	"presence-tracker/src/internal/eventstore"
+	"presence-tracker/src/internal/gui"
 	"presence-tracker/src/internal/messengers/telegram"
 	"presence-tracker/src/internal/participants"
-	"presence-tracker/src/internal/reporter"
 	"presence-tracker/src/internal/paths"
 	"presence-tracker/src/internal/providers"
 	bbbprovider "presence-tracker/src/internal/providers/bbb"
 	mockprovider "presence-tracker/src/internal/providers/mock"
+	"presence-tracker/src/internal/reporter"
 	"presence-tracker/src/internal/session"
 )
 
@@ -45,7 +46,7 @@ func rootCmd() *cobra.Command {
 	root.AddCommand(trackCmd())
 	root.AddCommand(pollCmd())
 	root.AddCommand(reportCmd())
-	// TODO: add serve command
+	root.AddCommand(serveCmd())
 	return root
 }
 
@@ -283,6 +284,48 @@ func runPoll(ctx context.Context, bankPath string) error {
 
 	slog.Info("poll triggered successfully")
 	return nil
+}
+
+// serveCmd starts the GUI web server.
+func serveCmd() *cobra.Command {
+	var (
+		cfgPath string
+		port    int
+	)
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Start the GUI web server",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runServe(cmd.Context(), cfgPath, port)
+		},
+	}
+	cmd.Flags().StringVar(&cfgPath, "config", "", "path to config.yaml")
+	cmd.Flags().IntVar(&port, "port", 0, "override GUI port from config")
+	return cmd
+}
+
+func runServe(ctx context.Context, cfgPath string, portOverride int) error {
+	cfg, err := loadConfig(cfgPath)
+	if err != nil {
+		return err
+	}
+	setupLogging(cfg.Logging)
+	if portOverride != 0 {
+		cfg.GUI.Port = portOverride
+	}
+
+	ttl := time.Duration(cfg.Messengers.Telegram.PairingCodeTTLHours) * time.Hour
+	registry, err := participants.OpenBolt(cfg.DataDir, ttl)
+	if err != nil {
+		return fmt.Errorf("open registry: %w", err)
+	}
+	defer func() { _ = registry.Close() }()
+
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	srv := gui.New(cfg, cfgPath, registry)
+	return srv.Serve(ctx)
 }
 
 func buildProvider(name, fixture string, bbbCfg *config.BBBConfig) (providers.Provider, error) {

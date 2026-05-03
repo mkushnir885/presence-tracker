@@ -34,6 +34,33 @@ type presenceInfo struct {
 	lastChallenge time.Time // time of most-recent challenge; zero if none
 }
 
+// unregisteredInfo tracks a participant who joined but has not yet paired.
+type unregisteredInfo struct {
+	displayName string
+	platformID  string
+}
+
+// CoordStatus is a snapshot of the coordinator's current state.
+type CoordStatus struct {
+	MeetingID    string
+	Present      []PresenceStatus
+	Unregistered []UnregisteredStatus
+}
+
+// PresenceStatus describes one registered participant who is currently in the meeting.
+type PresenceStatus struct {
+	ParticipantID string
+	DisplayName   string
+	PlatformID    string
+	JoinedAt      time.Time
+}
+
+// UnregisteredStatus describes a participant who joined but has not completed pairing.
+type UnregisteredStatus struct {
+	DisplayName string
+	PlatformID  string
+}
+
 // Config holds session-level configuration knobs.
 type Config struct {
 	MeetingID                   string
@@ -56,19 +83,21 @@ type Coordinator struct {
 	store     *eventstore.Writer
 	poller    *challenges.Poller
 
-	mu      sync.Mutex
-	present map[participants.ParticipantID]*presenceInfo
+	mu           sync.Mutex
+	present      map[participants.ParticipantID]*presenceInfo
+	unregistered map[string]*unregisteredInfo // platformID → info
 }
 
 // New creates a Coordinator. Call SetPoller before Run.
 func New(cfg Config, provider providers.Provider, messenger messengers.Messenger, registry participants.Registry, store *eventstore.Writer) *Coordinator {
 	return &Coordinator{
-		cfg:       cfg,
-		provider:  provider,
-		messenger: messenger,
-		registry:  registry,
-		store:     store,
-		present:   make(map[participants.ParticipantID]*presenceInfo),
+		cfg:          cfg,
+		provider:     provider,
+		messenger:    messenger,
+		registry:     registry,
+		store:        store,
+		present:      make(map[participants.ParticipantID]*presenceInfo),
+		unregistered: make(map[string]*unregisteredInfo),
 	}
 }
 
@@ -169,6 +198,12 @@ func (c *Coordinator) onJoin(ctx context.Context, evt providers.Event) {
 		c.mu.Unlock()
 	} else {
 		slog.Info("session: unregistered participant joined", "name", evt.DisplayName)
+		c.mu.Lock()
+		c.unregistered[evt.PlatformID] = &unregisteredInfo{
+			displayName: evt.DisplayName,
+			platformID:  evt.PlatformID,
+		}
+		c.mu.Unlock()
 		c.writeEvent(ctx, eventstore.Record{
 			EventType:      "participant_unregistered",
 			Source:         "provider:" + c.provider.Name(),
@@ -187,13 +222,44 @@ func (c *Coordinator) onLeave(ctx context.Context, evt providers.Event) {
 		Source:         "provider:" + c.provider.Name(),
 		PlatformHandle: evt.PlatformID,
 	}
+	c.mu.Lock()
 	if known {
 		rec.ParticipantID = string(pid)
-		c.mu.Lock()
 		delete(c.present, pid)
-		c.mu.Unlock()
 	}
+	delete(c.unregistered, evt.PlatformID)
+	c.mu.Unlock()
 	c.writeEvent(ctx, rec)
+}
+
+// Status returns a snapshot of the current session state.
+func (c *Coordinator) Status() CoordStatus {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	present := make([]PresenceStatus, 0, len(c.present))
+	for _, info := range c.present {
+		present = append(present, PresenceStatus{
+			ParticipantID: string(info.participantID),
+			DisplayName:   info.displayName,
+			PlatformID:    info.platformID,
+			JoinedAt:      info.joinedAt,
+		})
+	}
+
+	unreg := make([]UnregisteredStatus, 0, len(c.unregistered))
+	for _, info := range c.unregistered {
+		unreg = append(unreg, UnregisteredStatus{
+			DisplayName: info.displayName,
+			PlatformID:  info.platformID,
+		})
+	}
+
+	return CoordStatus{
+		MeetingID:    c.cfg.MeetingID,
+		Present:      present,
+		Unregistered: unreg,
+	}
 }
 
 func (c *Coordinator) onChatMessage(ctx context.Context, evt providers.Event) {

@@ -1,15 +1,19 @@
 default:
   @just --list
 
-build:
+gen:
+  go tool templ generate -path src/internal/gui/views
+
+build: gen
   mkdir -p bin
-  go build -o bin/ptrack src/cmd/ptrack
+  go build -o bin/ptrack ./src/cmd/ptrack/
 
 test:
-  go test src/...
+  go test ./src/...
 
 lint:
   golangci-lint run src/...
 
 fmt:
   gofmt -w src
+  go tool templ fmt src/internal/gui/views

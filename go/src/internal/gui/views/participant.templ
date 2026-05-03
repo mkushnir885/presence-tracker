@@ -1,0 +1,75 @@
+package views
+
+import "fmt"
+
+templ ParticipantView(data ParticipantData, locale Locale) {
+	@Layout("Participant "+data.DisplayName, locale) {
+		<div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;">
+			<h1 style="margin:0;">{ data.DisplayName }</h1>
+			<span class="text-muted" style="font-size:0.85rem;">{ data.ParticipantID }</span>
+			<div style="flex:1"></div>
+			<a class="btn" href={ templ.SafeURL("/participants/" + data.ParticipantID + "/export.csv") }>{ locale.T("participant.download_csv") }</a>
+		</div>
+		if len(data.Meetings) == 0 {
+			<div class="card">
+				<p class="text-muted">{ locale.T("participant.meetings.empty") }</p>
+			</div>
+		} else {
+			<div class="card" style="overflow-x:auto;">
+				<table>
+					<thead>
+						<tr>
+							<th>{ locale.T("participant.col_meeting") }</th>
+							<th>{ locale.T("participant.col_date") }</th>
+							<th>{ locale.T("participant.col_presence") }</th>
+							<th>{ locale.T("participant.col_score") }</th>
+							<th>{ locale.T("participant.col_timeline") }</th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, m := range data.Meetings {
+							<tr>
+								<td>
+									if m.Absent {
+										<span class="text-muted">{ m.MeetingID }</span>
+										<span class="badge badge-muted" style="margin-left:0.3rem;">{ locale.T("participant.absent") }</span>
+									} else {
+										<a href={ templ.SafeURL("/meetings/" + m.MeetingID) }>{ m.MeetingID }</a>
+									}
+								</td>
+								<td class="text-muted">{ m.StartTime.Format("2006-01-02") }</td>
+								<td>{ fmt.Sprintf("%.0f%%", m.PresenceRatio*100) }</td>
+								<td>
+									if m.ChallengesIssued > 0 {
+										{ fmt.Sprintf("%d/%d", m.ChallengesCorrect, m.ChallengesIssued) }
+									} else {
+										<span class="text-muted">—</span>
+									}
+								</td>
+								<td style="min-width:160px;">
+									if !m.Absent && m.MeetingDuration > 0 {
+										<svg width="140" height="12">
+											<rect x="0" y="2" width="140" height="8" fill="var(--border)" rx="2"/>
+											for _, seg := range m.Segments {
+												if seg.Present {
+													<rect
+														x={ fmt.Sprintf("%.2f", seg.StartPct*1.4) }
+														y="2"
+														width={ fmt.Sprintf("%.2f", seg.WidthPct*1.4) }
+														height="8"
+														fill="var(--accent)"
+														rx="2"
+													/>
+												}
+											}
+										</svg>
+									}
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	}
+}

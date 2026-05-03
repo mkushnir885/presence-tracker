@@ -1,0 +1,161 @@
+package views
+
+import "fmt"
+
+templ ConfigEditor(data ConfigData, locale Locale) {
+	@Layout(locale.T("config.title"), locale) {
+		<h1>{ locale.T("config.title") }</h1>
+		<form method="POST" action="/config">
+			<details open>
+				<summary>{ locale.T("config.general") }</summary>
+				<div class="card">
+					<div class="field">
+						<label for="meetings_dir">{ locale.T("config.meetings_dir") }</label>
+						<input id="meetings_dir" name="meetings_dir" type="text" value={ data.MeetingsDir }/>
+					</div>
+					<div class="field">
+						<label for="questions_dir">{ locale.T("config.questions_dir") }</label>
+						<input id="questions_dir" name="questions_dir" type="text" value={ data.QuestionsDir }/>
+					</div>
+					<div class="field">
+						<label for="reports_dir">{ locale.T("config.reports_dir") }</label>
+						<input id="reports_dir" name="reports_dir" type="text" value={ data.ReportsDir }/>
+					</div>
+					<div class="field">
+						<label for="data_dir">{ locale.T("config.data_dir") }</label>
+						<input id="data_dir" name="data_dir" type="text" value={ data.DataDir }/>
+					</div>
+					<div class="field">
+						<label for="retention_days">{ locale.T("config.retention_days") }</label>
+						<input id="retention_days" name="retention_days" type="number" min="1" value={ fmt.Sprintf("%d", data.RetentionDays) } style="width:auto;"/>
+					</div>
+				</div>
+			</details>
+			<details open>
+				<summary>{ locale.T("config.gui") }</summary>
+				<div class="card">
+					<div class="field">
+						<label for="gui_bind_addr">{ locale.T("config.bind_addr") }</label>
+						<input id="gui_bind_addr" name="gui_bind_addr" type="text" value={ data.GUIBindAddr } style="width:auto;"/>
+					</div>
+					<div class="field">
+						<label for="gui_port">{ locale.T("config.port") }</label>
+						<input id="gui_port" name="gui_port" type="number" min="1" max="65535" value={ fmt.Sprintf("%d", data.GUIPort) } style="width:auto;"/>
+					</div>
+					<div class="field" style="display:flex;align-items:center;gap:0.5rem;">
+						<input id="gui_open_browser" name="gui_open_browser" type="checkbox" style="width:auto;" value="true"
+							if data.GUIOpenBrowserOnStart {
+								checked
+							}
+						/>
+						<label for="gui_open_browser" style="margin:0;">{ locale.T("config.open_browser") }</label>
+					</div>
+				</div>
+			</details>
+			<details>
+				<summary>{ locale.T("config.logging") }</summary>
+				<div class="card">
+					<div class="field">
+						<label for="log_level">{ locale.T("config.log_level") }</label>
+						<select id="log_level" name="log_level" style="width:auto;">
+							<option value="debug" if data.LogLevel == "debug" { selected }>debug</option>
+							<option value="info" if data.LogLevel == "info" { selected }>info</option>
+							<option value="warn" if data.LogLevel == "warn" { selected }>warn</option>
+							<option value="error" if data.LogLevel == "error" { selected }>error</option>
+						</select>
+					</div>
+					<div class="field">
+						<label for="log_format">{ locale.T("config.log_format") }</label>
+						<select id="log_format" name="log_format" style="width:auto;">
+							<option value="text" if data.LogFormat == "text" { selected }>text</option>
+							<option value="json" if data.LogFormat == "json" { selected }>json</option>
+						</select>
+					</div>
+				</div>
+			</details>
+			<details>
+				<summary>{ locale.T("config.bbb") }</summary>
+				<div class="card">
+					<div class="field" style="display:flex;align-items:center;gap:0.5rem;">
+						<input id="bbb_enabled" name="bbb_enabled" type="checkbox" style="width:auto;" value="true"
+							if data.BBBEnabled {
+								checked
+							}
+						/>
+						<label for="bbb_enabled" style="margin:0;">{ locale.T("config.enabled") }</label>
+					</div>
+					<div class="field">
+						<label for="bbb_base_url">{ locale.T("config.bbb_base_url") }</label>
+						<input id="bbb_base_url" name="bbb_base_url" type="url" value={ data.BBBBaseURL }/>
+					</div>
+					<div class="field">
+						<label for="bbb_webhook_port">{ locale.T("config.bbb_webhook_port") }</label>
+						<input id="bbb_webhook_port" name="bbb_webhook_port" type="number" min="1" max="65535" value={ fmt.Sprintf("%d", data.BBBWebhookPort) } style="width:auto;"/>
+					</div>
+				</div>
+			</details>
+			<details>
+				<summary>{ locale.T("config.telegram") }</summary>
+				<div class="card">
+					<div class="field" style="display:flex;align-items:center;gap:0.5rem;">
+						<input id="tg_enabled" name="tg_enabled" type="checkbox" style="width:auto;" value="true"
+							if data.TelegramEnabled {
+								checked
+							}
+						/>
+						<label for="tg_enabled" style="margin:0;">{ locale.T("config.enabled") }</label>
+					</div>
+					<div class="field">
+						<label for="tg_bot_token">{ locale.T("config.tg_bot_token") }</label>
+						<input id="tg_bot_token" name="tg_bot_token" type="password" value={ data.TelegramBotToken }/>
+					</div>
+					<div class="field">
+						<label for="tg_pairing_ttl">{ locale.T("config.tg_pairing_ttl") }</label>
+						<input id="tg_pairing_ttl" name="tg_pairing_ttl" type="number" min="1" value={ fmt.Sprintf("%d", data.TelegramPairingCodeTTL) } style="width:auto;"/>
+					</div>
+				</div>
+			</details>
+			<details>
+				<summary>{ locale.T("config.challenges") }</summary>
+				<div class="card">
+					<div class="field">
+						<label for="answer_window">{ locale.T("config.answer_window") }</label>
+						<input id="answer_window" name="answer_window" type="number" min="5" value={ fmt.Sprintf("%d", data.AnswerWindowSeconds) } style="width:auto;"/>
+					</div>
+					<div class="field">
+						<label for="min_gap">{ locale.T("config.min_gap") }</label>
+						<input id="min_gap" name="min_gap" type="number" min="0" value={ fmt.Sprintf("%d", data.MinGapBetweenChallengesSec) } style="width:auto;"/>
+					</div>
+				</div>
+			</details>
+			<details>
+				<summary>{ locale.T("config.event_store") }</summary>
+				<div class="card">
+					<div class="field">
+						<label for="compression">{ locale.T("config.compression") }</label>
+						<select id="compression" name="compression" style="width:auto;">
+							<option value="zstd" if data.EventStoreCompression == "zstd" { selected }>zstd</option>
+							<option value="snappy" if data.EventStoreCompression == "snappy" { selected }>snappy</option>
+							<option value="none" if data.EventStoreCompression == "none" { selected }>none</option>
+						</select>
+					</div>
+					<div class="field">
+						<label for="row_group_size">{ locale.T("config.row_group_size") }</label>
+						<input id="row_group_size" name="row_group_size" type="number" min="100" value={ fmt.Sprintf("%d", data.EventStoreRowGroupSize) } style="width:auto;"/>
+					</div>
+				</div>
+			</details>
+			<div style="margin-top:1rem;display:flex;gap:0.75rem;align-items:center;">
+				<button type="submit" class="btn btn-primary">{ locale.T("config.save") }</button>
+			</div>
+		</form>
+		<div class="card" style="margin-top:2rem;border-color:var(--danger);">
+			<h2 style="margin-top:0;color:var(--danger);">{ locale.T("config.danger_zone") }</h2>
+			<p class="text-muted">{ locale.T("config.clear_participants_text") }</p>
+			<button type="button" class="btn btn-danger"
+				hx-delete="/participants"
+				hx-confirm={ locale.T("config.clear_participants_confirm") }
+				hx-target="body">{ locale.T("config.clear_participants") }</button>
+		</div>
+	}
+}

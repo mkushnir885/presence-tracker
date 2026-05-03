@@ -1,0 +1,61 @@
+package views
+
+templ Layout(title string, locale Locale) {
+	<!DOCTYPE html>
+	<html lang={ locale.Lang }>
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>{ title } — Presence Tracker</title>
+			<link rel="stylesheet" href="/assets/style.css"/>
+			<script>
+				(function(){
+					var t = localStorage.getItem('ptrack-theme');
+					if (t) document.documentElement.dataset.theme = t;
+				})();
+			</script>
+		</head>
+		<body>
+			<nav>
+				<a class="brand" href="/">Presence Tracker</a>
+				<a href="/">{ locale.T("nav.dashboard") }</a>
+				<a href="/config">{ locale.T("nav.config") }</a>
+				<div class="spacer"></div>
+				<div class="lang-selector">
+					<button
+						class={ "btn btn-sm" + langActive(locale.Lang, "en") }
+						onclick="setLang('en')">EN</button>
+					<button
+						class={ "btn btn-sm" + langActive(locale.Lang, "uk") }
+						onclick="setLang('uk')">UK</button>
+				</div>
+				<button class="btn btn-sm" onclick="toggleTheme()">{ locale.T("nav.theme") }</button>
+			</nav>
+			<main>
+				{ children... }
+			</main>
+			<script src="https://unpkg.com/htmx.org@2.0.4" crossorigin="anonymous"></script>
+			<script>
+				function toggleTheme() {
+					var root = document.documentElement;
+					var cur = root.dataset.theme || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+					var next = cur === 'dark' ? 'light' : 'dark';
+					root.dataset.theme = next;
+					localStorage.setItem('ptrack-theme', next);
+				}
+				function setLang(lang) {
+					document.cookie = 'ptrack-lang=' + lang + ';path=/;max-age=31536000';
+					localStorage.setItem('ptrack-lang', lang);
+					location.reload();
+				}
+			</script>
+		</body>
+	</html>
+}
+
+func langActive(current, target string) string {
+	if current == target {
+		return " btn-active"
+	}
+	return ""
+}

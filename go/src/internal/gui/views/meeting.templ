@@ -1,0 +1,167 @@
+package views
+
+import (
+	"fmt"
+	"strings"
+)
+
+templ MeetingAnalysis(data MeetingData, locale Locale) {
+	@Layout("Meeting "+data.MeetingID, locale) {
+		<div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;">
+			<h1 style="margin:0;">Meeting: { data.MeetingID }</h1>
+			<div style="flex:1"></div>
+			<a class="btn" href={ templ.SafeURL("/meetings/" + data.MeetingID + "/export.csv") }>{ locale.T("meeting.download_csv") }</a>
+		</div>
+		<div class="card">
+			<div style="display:flex;gap:2rem;font-size:0.9rem;">
+				<div><span class="text-muted">{ locale.T("meeting.start") }</span> { data.Info.StartTime.Format("2006-01-02 15:04:05") }</div>
+				<div><span class="text-muted">{ locale.T("meeting.end") }</span> { data.Info.EndTime.Format("2006-01-02 15:04:05") }</div>
+				<div><span class="text-muted">{ locale.T("meeting.duration") }</span> { formatDuration(data.Info.Duration) }</div>
+				<div><span class="text-muted">{ locale.T("meeting.participants_count") }</span> { fmt.Sprintf("%d", len(data.Info.Rows)) }</div>
+			</div>
+		</div>
+		<h2>{ locale.T("meeting.timeline.title") }</h2>
+		if len(data.Info.Rows) == 0 {
+			<p class="text-muted">{ locale.T("meeting.timeline.empty") }</p>
+		} else {
+			<div class="card" style="overflow-x:auto;">
+				<div style="min-width:600px;">
+					<div style="display:flex;margin-bottom:0.5rem;font-size:0.75rem;color:var(--muted);">
+						<div style="width:180px;">{ locale.T("meeting.col_participant") }</div>
+						<div style="flex:1;position:relative;">
+							<div style="position:absolute;left:0;top:0;right:0;border-top:1px solid var(--border);"></div>
+						</div>
+						<div style="width:80px;text-align:right;">{ locale.T("meeting.col_presence") }</div>
+						<div style="width:60px;text-align:right;">{ locale.T("meeting.col_score") }</div>
+					</div>
+					for i, row := range data.Info.Rows {
+						@participantRow(data.MeetingID, i, row, locale.T)
+					}
+				</div>
+			</div>
+			<div style="font-size:0.78rem;color:var(--muted);display:flex;gap:1rem;flex-wrap:wrap;margin-top:0.5rem;">
+				<span>&#9644; { locale.T("meeting.legend.present") }</span>
+				<span style="color:var(--success);">&#9679; { locale.T("meeting.legend.correct") }</span>
+				<span style="color:var(--danger);">&#9679; { locale.T("meeting.legend.incorrect") }</span>
+				<span style="color:var(--muted);">&#9679; { locale.T("meeting.legend.unanswered") }</span>
+				<span>&#9675; { locale.T("meeting.legend.skipped") }</span>
+			</div>
+		}
+	}
+}
+
+templ participantRow(meetingID string, idx int, row ParticipantRow, t func(string) string) {
+	<div style="display:flex;align-items:center;margin-bottom:0.4rem;">
+		<div style="width:180px;font-size:0.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title={ strings.Join(row.DisplayNames, " | ") }>
+			if row.HasMultipleNames {
+				<span title={ strings.Join(row.DisplayNames, " | ") }>{ strings.Join(row.DisplayNames, " | ") }</span>
+				<span> </span>
+				<a href="#" style="font-size:0.75rem;color:var(--accent);"
+					hx-patch={ "/meetings/" + meetingID + "/participants/" + row.ParticipantID + "/display-name" }
+					hx-prompt={ t("meeting.rename_prompt") }
+					hx-target="this"
+					hx-swap="outerHTML">✏</a>
+			} else if len(row.DisplayNames) > 0 {
+				{ row.DisplayNames[0] }
+			} else {
+				{ row.ParticipantID }
+			}
+		</div>
+		<div style="flex:1;position:relative;height:24px;">
+			<svg width="100%" height="24" style="overflow:visible;">
+				<rect x="0" y="8" width="100%" height="8" fill="var(--border)" rx="2"/>
+				for _, seg := range row.Segments {
+					if seg.Present {
+						<rect
+							x={ fmt.Sprintf("%.2f%%", seg.StartPct) }
+							y="8"
+							width={ fmt.Sprintf("%.2f%%", seg.WidthPct) }
+							height="8"
+							fill="var(--accent)"
+							rx="2"
+						/>
+					}
+				}
+				for _, m := range row.Markers {
+					@challengeMarker(m, t)
+				}
+			</svg>
+		</div>
+		<div style="width:80px;text-align:right;font-size:0.85rem;">
+			{ fmt.Sprintf("%.0f%%", row.PresenceRatio*100) }
+		</div>
+		<div style="width:60px;text-align:right;font-size:0.85rem;">
+			if row.ChallengesIssued > 0 {
+				{ fmt.Sprintf("%d/%d", row.ChallengesCorrect, row.ChallengesIssued) }
+			} else {
+				<span class="text-muted">—</span>
+			}
+		</div>
+	</div>
+}
+
+templ challengeMarker(m Marker, t func(string) string) {
+	switch m.Result {
+		case "correct":
+			<circle
+				cx={ fmt.Sprintf("%.2f%%", m.XPct) }
+				cy="12"
+				r="5"
+				fill="var(--success)"
+				style="cursor:pointer;"
+				hx-get={ "/questions/" + m.QuestionID }
+				hx-trigger="mouseenter"
+				hx-target="#tooltip"
+			>
+				<title>{ t("meeting.marker.correct") }</title>
+			</circle>
+		case "incorrect":
+			<circle
+				cx={ fmt.Sprintf("%.2f%%", m.XPct) }
+				cy="12"
+				r="5"
+				fill="var(--danger)"
+				style="cursor:pointer;"
+				hx-get={ "/questions/" + m.QuestionID }
+				hx-trigger="mouseenter"
+				hx-target="#tooltip"
+			>
+				<title>{ t("meeting.marker.incorrect") }</title>
+			</circle>
+		case "unanswered":
+			<circle
+				cx={ fmt.Sprintf("%.2f%%", m.XPct) }
+				cy="12"
+				r="5"
+				fill="var(--muted)"
+				style="cursor:pointer;"
+			>
+				<title>{ t("meeting.marker.unanswered") }</title>
+			</circle>
+		default:
+			<circle
+				cx={ fmt.Sprintf("%.2f%%", m.XPct) }
+				cy="12"
+				r="5"
+				fill="none"
+				stroke="var(--muted)"
+				stroke-width="1.5"
+				style="cursor:pointer;"
+			>
+				<title>{ m.Result }</title>
+			</circle>
+	}
+}
+
+func formatDuration(d interface{ Hours() float64 }) string {
+	h := int(d.Hours())
+	m := int(d.Hours()*60) % 60
+	s := int(d.Hours()*3600) % 60
+	if h > 0 {
+		return fmt.Sprintf("%dh %dm", h, m)
+	}
+	if m > 0 {
+		return fmt.Sprintf("%dm %ds", m, s)
+	}
+	return fmt.Sprintf("%ds", s)
+}

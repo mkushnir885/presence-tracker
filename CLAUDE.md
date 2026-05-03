@@ -283,10 +283,16 @@ cleanly:
   (`presence`, `challenge_results`), CSV report generation (`generate_csv`,
   `generate_aggregate_csv` in `reports.py`), and `ptrack_py report` /
   `ptrack_py aggregate` CLI commands.
+- GUI (`ptrack serve`) and `internal/gui/` package: HTTP server with all
+  routes from `docs/GUI.md`, in-process session management, templ + htmx
+  templates (dashboard, live status, meeting analysis with SVG timeline,
+  cross-meeting participant view, config editor), CSS in `views/assets/`,
+  English/Ukrainian i18n via `gui/locales/*.json` and a cookie-based locale
+  selector. Parquet reader (`eventstore.ReadAll`) and display-name rewrite
+  (`eventstore.UpdateDisplayName`) also implemented.
 
 **Not yet implemented (TODO stubs in code):**
 
-- GUI (`ptrack serve`) and associated `internal/gui/` package.
 - AI-generated challenges (`challenges/aigenerated/`, `py/src/challenger/`).
 - Meet and Zoom provider adapters.
 - Named GUI analyses (`py/src/ptrack_analytics/analyses.py`).
