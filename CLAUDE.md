@@ -279,12 +279,14 @@ cleanly:
   BoltDB participant registry, Arrow/Parquet event store, session coordinator,
   `ptrack track` CLI command.
 - Python: `ptrack_analytics` library with schema, `load()`, derived frames
-  (`presence`, `challenge_results`), and `ptrack_py` CLI skeleton.
+  (`presence`, `challenge_results`), CSV report generation (`generate_csv`,
+  `generate_aggregate_csv` in `reports.py`), and `ptrack_py report` /
+  `ptrack_py aggregate` CLI commands.
 
 **Not yet implemented (TODO stubs in code):**
 
 - GUI (`ptrack serve`) and associated `internal/gui/` + `internal/reporter/` packages.
-- CSV report generation (`ptrack report`; Python `generate_csv`).
+- Go `ptrack report` command (delegates to `ptrack_py`; Python side is done).
 - AI-generated challenges (`challenges/aigenerated/`, `py/src/challenger/`).
 - Meet and Zoom provider adapters.
 - `ptrack export` CLI command.

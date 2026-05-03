@@ -24,6 +24,7 @@ import polars as pl
 from .frames import challenge_results
 from .frames import presence as _presence_fn
 from .load import LoadError, load_events, load_questions
+from .reports import generate_aggregate_csv, generate_csv
 
 if TYPE_CHECKING:
     pass
@@ -37,8 +38,8 @@ __all__ = [
     "presence",
     "challenges",
     "questions",
-    "generate_pdf",
-    "generate_aggregate_pdf",
+    "generate_csv",
+    "generate_aggregate_csv",
 ]
 
 # Module-level lazy frames, populated by load().
@@ -101,17 +102,3 @@ def load(
     questions = load_questions(_questions_dir, _meeting_ids)
 
 
-def generate_pdf(parquet_path: str, output_path: str) -> None:
-    """Generate a per-meeting PDF report.
-
-    TODO: PDF generation not implemented yet. Delegate to ptrack_py report subcommand.
-    """
-    raise NotImplementedError("PDF generation not yet implemented")
-
-
-def generate_aggregate_pdf(pattern: str, output_path: str) -> None:
-    """Generate an aggregate PDF report over multiple meetings.
-
-    TODO: PDF generation not implemented yet.
-    """
-    raise NotImplementedError("PDF generation not yet implemented")
