@@ -277,7 +277,8 @@ cleanly:
 - Go: config loader, BBB provider (webhook), mock provider (fixture replay),
   Telegram messenger, mock messenger, file-based challenge type + poller,
   BoltDB participant registry, Arrow/Parquet event store, session coordinator,
-  `ptrack track` CLI command.
+  `ptrack track` and `ptrack report` CLI commands, `internal/reporter/` package
+  (subprocess invocation of `ptrack_py`, CSV parsing for GUI use).
 - Python: `ptrack_analytics` library with schema, `load()`, derived frames
   (`presence`, `challenge_results`), CSV report generation (`generate_csv`,
   `generate_aggregate_csv` in `reports.py`), and `ptrack_py report` /
@@ -285,8 +286,7 @@ cleanly:
 
 **Not yet implemented (TODO stubs in code):**
 
-- GUI (`ptrack serve`) and associated `internal/gui/` + `internal/reporter/` packages.
-- Go `ptrack report` command (delegates to `ptrack_py`; Python side is done).
+- GUI (`ptrack serve`) and associated `internal/gui/` package.
 - AI-generated challenges (`challenges/aigenerated/`, `py/src/challenger/`).
 - Meet and Zoom provider adapters.
 - `ptrack export` CLI command.

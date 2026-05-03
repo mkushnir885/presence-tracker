@@ -23,6 +23,7 @@ import (
 	"presence-tracker/src/internal/eventstore"
 	"presence-tracker/src/internal/messengers/telegram"
 	"presence-tracker/src/internal/participants"
+	"presence-tracker/src/internal/reporter"
 	"presence-tracker/src/internal/paths"
 	"presence-tracker/src/internal/providers"
 	bbbprovider "presence-tracker/src/internal/providers/bbb"
@@ -43,7 +44,8 @@ func rootCmd() *cobra.Command {
 	}
 	root.AddCommand(trackCmd())
 	root.AddCommand(pollCmd())
-	// TODO: add serve, report, export commands
+	root.AddCommand(reportCmd())
+	// TODO: add serve, export commands
 	return root
 }
 
@@ -96,6 +98,47 @@ ptrack track must be running before calling this command.`,
 	_ = cmd.MarkFlagRequired("bank")
 
 	return cmd
+}
+
+// reportCmd generates a CSV report from one or more meeting Parquet files.
+func reportCmd() *cobra.Command {
+	var (
+		input  string
+		output string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "report",
+		Short: "Generate a CSV report from one or more meeting Parquet files",
+		Example: `  ptrack report --in meeting.parquet --out report.csv
+  ptrack report --in 'meetings/*.parquet' --out semester.csv
+  ptrack report --in meeting.parquet --out -`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runReport(cmd.Context(), input, output)
+		},
+	}
+
+	cmd.Flags().StringVar(&input, "in", "", "Parquet file or glob pattern (e.g. 'meetings/*.parquet')")
+	cmd.Flags().StringVar(&output, "out", "", "output CSV path, or - for stdout")
+	_ = cmd.MarkFlagRequired("in")
+	_ = cmd.MarkFlagRequired("out")
+
+	return cmd
+}
+
+func runReport(ctx context.Context, input, output string) error {
+	csv, err := reporter.Generate(ctx, input)
+	if err != nil {
+		return err
+	}
+	if output == "-" {
+		_, err = fmt.Fprint(os.Stdout, csv)
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
+		return fmt.Errorf("report: create output directory: %w", err)
+	}
+	return os.WriteFile(output, []byte(csv), 0o644)
 }
 
 func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture, bankPath string, pollEvery time.Duration) error {
