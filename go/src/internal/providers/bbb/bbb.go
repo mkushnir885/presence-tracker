@@ -89,8 +89,11 @@ func (a *Adapter) Subscribe(ctx context.Context, meetingID string) (<-chan provi
 	}()
 
 	// Register the webhook with BBB.
-	// TODO: replace with the actual publicly-reachable callback URL from config.
-	callbackURL := fmt.Sprintf("http://localhost:%d/bbb/webhook", a.cfg.WebhookPort)
+	host := a.cfg.WebhookHost
+	if host == "" {
+		host = "localhost"
+	}
+	callbackURL := fmt.Sprintf("http://%s:%d/bbb/webhook", host, a.cfg.WebhookPort)
 	if err := a.registerHook(ctx, meetingID, callbackURL); err != nil {
 		// Non-fatal: log and continue. Events from API polling could be added as fallback.
 		slog.Warn("bbb: hook registration failed — no real-time events will arrive", "err", err)
