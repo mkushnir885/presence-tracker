@@ -27,8 +27,10 @@ import (
 	"presence-tracker/src/internal/participants"
 	"presence-tracker/src/internal/paths"
 	"presence-tracker/src/internal/providers"
-	bbbprovider "presence-tracker/src/internal/providers/bbb"
-	mockprovider "presence-tracker/src/internal/providers/mock"
+	bbbprovider  "presence-tracker/src/internal/providers/bbb"
+	meetprovider "presence-tracker/src/internal/providers/meet"
+	mockprovider  "presence-tracker/src/internal/providers/mock"
+	zoomprovider "presence-tracker/src/internal/providers/zoom"
 	"presence-tracker/src/internal/reporter"
 	"presence-tracker/src/internal/session"
 )
@@ -71,7 +73,7 @@ func trackCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&cfgPath, "config", "", "path to config.yaml (default: search standard locations)")
-	cmd.Flags().StringVar(&providerName, "provider", "bbb", "video-conferencing provider (bbb)")
+	cmd.Flags().StringVar(&providerName, "provider", "bbb", "video-conferencing provider (bbb, meet, zoom)")
 	cmd.Flags().StringVar(&meetingID, "meeting", "", "meeting ID (required when not using --fixture)")
 	cmd.Flags().StringVar(&fixture, "fixture", "", "path to a recorded fixture directory for offline replay")
 	cmd.Flags().StringVar(&bankPath, "poll-bank", "", "question-bank YAML to use for automatic polls (optional)")
@@ -159,7 +161,7 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture, ba
 		return fmt.Errorf("--meeting is required (or use --fixture for offline replay)")
 	}
 
-	prov, err := buildProvider(providerName, fixture, &cfg.Providers.BBB)
+	prov, err := buildProvider(providerName, fixture, cfg)
 	if err != nil {
 		return err
 	}
@@ -336,15 +338,19 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 	return srv.Serve(ctx)
 }
 
-func buildProvider(name, fixture string, bbbCfg *config.BBBConfig) (providers.Provider, error) {
+func buildProvider(name, fixture string, cfg *config.Config) (providers.Provider, error) {
 	if fixture != "" {
 		return mockprovider.New(fixture).WithSpeed(10.0), nil
 	}
 	switch name {
 	case "bbb":
-		return bbbprovider.New(bbbCfg), nil
+		return bbbprovider.New(&cfg.Providers.BBB), nil
+	case "meet":
+		return meetprovider.New(&cfg.Providers.Meet, cfg.DataDir), nil
+	case "zoom":
+		return zoomprovider.New(&cfg.Providers.Zoom, cfg.DataDir), nil
 	default:
-		return nil, fmt.Errorf("unknown provider %q; supported: bbb", name)
+		return nil, fmt.Errorf("unknown provider %q; supported: bbb, meet, zoom", name)
 	}
 }
 

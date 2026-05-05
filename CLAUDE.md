@@ -274,11 +274,15 @@ For releases: PyInstaller single-file binary (`ptrack_py`).
 **Core implementation complete.** The following are implemented and compile
 cleanly:
 
-- Go: config loader, BBB provider (webhook), mock provider (fixture replay),
-  Telegram messenger, mock messenger, file-based challenge type + poller,
-  BoltDB participant registry, Arrow/Parquet event store, session coordinator,
-  `ptrack track` and `ptrack report` CLI commands, `internal/reporter/` package
-  (subprocess invocation of `ptrack_py`, CSV parsing for GUI use).
+- Go: config loader, BBB provider (webhook), Meet provider (polling via
+  REST API v2), Zoom provider (webhook, HMAC-validated), mock provider (fixture
+  replay), shared OAuth 2.0 PKCE helper (`internal/providers/oauth/`), Telegram
+  messenger, mock messenger, file-based challenge type + poller, BoltDB participant
+  registry, Arrow/Parquet event store, session coordinator, `ptrack track` and
+  `ptrack report` CLI commands, `internal/reporter/` package (subprocess invocation
+  of `ptrack_py`, CSV parsing for GUI use).
+  Note: Google Meet REST API does not expose chat messages, so pairing codes cannot
+  be detected from Meet; participants must be pre-registered.
 - Python: `ptrack_analytics` library with schema, `load()`, derived frames
   (`presence`, `challenge_results`), CSV report generation (`generate_csv`,
   `generate_aggregate_csv` in `reports.py`), and `ptrack_py report` /
@@ -294,7 +298,6 @@ cleanly:
 **Not yet implemented (TODO stubs in code):**
 
 - AI-generated challenges (`challenges/aigenerated/`, `py/src/challenger/`).
-- Meet and Zoom provider adapters.
 - Named GUI analyses (`py/src/ptrack_analytics/analyses.py`).
 
 When adding code, confirm the module layout in this file and

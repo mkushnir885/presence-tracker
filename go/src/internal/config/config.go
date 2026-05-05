@@ -39,12 +39,23 @@ type BBBConfig struct {
 	TLSSkipVerify bool   `yaml:"tls_skip_verify"` // disable TLS certificate verification (for self-signed certs in dev)
 }
 
+type OAuthConfig struct {
+	ClientID     string `yaml:"client_id"`
+	RedirectPort int    `yaml:"redirect_port"`
+}
+
 type MeetConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled             bool        `yaml:"enabled"`
+	OAuth               OAuthConfig `yaml:"oauth"`
+	PollIntervalSeconds int         `yaml:"poll_interval_seconds"`
 }
 
 type ZoomConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled            bool        `yaml:"enabled"`
+	OAuth              OAuthConfig `yaml:"oauth"`
+	WebhookPort        int         `yaml:"webhook_port"`
+	WebhookHost        string      `yaml:"webhook_host"`
+	WebhookSecretToken string      `yaml:"webhook_secret_token"` // Zoom webhook verification token
 }
 
 type MessengersConfig struct {
@@ -155,5 +166,17 @@ func (c *Config) defaults() {
 	}
 	if c.Providers.BBB.WebhookPort == 0 {
 		c.Providers.BBB.WebhookPort = 9124
+	}
+	if c.Providers.Zoom.WebhookPort == 0 {
+		c.Providers.Zoom.WebhookPort = 9123
+	}
+	if c.Providers.Zoom.OAuth.RedirectPort == 0 {
+		c.Providers.Zoom.OAuth.RedirectPort = 9125
+	}
+	if c.Providers.Meet.OAuth.RedirectPort == 0 {
+		c.Providers.Meet.OAuth.RedirectPort = 9126
+	}
+	if c.Providers.Meet.PollIntervalSeconds == 0 {
+		c.Providers.Meet.PollIntervalSeconds = 10
 	}
 }
