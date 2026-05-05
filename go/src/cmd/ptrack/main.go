@@ -23,6 +23,8 @@ import (
 	"presence-tracker/src/internal/config"
 	"presence-tracker/src/internal/eventstore"
 	"presence-tracker/src/internal/gui"
+	"presence-tracker/src/internal/messengers"
+	mockmessenger "presence-tracker/src/internal/messengers/mock"
 	"presence-tracker/src/internal/messengers/telegram"
 	"presence-tracker/src/internal/participants"
 	"presence-tracker/src/internal/paths"
@@ -173,8 +175,7 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture, ba
 		return fmt.Errorf("provider authenticate: %w", err)
 	}
 
-	ttl := time.Duration(cfg.Messengers.Telegram.PairingCodeTTLHours) * time.Hour
-	registry, err := participants.OpenBolt(cfg.DataDir, ttl)
+	registry, err := participants.OpenBolt(cfg.DataDir)
 	if err != nil {
 		return fmt.Errorf("open participant registry: %w", err)
 	}
@@ -184,15 +185,19 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture, ba
 		}
 	}()
 
-	if !cfg.Messengers.Telegram.Enabled {
-		return errors.New("no messenger is enabled; set messengers.telegram.enabled: true")
-	}
-	generateCode := func(ctx context.Context, handle string) (string, error) {
-		return registry.StartPairing(ctx, "telegram", participants.Handle(handle))
-	}
-	tgAdapter, err := telegram.New(cfg.Messengers.Telegram.BotToken, generateCode, session.PairingPrefix)
-	if err != nil {
-		return fmt.Errorf("init telegram: %w", err)
+	challengesEnabled := cfg.Challenges.FileBased.Enabled || cfg.Challenges.AIGenerated.Enabled
+	var msgr messengers.Messenger
+	if challengesEnabled {
+		if !cfg.Messengers.Telegram.Enabled {
+			return errors.New("challenges are enabled but no messenger is configured (set messengers.telegram.enabled: true)")
+		}
+		tgAdapter, err := telegram.New(cfg.Messengers.Telegram.BotToken, registry, enabledPlatforms(cfg))
+		if err != nil {
+			return fmt.Errorf("init telegram: %w", err)
+		}
+		msgr = tgAdapter
+	} else {
+		msgr = mockmessenger.New()
 	}
 
 	// internalMeetingID is a time-based UUID that identifies this session in the
@@ -212,14 +217,14 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture, ba
 		MeetingsDir:                 cfg.MeetingsDir,
 		QuestionsDir:                cfg.QuestionsDir,
 		ProviderName:                prov.Name(),
-		MessengerName:               tgAdapter.Name(),
+		MessengerName:               msgr.Name(),
 		AnswerWindowSecs:            cfg.Challenges.Defaults.AnswerWindowSeconds,
 		MinGapBetweenChallengesSecs: cfg.Challenges.Defaults.MinGapBetweenChallengesSecs,
 		EventStoreCompression:       cfg.EventStore.Compression,
 		RowGroupSize:                cfg.EventStore.RowGroupSize,
 	}
 
-	coord := session.New(sessCfg, prov, tgAdapter, registry, store)
+	coord := session.New(sessCfg, prov, msgr, registry, store)
 
 	// Always start the control socket so ptrack poll can trigger rounds.
 	coord.Listen(ctx, paths.ControlSocketPath(), func(path string) (challenges.ChallengeType, error) {
@@ -324,8 +329,7 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 		cfg.GUI.Port = portOverride
 	}
 
-	ttl := time.Duration(cfg.Messengers.Telegram.PairingCodeTTLHours) * time.Hour
-	registry, err := participants.OpenBolt(cfg.DataDir, ttl)
+	registry, err := participants.OpenBolt(cfg.DataDir)
 	if err != nil {
 		return fmt.Errorf("open registry: %w", err)
 	}
@@ -336,6 +340,20 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 
 	srv := gui.New(cfg, cfgPath, registry)
 	return srv.Serve(ctx)
+}
+
+func enabledPlatforms(cfg *config.Config) []string {
+	var out []string
+	if cfg.Providers.BBB.Enabled {
+		out = append(out, "bbb")
+	}
+	if cfg.Providers.Meet.Enabled {
+		out = append(out, "meet")
+	}
+	if cfg.Providers.Zoom.Enabled {
+		out = append(out, "zoom")
+	}
+	return out
 }
 
 func buildProvider(name, fixture string, cfg *config.Config) (providers.Provider, error) {

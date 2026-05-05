@@ -17,7 +17,6 @@ type fixtureEvent struct {
 	Kind        string            `json:"kind"`
 	PlatformID  string            `json:"platform_id"`
 	DisplayName string            `json:"display_name"`
-	Text        string            `json:"text"`
 	OffsetMS    int64             `json:"offset_ms"` // time offset from meeting start
 	Extra       map[string]string `json:"extra"`
 }
@@ -78,7 +77,6 @@ func (p *Provider) Subscribe(ctx context.Context, meetingID string) (<-chan prov
 				MeetingID:   meetingID,
 				PlatformID:  fe.PlatformID,
 				DisplayName: fe.DisplayName,
-				Text:        fe.Text,
 				Timestamp:   start.Add(time.Duration(fe.OffsetMS) * time.Millisecond),
 				Extra:       fe.Extra,
 			}

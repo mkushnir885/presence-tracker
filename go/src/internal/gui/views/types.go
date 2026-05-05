@@ -124,7 +124,6 @@ type ConfigData struct {
 	BBBBaseURL                 string
 	BBBWebhookPort             int
 	TelegramEnabled            bool
-	TelegramPairingCodeTTL     int
 	TelegramBotToken           string
 	AnswerWindowSeconds        int
 	MinGapBetweenChallengesSec int

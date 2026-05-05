@@ -247,19 +247,6 @@ func (a *Adapter) convertEvent(w bbbEventWrapper) (providers.Event, bool) {
 			MeetingID: meetingID,
 			Timestamp: ts,
 		}, true
-	case "chat-public-message-sent":
-		text := w.Data.Attributes.Message.Message.Text
-		if text == "" {
-			return providers.Event{}, false
-		}
-		return providers.Event{
-			Kind:        providers.EventKindChatMessage,
-			MeetingID:   meetingID,
-			PlatformID:  user.InternalUserID,
-			DisplayName: user.Name,
-			Text:        text,
-			Timestamp:   ts,
-		}, true
 	}
 	return providers.Event{}, false
 }

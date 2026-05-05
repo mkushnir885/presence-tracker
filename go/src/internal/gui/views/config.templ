@@ -109,10 +109,6 @@ templ ConfigEditor(data ConfigData, locale Locale) {
 						<label for="tg_bot_token">{ locale.T("config.tg_bot_token") }</label>
 						<input id="tg_bot_token" name="tg_bot_token" type="password" value={ data.TelegramBotToken }/>
 					</div>
-					<div class="field">
-						<label for="tg_pairing_ttl">{ locale.T("config.tg_pairing_ttl") }</label>
-						<input id="tg_pairing_ttl" name="tg_pairing_ttl" type="number" min="1" value={ fmt.Sprintf("%d", data.TelegramPairingCodeTTL) } style="width:auto;"/>
-					</div>
 				</div>
 			</details>
 			<details>

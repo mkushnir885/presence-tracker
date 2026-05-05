@@ -83,30 +83,47 @@ See `@docs/ARCHITECTURE.md` for interface signatures and rationale.
 
 ## Participant identity
 
-A student appears with different identifiers on each platform (email on
-Zoom, email-or-name on Meet, numeric user ID on Telegram). `go/src/internal/
-participants/` owns a persistent registry keyed by a stable internal
-`ParticipantID`.
+A student's display name on the video-conferencing platform is the
+pairing key. `go/src/internal/participants/` owns a persistent registry
+that maps `(platform, display_name)` to a stable internal `ParticipantID`
+and Telegram handle.
 
-**Registration flow — meeting-time pairing:**
+**Registration flow — display-name pairing:**
 
-1. Student sends `/start` to the Telegram bot. No data required upfront;
-   the bot replies with a short one-time pairing code: `PTRACK:A3F9`.
-2. The student types that code once in the meeting chat.
-3. The provider adapter detects the code in chat and records which
-   platform identifier (email, display name) posted it. The participant
-   registry binds that platform identifier to the Telegram user who
-   received the code.
-4. The student is now registered for all future meetings on that platform.
+1. Student sends `/start` to the Telegram bot; the bot explains how to
+   register and lists the supported platforms.
+2. Student sends `/register <platform> <display name>` (e.g.
+   `/register zoom John Smith`), or `/register all <display name>` to
+   register for all platforms simultaneously.
+3. The registry stores the `(platform, display_name)` → Telegram handle
+   binding persistently. If that `(platform, display_name)` is already
+   claimed by a different Telegram account, the bot rejects the request:
+   "Name already registered — ask your teacher to remove the existing
+   entry via the registry page, then try again." The same student may
+   re-send `/register` to overwrite their own previous entry.
+4. When a participant with a matching display name joins a meeting, the
+   bot sends them a private message: "Did you just join [meeting title]
+   on [platform]?" with **Yes / No** inline buttons.
+5. Tapping **Yes** verifies the participant for that meeting session —
+   challenges will be sent. Tapping **No** (or never responding) leaves
+   them unverified and challenges are skipped for that session.
 
-This binds the Telegram identity to the meeting identity without a
-teacher-maintained roster. The binding is strong: the attacker must both
-control the Telegram account that received the code and be present in the
-meeting to post it.
+Registration is persistent across meetings. The per-meeting **Yes/No**
+tap is the only action required during a meeting; it is comparable in
+effort to answering a challenge.
 
-If a participant joins a meeting but is not yet paired, challenges are
+Display name matching is case-insensitive and ignores leading/trailing
+whitespace. A student can update their registration by sending `/register`
+again; a teacher can remove any entry individually or clear the whole
+registry from the registry page in the GUI.
+
+If the Messenger is not initialized (no challenges configured), the bot
+is never started and no registration prompts are sent.
+
+If a participant joins without a matching registry entry, challenges are
 skipped and a `participant_unregistered` event is logged. The teacher
-sees this in the GUI and can remind the student to complete pairing.
+sees unregistered participants in the GUI and can ask students to run
+`/register`.
 
 Teachers can rename a participant by rewriting the `display_name`
 column directly in the relevant Parquet file(s). All renames are
@@ -281,8 +298,8 @@ cleanly:
   registry, Arrow/Parquet event store, session coordinator, `ptrack track` and
   `ptrack report` CLI commands, `internal/reporter/` package (subprocess invocation
   of `ptrack_py`, CSV parsing for GUI use).
-  Note: Google Meet REST API does not expose chat messages, so pairing codes cannot
-  be detected from Meet; participants must be pre-registered.
+  Note: the Telegram messenger and participant registry still implement the old
+  pairing-code flow and need to be updated to the display-name flow described above.
 - Python: `ptrack_analytics` library with schema, `load()`, derived frames
   (`presence`, `challenge_results`), CSV report generation (`generate_csv`,
   `generate_aggregate_csv` in `reports.py`), and `ptrack_py report` /

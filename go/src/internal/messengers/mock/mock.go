@@ -20,10 +20,19 @@ type SentChallenge struct {
 
 // Messenger is a no-op messenger suitable for automated tests.
 type Messenger struct {
-	mu         sync.Mutex
-	events     chan messengers.Event
-	challenges []*SentChallenge
-	refIdx     int
+	mu           sync.Mutex
+	events       chan messengers.Event
+	challenges   []*SentChallenge
+	refIdx       int
+	confirmations []SentConfirmation
+}
+
+// SentConfirmation records a join confirmation request for test inspection.
+type SentConfirmation struct {
+	Handle    string
+	MeetingID string
+	Platform  string
+	Ref       messengers.MessageRef
 }
 
 // New creates a Messenger for testing.
@@ -42,6 +51,20 @@ func (m *Messenger) Stop(_ context.Context) error {
 	return nil
 }
 
+func (m *Messenger) SendJoinConfirmation(_ context.Context, handle, meetingID, platform string) (messengers.MessageRef, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.refIdx++
+	ref := messengers.MessageRef{Opaque: fmt.Sprintf("mock-confirm-%d", m.refIdx)}
+	m.confirmations = append(m.confirmations, SentConfirmation{
+		Handle:    handle,
+		MeetingID: meetingID,
+		Platform:  platform,
+		Ref:       ref,
+	})
+	return ref, nil
+}
+
 func (m *Messenger) SendChallenge(_ context.Context, handle string, c messengers.ChallengePrompt) (messengers.MessageRef, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -57,8 +80,6 @@ func (m *Messenger) SendChallenge(_ context.Context, handle string, c messengers
 }
 
 func (m *Messenger) EditMessage(_ context.Context, ref messengers.MessageRef, _ string) error {
-	// EditMessage is kept in the Messenger interface for future use;
-	// the challenge flow no longer calls it (delete is used instead).
 	_ = ref
 	return nil
 }
@@ -87,6 +108,16 @@ func (m *Messenger) InjectAnswer(handle, challengeID, text string, selected []st
 	}
 }
 
+// InjectConfirmation simulates a student tapping Yes or No on a join confirmation.
+func (m *Messenger) InjectConfirmation(handle string, confirmed bool) {
+	m.events <- messengers.Event{
+		Kind:      messengers.EventKindJoinConfirmation,
+		Handle:    handle,
+		Confirmed: confirmed,
+		Timestamp: time.Now().UTC(),
+	}
+}
+
 // Sent returns all challenges sent so far (safe to call concurrently).
 func (m *Messenger) Sent() []SentChallenge {
 	m.mu.Lock()
@@ -96,4 +127,11 @@ func (m *Messenger) Sent() []SentChallenge {
 		out[i] = *sc
 	}
 	return out
+}
+
+// Confirmations returns all join confirmations sent so far.
+func (m *Messenger) Confirmations() []SentConfirmation {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]SentConfirmation(nil), m.confirmations...)
 }

@@ -1,5 +1,6 @@
 {
   "nav.dashboard": "Панель",
+  "nav.registry": "Реєстр",
   "nav.config": "Налаштування",
   "nav.theme": "Тема",
   "nav.stop_confirm": "Зупинити сесію відстеження?",
@@ -55,6 +56,18 @@
   "participant.col_timeline": "Часова шкала",
   "participant.absent": "відсутній",
 
+  "registry.title": "Реєстр учасників",
+  "registry.col_platform": "Платформа",
+  "registry.col_display_name": "Відображуване ім'я",
+  "registry.col_messenger": "Месенджер",
+  "registry.col_registered": "Зареєстровано",
+  "registry.empty": "Учасників ще не зареєстровано.",
+  "registry.empty_hint": "Студенти реєструються, надсилаючи /register <платформа> <ім'я> боту Telegram.",
+  "registry.delete": "Видалити",
+  "registry.delete_confirm": "Видалити реєстрацію цього учасника?",
+  "registry.clear_all": "Очистити все",
+  "registry.clear_confirm": "Видалити ВСІХ зареєстрованих учасників? Цю дію не можна скасувати.",
+
   "config.title": "Налаштування",
   "config.general": "Загальні",
   "config.meetings_dir": "Директорія зустрічей",
@@ -75,7 +88,6 @@
   "config.bbb_webhook_port": "Порт вебхуку",
   "config.telegram": "Telegram",
   "config.tg_bot_token": "Токен бота",
-  "config.tg_pairing_ttl": "TTL коду прив'язки (годин)",
   "config.challenges": "Завдання",
   "config.answer_window": "Вікно відповіді (секунд)",
   "config.min_gap": "Мін. інтервал між завданнями (секунд)",

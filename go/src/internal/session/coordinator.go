@@ -20,21 +20,25 @@ import (
 	"presence-tracker/src/internal/providers"
 )
 
-// PairingPrefix is the prefix students must type in the meeting chat to pair
-// their Telegram account. It is exported so messenger adapters can format the
-// pairing code message without hardcoding this value.
-const PairingPrefix = "PTRACK:"
-
-// presenceInfo tracks the current in-meeting state of one participant.
+// presenceInfo tracks the current in-meeting state of one verified participant.
 type presenceInfo struct {
 	participantID participants.ParticipantID
 	displayName   string
 	platformID    string
 	joinedAt      time.Time
-	lastChallenge time.Time // time of most-recent challenge; zero if none
+	lastChallenge time.Time
 }
 
-// unregisteredInfo tracks a participant who joined but has not yet paired.
+// pendingVerification tracks a participant who joined and for whom a
+// confirmation DM has been sent but not yet answered.
+type pendingVerification struct {
+	participantID participants.ParticipantID
+	displayName   string
+	platformID    string
+	joinedAt      time.Time
+}
+
+// unregisteredInfo tracks a participant who joined but has no registry entry.
 type unregisteredInfo struct {
 	displayName string
 	platformID  string
@@ -47,7 +51,7 @@ type CoordStatus struct {
 	Unregistered []UnregisteredStatus
 }
 
-// PresenceStatus describes one registered participant who is currently in the meeting.
+// PresenceStatus describes one verified participant currently in the meeting.
 type PresenceStatus struct {
 	ParticipantID string
 	DisplayName   string
@@ -55,7 +59,7 @@ type PresenceStatus struct {
 	JoinedAt      time.Time
 }
 
-// UnregisteredStatus describes a participant who joined but has not completed pairing.
+// UnregisteredStatus describes a participant who joined but is not in the registry.
 type UnregisteredStatus struct {
 	DisplayName string
 	PlatformID  string
@@ -63,8 +67,8 @@ type UnregisteredStatus struct {
 
 // Config holds session-level configuration knobs.
 type Config struct {
-	MeetingID                   string // internal UUID written to every Parquet row
-	PlatformMeetingID           string // provider-side meeting identifier (e.g. BBB external meeting ID)
+	MeetingID                   string
+	PlatformMeetingID           string
 	MeetingsDir                 string
 	QuestionsDir                string
 	ProviderName                string
@@ -86,7 +90,8 @@ type Coordinator struct {
 
 	mu           sync.Mutex
 	present      map[participants.ParticipantID]*presenceInfo
-	unregistered map[string]*unregisteredInfo // platformID → info
+	pending      map[string]*pendingVerification // messengerHandle → info
+	unregistered map[string]*unregisteredInfo    // platformID → info
 }
 
 // New creates a Coordinator. Call SetPoller before Run.
@@ -98,12 +103,12 @@ func New(cfg Config, provider providers.Provider, messenger messengers.Messenger
 		registry:     registry,
 		store:        store,
 		present:      make(map[participants.ParticipantID]*presenceInfo),
+		pending:      make(map[string]*pendingVerification),
 		unregistered: make(map[string]*unregisteredInfo),
 	}
 }
 
 // SetPoller wires the challenge poller into the coordinator.
-// It must be called before Run.
 func (c *Coordinator) SetPoller(p *challenges.Poller) { c.poller = p }
 
 // Run drives the session event loop. It returns when the meeting ends, ctx is
@@ -161,17 +166,13 @@ func (c *Coordinator) handleProviderEvent(ctx context.Context, evt providers.Eve
 		c.onJoin(ctx, evt)
 	case providers.EventKindParticipantLeft:
 		c.onLeave(ctx, evt)
-	case providers.EventKindChatMessage:
-		c.onChatMessage(ctx, evt)
 	case providers.EventKindMeetingEnded:
-		// The provider channel will close; no extra action needed here.
+		// Provider channel will close; no extra action needed.
 	case providers.EventKindMeetingStarted:
 		c.onMeetingStarted(ctx, evt)
 	}
 }
 
-// onMeetingStarted records the meeting_started event using the provider's authoritative
-// timestamp and updates the event store's start time so the output file is named correctly.
 func (c *Coordinator) onMeetingStarted(ctx context.Context, evt providers.Event) {
 	c.store.SetStartTime(evt.Timestamp)
 	c.writeEvent(ctx, eventstore.Record{
@@ -183,8 +184,6 @@ func (c *Coordinator) onMeetingStarted(ctx context.Context, evt providers.Event)
 }
 
 func (c *Coordinator) onJoin(ctx context.Context, evt providers.Event) {
-	pid, known := c.registry.Resolve(c.provider.Name(), evt.PlatformID)
-
 	rec := eventstore.Record{
 		EventType:      "participant_joined",
 		Source:         "provider:" + c.provider.Name(),
@@ -193,49 +192,89 @@ func (c *Coordinator) onJoin(ctx context.Context, evt providers.Event) {
 		Metadata:       evt.Extra,
 	}
 
+	pid, known := c.registry.Resolve(c.provider.Name(), evt.DisplayName)
 	if known {
 		rec.ParticipantID = string(pid)
-		c.mu.Lock()
-		c.present[pid] = &presenceInfo{
-			participantID: pid,
-			displayName:   evt.DisplayName,
-			platformID:    evt.PlatformID,
-			joinedAt:      evt.Timestamp,
+		handle, hasHandle := c.registry.Handle(pid, c.messenger.Name())
+		if hasHandle {
+			c.writeEvent(ctx, rec)
+			c.sendVerification(ctx, pid, handle, evt)
+			return
 		}
-		c.mu.Unlock()
-	} else {
-		slog.Info("session: unregistered participant joined", "name", evt.DisplayName)
-		c.mu.Lock()
-		c.unregistered[evt.PlatformID] = &unregisteredInfo{
-			displayName: evt.DisplayName,
-			platformID:  evt.PlatformID,
-		}
-		c.mu.Unlock()
-		c.writeEvent(ctx, eventstore.Record{
-			EventType:      "participant_unregistered",
-			Source:         "provider:" + c.provider.Name(),
-			PlatformHandle: evt.PlatformID,
-			DisplayName:    evt.DisplayName,
-		})
+		// Registered but no handle for the active messenger: treat as unregistered.
 	}
 
 	c.writeEvent(ctx, rec)
+	slog.Info("session: unregistered participant joined", "name", evt.DisplayName)
+	c.mu.Lock()
+	c.unregistered[evt.PlatformID] = &unregisteredInfo{
+		displayName: evt.DisplayName,
+		platformID:  evt.PlatformID,
+	}
+	c.mu.Unlock()
+	c.writeEvent(ctx, eventstore.Record{
+		EventType:      "participant_unregistered",
+		Source:         "provider:" + c.provider.Name(),
+		PlatformHandle: evt.PlatformID,
+		DisplayName:    evt.DisplayName,
+	})
+}
+
+func (c *Coordinator) sendVerification(ctx context.Context, pid participants.ParticipantID, handle participants.Handle, evt providers.Event) {
+	c.writeEvent(ctx, eventstore.Record{
+		EventType:      "participant_verification_sent",
+		Source:         "messenger:" + c.messenger.Name(),
+		ParticipantID:  string(pid),
+		PlatformHandle: evt.PlatformID,
+		DisplayName:    evt.DisplayName,
+		Metadata:       map[string]string{"messenger": c.messenger.Name(), "platform": c.provider.Name()},
+	})
+
+	if _, err := c.messenger.SendJoinConfirmation(ctx, string(handle), c.cfg.MeetingID, c.provider.Name()); err != nil {
+		slog.Warn("session: send join confirmation", "err", err)
+		// Fall back to unregistered state so challenges aren't silently skipped.
+		c.mu.Lock()
+		c.unregistered[evt.PlatformID] = &unregisteredInfo{displayName: evt.DisplayName, platformID: evt.PlatformID}
+		c.mu.Unlock()
+		return
+	}
+
+	c.mu.Lock()
+	c.pending[string(handle)] = &pendingVerification{
+		participantID: pid,
+		displayName:   evt.DisplayName,
+		platformID:    evt.PlatformID,
+		joinedAt:      evt.Timestamp,
+	}
+	c.mu.Unlock()
 }
 
 func (c *Coordinator) onLeave(ctx context.Context, evt providers.Event) {
-	pid, known := c.registry.Resolve(c.provider.Name(), evt.PlatformID)
 	rec := eventstore.Record{
 		EventType:      "participant_left",
 		Source:         "provider:" + c.provider.Name(),
 		PlatformHandle: evt.PlatformID,
 	}
+
 	c.mu.Lock()
-	if known {
-		rec.ParticipantID = string(pid)
-		delete(c.present, pid)
+	// Find verified participant by platformID.
+	for pid, info := range c.present {
+		if info.platformID == evt.PlatformID {
+			rec.ParticipantID = string(pid)
+			delete(c.present, pid)
+			break
+		}
+	}
+	// Clean up any pending verification for this platform ID.
+	for handle, pv := range c.pending {
+		if pv.platformID == evt.PlatformID {
+			delete(c.pending, handle)
+			break
+		}
 	}
 	delete(c.unregistered, evt.PlatformID)
 	c.mu.Unlock()
+
 	c.writeEvent(ctx, rec)
 }
 
@@ -269,41 +308,12 @@ func (c *Coordinator) Status() CoordStatus {
 	}
 }
 
-func (c *Coordinator) onChatMessage(ctx context.Context, evt providers.Event) {
-	// Scan for pairing code. Chat content itself is never stored.
-	text := strings.TrimSpace(evt.Text)
-	if !strings.HasPrefix(text, PairingPrefix) {
-		return
-	}
-	code := strings.TrimPrefix(text, PairingPrefix)
-	code = strings.Fields(code)[0] // take first token in case of trailing text
-
-	pid, err := c.registry.CompletePairing(ctx, c.provider.Name(), evt.PlatformID, code)
-	if err != nil {
-		slog.Warn("session: pairing failed", "code", code, "err", err)
-		return
-	}
-
-	slog.Info("session: participant paired", "id", pid, "platform", evt.PlatformID)
-	c.writeEvent(ctx, eventstore.Record{
-		EventType:      "participant_paired",
-		Source:         "provider:" + c.provider.Name(),
-		ParticipantID:  string(pid),
-		PlatformHandle: evt.PlatformID,
-		Metadata:       map[string]string{"messenger": c.messenger.Name(), "platform": c.provider.Name()},
-	})
-
-	c.mu.Lock()
-	if info, ok := c.present[pid]; ok {
-		info.participantID = pid
-	}
-	c.mu.Unlock()
-}
-
-func (c *Coordinator) handleMessengerEvent(_ context.Context, evt messengers.Event) {
+func (c *Coordinator) handleMessengerEvent(ctx context.Context, evt messengers.Event) {
 	switch evt.Kind {
-	case messengers.EventKindPairingStarted:
-		slog.Info("session: pairing started", "handle", evt.Handle)
+	case messengers.EventKindJoinConfirmation:
+		c.onJoinConfirmation(ctx, evt)
+	case messengers.EventKindRegistration:
+		c.onRegistration(ctx, evt)
 	case messengers.EventKindAnswerReceived:
 		if c.poller == nil {
 			return
@@ -319,9 +329,95 @@ func (c *Coordinator) handleMessengerEvent(_ context.Context, evt messengers.Eve
 	}
 }
 
-// TriggerPoll starts a poll round using the active poller. It is a no-op when
-// no poller is set. Called by the auto-poll goroutine in track and by
-// TriggerPollWithBank after installing a new poller.
+func (c *Coordinator) onJoinConfirmation(ctx context.Context, evt messengers.Event) {
+	c.mu.Lock()
+	pv, ok := c.pending[evt.Handle]
+	if ok {
+		delete(c.pending, evt.Handle)
+	}
+	c.mu.Unlock()
+
+	if !ok {
+		return // stale confirmation (e.g. from a previous meeting)
+	}
+
+	if evt.Confirmed {
+		latency := evt.Timestamp.Sub(pv.joinedAt).Milliseconds()
+		c.mu.Lock()
+		c.present[pv.participantID] = &presenceInfo{
+			participantID: pv.participantID,
+			displayName:   pv.displayName,
+			platformID:    pv.platformID,
+			joinedAt:      pv.joinedAt,
+		}
+		c.mu.Unlock()
+		slog.Info("session: participant verified", "id", pv.participantID, "name", pv.displayName)
+		c.writeEvent(ctx, eventstore.Record{
+			EventType:      "participant_verified",
+			Source:         "messenger:" + c.messenger.Name(),
+			ParticipantID:  string(pv.participantID),
+			PlatformHandle: pv.platformID,
+			DisplayName:    pv.displayName,
+			Metadata: map[string]string{
+				"messenger":  c.messenger.Name(),
+				"platform":   c.provider.Name(),
+				"latency_ms": fmt.Sprintf("%d", latency),
+			},
+		})
+	} else {
+		slog.Info("session: participant denied", "name", pv.displayName)
+		c.writeEvent(ctx, eventstore.Record{
+			EventType:      "participant_verification_denied",
+			Source:         "messenger:" + c.messenger.Name(),
+			ParticipantID:  string(pv.participantID),
+			PlatformHandle: pv.platformID,
+			DisplayName:    pv.displayName,
+			Metadata:       map[string]string{"messenger": c.messenger.Name(), "platform": c.provider.Name()},
+		})
+	}
+}
+
+// onRegistration handles a /register event from the messenger. If the newly
+// registered participant is already present in the meeting as unregistered,
+// a verification DM is sent immediately.
+func (c *Coordinator) onRegistration(ctx context.Context, evt messengers.Event) {
+	if evt.Platform != c.provider.Name() {
+		return // registered for a different platform; irrelevant to this session
+	}
+
+	c.mu.Lock()
+	var unregInfo *unregisteredInfo
+	for _, info := range c.unregistered {
+		if strings.EqualFold(strings.TrimSpace(info.displayName), strings.TrimSpace(evt.DisplayName)) {
+			unregInfo = info
+			delete(c.unregistered, info.platformID)
+			break
+		}
+	}
+	c.mu.Unlock()
+
+	if unregInfo == nil {
+		return // not currently in the meeting
+	}
+
+	pid, known := c.registry.Resolve(c.provider.Name(), evt.DisplayName)
+	if !known {
+		return // shouldn't happen right after a successful /register
+	}
+	handle, hasHandle := c.registry.Handle(pid, c.messenger.Name())
+	if !hasHandle {
+		return
+	}
+
+	joinEvt := providers.Event{
+		PlatformID:  unregInfo.platformID,
+		DisplayName: unregInfo.displayName,
+		Timestamp:   time.Now().UTC(),
+	}
+	c.sendVerification(ctx, pid, handle, joinEvt)
+}
+
+// TriggerPoll starts a poll round using the active poller.
 func (c *Coordinator) TriggerPoll(ctx context.Context) error {
 	if c.poller == nil {
 		return nil
@@ -348,8 +444,7 @@ func (c *Coordinator) TriggerPoll(ctx context.Context) error {
 }
 
 // TriggerPollWithBank loads a question bank, installs a fresh poller, and
-// immediately runs a poll round. Any previously pending poll is drained first.
-// Called by the control socket handler when ptrack poll requests a round.
+// immediately runs a poll round.
 func (c *Coordinator) TriggerPollWithBank(ctx context.Context, loadBank BankLoader, bankPath string) error {
 	ct, err := loadBank(bankPath)
 	if err != nil {
@@ -363,8 +458,8 @@ func (c *Coordinator) TriggerPollWithBank(ctx context.Context, loadBank BankLoad
 	return c.TriggerPoll(ctx)
 }
 
-// eligibleParticipants returns participants currently in the meeting, paired
-// with the active messenger, and outside the challenge cooldown.
+// eligibleParticipants returns verified participants currently in the meeting,
+// paired with the active messenger, and outside the challenge cooldown.
 func (c *Coordinator) eligibleParticipants() []challenges.EligibleParticipant {
 	minGap := time.Duration(c.cfg.MinGapBetweenChallengesSecs) * time.Second
 	now := time.Now()
@@ -376,10 +471,10 @@ func (c *Coordinator) eligibleParticipants() []challenges.EligibleParticipant {
 	for pid, info := range c.present {
 		handle, ok := c.registry.Handle(pid, c.messenger.Name())
 		if !ok {
-			continue // not paired with active messenger
+			continue
 		}
 		if !info.lastChallenge.IsZero() && now.Sub(info.lastChallenge) < minGap {
-			continue // within cooldown
+			continue
 		}
 		out = append(out, challenges.EligibleParticipant{
 			ParticipantID: string(pid),
@@ -389,8 +484,6 @@ func (c *Coordinator) eligibleParticipants() []challenges.EligibleParticipant {
 	return out
 }
 
-// writeEvent stamps and appends one event record to the event store.
-// If r.Timestamp is already set (non-zero), it is preserved; otherwise time.Now() is used.
 func (c *Coordinator) writeEvent(_ context.Context, r eventstore.Record) {
 	r.EventID = uuid.Must(uuid.NewV7()).String()
 	r.MeetingID = c.cfg.MeetingID
@@ -469,8 +562,6 @@ func (c *Coordinator) DeleteMessage(ctx context.Context, ref string) error {
 }
 
 // BankLoader creates a ChallengeType from a question-bank file path.
-// It is passed to Listen so the session package stays decoupled from concrete
-// challenge implementations.
 type BankLoader func(bankPath string) (challenges.ChallengeType, error)
 
 type controlRequest struct {
@@ -483,15 +574,10 @@ type controlResponse struct {
 }
 
 // Listen starts a Unix domain socket at socketPath and accepts poll-trigger
-// requests for the lifetime of ctx. Each request loads a question bank via
-// loadBank and calls TriggerPoll.
-//
-// The listener is started in a background goroutine; Listen returns after the
-// socket is bound so the caller can proceed with Run. A failed bind is logged
-// as a warning — it does not prevent tracking.
+// requests for the lifetime of ctx.
 func (c *Coordinator) Listen(ctx context.Context, socketPath string, loadBank BankLoader) {
-	_ = os.Remove(socketPath)                 // remove stale socket from a previous run
-	ln, err := net.Listen("unix", socketPath) //nolint:noctx // net.Listen is a synchronous bind; context cancellation is handled via the goroutine below
+	_ = os.Remove(socketPath)
+	ln, err := net.Listen("unix", socketPath) //nolint:noctx // synchronous bind; cancellation via goroutine
 	if err != nil {
 		slog.Warn("session: could not start control socket", "err", err)
 		return
@@ -507,7 +593,7 @@ func (c *Coordinator) Listen(ctx context.Context, socketPath string, loadBank Ba
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
-				return // listener was closed
+				return
 			}
 			go c.handleControl(ctx, conn, loadBank)
 		}
@@ -521,14 +607,14 @@ func (c *Coordinator) handleControl(ctx context.Context, conn net.Conn, loadBank
 
 	var req controlRequest
 	if err := json.NewDecoder(conn).Decode(&req); err != nil {
-		_ = json.NewEncoder(conn).Encode(controlResponse{Error: "invalid request: " + err.Error()}) //nolint:errchkjson // best-effort error response on a failing connection
+		_ = json.NewEncoder(conn).Encode(controlResponse{Error: "invalid request: " + err.Error()}) //nolint:errchkjson
 		return
 	}
 
 	if err := c.TriggerPollWithBank(ctx, loadBank, req.BankPath); err != nil {
-		_ = json.NewEncoder(conn).Encode(controlResponse{Error: err.Error()}) //nolint:errchkjson // best-effort error response
+		_ = json.NewEncoder(conn).Encode(controlResponse{Error: err.Error()}) //nolint:errchkjson
 		return
 	}
 
-	_ = json.NewEncoder(conn).Encode(controlResponse{OK: true}) //nolint:errchkjson // best-effort success response
+	_ = json.NewEncoder(conn).Encode(controlResponse{OK: true}) //nolint:errchkjson
 }

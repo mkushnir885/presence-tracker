@@ -38,9 +38,10 @@ it.
 1. Teacher starts the meeting on one of the supported platforms and
    launches `ptrack track --meeting=<id>` (or clicks "Start tracking"
    in the GUI, if running).
-2. The selected `Provider` adapter delivers meeting events (join/leave,
-   chat) into the session coordinator. **Chat is monitored solely to
-   detect pairing codes** (`PTRACK:<code>`) — chat content is not stored.
+2. The selected `Provider` adapter delivers meeting events (join/leave)
+   into the session coordinator. Chat is not monitored — participant
+   pairing is handled entirely via the Telegram bot (see "Participant
+   identity" in `CLAUDE.md`).
 3. For **file-based challenges**: the teacher manually triggers a poll
    from the GUI. For **AI-generated challenges**: the `Poller` fires
    automatically when the context window is ready. In both cases the
@@ -81,17 +82,23 @@ type Provider interface {
 ```
 
 `Subscribe` closes the channel when the meeting ends or `ctx` is
-cancelled. Events emitted include `participant_joined`, `participant_left`,
-and `chat_message` (used internally for pairing code detection; not
-persisted unless the code matches). `FetchPostMeeting` is idempotent.
+cancelled. Events emitted: `participant_joined` and `participant_left`.
+Chat is not surfaced through the Provider interface. `FetchPostMeeting`
+is idempotent.
 
 ### Messenger (`go/src/internal/messengers/messenger.go`)
 
 ```go
 type Messenger interface {
     Name() string
-    Start(ctx context.Context) (<-chan Event, error)   // registration + answer events
+    // Start begins the bot loop. The returned channel emits RegistrationEvent,
+    // JoinConfirmationEvent, and AnswerEvent values. Closed when ctx is done.
+    Start(ctx context.Context) (<-chan Event, error)
     Stop(ctx context.Context) error
+
+    // SendJoinConfirmation sends a "Did you just join [meeting] on [platform]?"
+    // DM with Yes/No inline buttons. The response arrives as a JoinConfirmationEvent.
+    SendJoinConfirmation(ctx context.Context, handle Handle, meetingID, platform string) (MessageRef, error)
 
     SendChallenge(ctx context.Context, handle Handle, c ChallengePrompt) (MessageRef, error)
     EditMessage(ctx context.Context, ref MessageRef, newText string) error
@@ -100,9 +107,17 @@ type Messenger interface {
 ```
 
 `Handle` is the messenger-specific persistent ID (for Telegram, the
-`chat_id`). The messenger emits two kinds of events on its channel:
-pairing events (a student sent `/start` and received a code) and answer
-events (a student answered a previously-delivered challenge).
+`chat_id`). Three event kinds flow out of the channel:
+
+- `RegistrationEvent` — a student sent `/register <platform> <name>`.
+  The messenger adapter validates the command syntax and calls
+  `Registry.Register`; the result determines the bot's reply. This is
+  handled inside the adapter so registration works even when no meeting
+  is active.
+- `JoinConfirmationEvent` — a student tapped **Yes** or **No** on a
+  join-confirmation message. The session coordinator uses this to emit
+  `participant_verified` or `participant_verification_denied`.
+- `AnswerEvent` — a student answered a challenge question.
 
 ### Challenge (`go/src/internal/challenges/challenge.go`)
 
@@ -131,28 +146,44 @@ type Poller interface {
 
 ```go
 type Registry interface {
-    // Resolve maps a platform identifier to an internal ParticipantID.
-    Resolve(platform string, platformID string) (ParticipantID, bool)
+    // Resolve looks up a participant by (platform, displayName).
+    // Matching is case-insensitive with whitespace trimming.
+    Resolve(platform string, displayName string) (ParticipantID, bool)
 
-    // StartPairing is called when a new Telegram /start arrives.
-    // Returns a short one-time code to be typed by the student in the meeting chat.
-    StartPairing(messengerName string, handle Handle) (pairingCode string, err error)
+    // Register stores a (platform, displayName) → handle binding.
+    // Returns ErrNameTaken if that (platform, displayName) is already
+    // claimed by a different handle. A handle may overwrite its own
+    // previous entry for the same (platform, displayName).
+    Register(messengerName string, handle Handle, platform, displayName string) (ParticipantID, error)
 
-    // CompletePairing is called when the provider adapter detects a
-    // PTRACK:<code> in meeting chat. Binds the platform identifier to
-    // the Telegram handle that initiated pairing.
-    CompletePairing(platform string, platformID string, code string) (ParticipantID, error)
+    // Unregister removes the registry entry for a participant.
+    Unregister(id ParticipantID) error
 
+    // Handle returns the messenger handle for a participant.
     Handle(p ParticipantID, messengerName string) (Handle, bool)
 
-    // Clear removes all pairing records. Called by DELETE /participants.
+    // List returns all entries, for display on the registry GUI page.
+    List() ([]RegistryEntry, error)
+
+    // Clear removes all entries. Called by DELETE /registry.
     // Parquet files are not affected.
     Clear() error
 }
+
+type RegistryEntry struct {
+    ID             ParticipantID
+    Platform       string
+    DisplayName    string   // canonical casing as registered
+    MessengerName  string
+    Handle         Handle
+    MessengerLabel string   // human-readable (e.g. Telegram @username or first name)
+    RegisteredAt   time.Time
+}
 ```
 
-Backed by a small on-disk store (BoltDB or JSON file). Persists across
-meetings so pairing is one-time per platform.
+Backed by BoltDB. Persists across meetings. The messenger adapter calls
+`Register` directly when it receives a `/register` command — registration
+works even when no meeting is active.
 
 ### Per-file display name rewrite (`eventstore`)
 
@@ -291,8 +322,9 @@ Translation files live in `go/src/internal/gui/locales/<lang>.json`.
 - The challenger service binds to `127.0.0.1` only. Never 0.0.0.0.
 - Transcript data is in-memory only — never written to disk by
   `challenger`. This is a hard requirement.
-- Pairing codes are one-time and short-lived (configurable TTL, default
-  1 hour). A code that is never used expires silently.
+- Display name collision is rejected at registration time — the bot
+  returns an error if a name is already claimed by a different handle,
+  so only one Telegram account can own a given `(platform, name)` pair.
 - Event log data is kept per the configured retention (default: 180 days).
 
 See `@docs/ETHICS.md` for the consent and retention rationale.

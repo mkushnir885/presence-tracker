@@ -35,7 +35,9 @@ Rendered server-side with templ; interactive bits use htmx.
 | `GET /participants/{p}`                              | Cross-meeting aggregate view for one participant                               |
 | `GET /participants/{p}/export.csv`                   | Download cross-meeting CSV for one participant                                 |
 | `GET /participants/export.csv`                       | Download cross-meeting CSV for all participants                                |
-| `DELETE /participants`                               | Clear all registered participants (pairing data only; Parquet files untouched) |
+| `GET /registry`                                      | Participant registry page — list all registered display-name entries           |
+| `DELETE /registry/{id}`                              | Remove one registry entry by ParticipantID                                     |
+| `DELETE /registry`                                   | Clear all registry entries (pairing data only; Parquet files untouched)        |
 | `POST /meetings/{id}/polls`                          | Trigger a file-based poll for an active meeting                                |
 | `PATCH /meetings/{id}/polls/config`                  | Update AI-generated poll config mid-meeting                                    |
 | `GET /questions/{id}`                                | Return question text for a marker hover tooltip (reads from `.jsonl`)          |
@@ -325,6 +327,43 @@ ptrack_py report --in meeting.parquet --format csv --out report.csv
 ptrack_py aggregate --in 'meetings/*.parquet' --format csv --out semester.csv
 ```
 
+## Registry page
+
+`GET /registry` shows every display-name entry currently stored in the
+participant registry — one row per `(platform, display_name)` pair.
+
+### Page layout
+
+```
+Registry — Registered Participants          [Clear all]
+
+Platform   Display name       Messenger        Registered
+────────   ────────────────   ──────────────   ──────────────────
+Zoom       Alice Smith        Telegram @alice  2026-04-15 09:12   [Delete]
+Meet       Alice Smith        Telegram @alice  2026-04-15 09:12   [Delete]
+BBB        Ivan Kovalenko     Telegram @ivan   2026-03-01 14:30   [Delete]
+Zoom       Ivan Kovalenko     Telegram @ivan   2026-03-01 14:30   [Delete]
+```
+
+The table is sorted by display name (case-insensitive), then platform.
+The **Messenger** column shows the messenger name and the human-readable
+label stored at registration time (Telegram @username if available, or
+first name).
+
+**[Delete]** calls `DELETE /registry/{id}` for that entry. A brief
+inline confirmation is shown before the request is sent (htmx confirm).
+The row disappears on success without a full page reload.
+
+**[Clear all]** calls `DELETE /registry`. A modal confirmation dialog is
+shown first. Parquet files are not affected.
+
+When the registry is empty the page shows a short explanation of how
+students register (send `/register <platform> <display name>` to the
+bot).
+
+A link to the registry page is placed in the top navigation bar (visible
+at all times, not just during a meeting).
+
 ## Config editor
 
 See `@docs/CONFIG.md` for what's editable. The GUI editor renders a form
@@ -341,13 +380,9 @@ from the JSON Schema:
 - A language selector and a theme selector (dark/light/system) are
   available in the top navigation bar.
 
-A **"Clear registered participants"** button is shown at the bottom of
-the config page (outside the schema-driven form). It calls
-`DELETE /participants`, which wipes all pairing records from the
-participant registry. A confirmation dialog is shown before the action
-executes. Parquet files are not affected — only the pairing data that
-links Telegram handles to platform identifiers is removed. Use this when
-starting a new course cohort or when testing the pairing flow.
+A **"Manage participant registry"** link at the bottom of the config
+page navigates to `GET /registry`. Use it to remove stale or incorrect
+entries, or to clear the registry at the start of a new course cohort.
 
 ## Responsive layout
 

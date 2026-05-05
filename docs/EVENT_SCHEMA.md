@@ -12,7 +12,7 @@ schema below covers all event types; question text is never in Parquet.
 
 ## Schema version
 
-Current: **2**. Stored as a Parquet file-level metadata key
+Current: **3**. Stored as a Parquet file-level metadata key
 `schema_version`. Readers refuse files with a higher major version.
 New nullable columns may be added in a minor bump; removals and renames
 are major.
@@ -58,19 +58,32 @@ concatenation trivial — all event files share the same shape.
 | `participant_left`      | set              | `reason` (left/disconnected/removed) |
 
 Note: **mic, camera, screen-share, and chat activity are not tracked.**
-Chat is monitored internally by the provider adapter only to detect
-pairing codes; no chat content or metadata enters the event log.
+Chat is not monitored. Participant pairing is handled entirely via the
+Telegram bot outside the meeting.
 
 ### Participant pairing
 
-| Event type                  | `participant_id` | Key metadata fields              |
-|-----------------------------|------------------|----------------------------------|
-| `participant_paired`        | set              | `messenger`, `platform`          |
-| `participant_unregistered`  | set              |                                  |
+| Event type                        | `participant_id` | Key metadata fields                  |
+|-----------------------------------|------------------|--------------------------------------|
+| `participant_verification_sent`   | set              | `messenger`, `platform`              |
+| `participant_verified`            | set              | `messenger`, `platform`, `latency_ms`|
+| `participant_verification_denied` | set              | `messenger`, `platform`              |
+| `participant_unregistered`        | set              |                                      |
 
-`participant_paired` is emitted when a student's pairing code is detected
-in meeting chat and the binding is established. `participant_unregistered`
-is emitted when a participant joins without a confirmed pairing.
+`participant_verification_sent` is emitted when the session coordinator
+finds a registry entry for the joining participant's display name and
+sends a "Did you just join?" DM.
+
+`participant_verified` is emitted when the participant taps **Yes**.
+`latency_ms` is the time between `participant_joined` and the
+confirmation tap.
+
+`participant_verification_denied` is emitted when the participant taps
+**No**. (Ignoring the message is not recorded as a distinct event; the
+participant simply stays unverified for the session.)
+
+`participant_unregistered` is emitted when a participant joins and no
+registry entry matches their `(platform, display_name)`.
 
 ### Challenge lifecycle
 

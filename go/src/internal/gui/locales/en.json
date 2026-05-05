@@ -1,5 +1,6 @@
 {
   "nav.dashboard": "Dashboard",
+  "nav.registry": "Registry",
   "nav.config": "Config",
   "nav.theme": "Theme",
   "nav.stop_confirm": "Stop the tracking session?",
@@ -55,6 +56,18 @@
   "participant.col_timeline": "Timeline",
   "participant.absent": "absent",
 
+  "registry.title": "Participant Registry",
+  "registry.col_platform": "Platform",
+  "registry.col_display_name": "Display Name",
+  "registry.col_messenger": "Messenger",
+  "registry.col_registered": "Registered",
+  "registry.empty": "No participants registered yet.",
+  "registry.empty_hint": "Students register by sending /register <platform> <display-name> to the Telegram bot.",
+  "registry.delete": "Delete",
+  "registry.delete_confirm": "Remove this participant registration?",
+  "registry.clear_all": "Clear All",
+  "registry.clear_confirm": "Remove ALL registered participants? This cannot be undone.",
+
   "config.title": "Configuration",
   "config.general": "General",
   "config.meetings_dir": "Meetings directory",
@@ -75,7 +88,6 @@
   "config.bbb_webhook_port": "Webhook port",
   "config.telegram": "Telegram",
   "config.tg_bot_token": "Bot token",
-  "config.tg_pairing_ttl": "Pairing code TTL (hours)",
   "config.challenges": "Challenges",
   "config.answer_window": "Answer window (seconds)",
   "config.min_gap": "Min gap between challenges (seconds)",

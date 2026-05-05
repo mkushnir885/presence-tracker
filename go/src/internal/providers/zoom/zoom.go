@@ -224,8 +224,6 @@ type zoomWebhookPayload struct {
 			Duration int    `json:"duration"`
 			// Participant is set for participant_joined/left events.
 			Participant *zoomParticipant `json:"participant"`
-			// ChatMessage is set for chat_message_sent events.
-			ChatMessage *zoomChatMessage `json:"chat_message"`
 		} `json:"object"`
 	} `json:"payload"`
 }
@@ -239,13 +237,6 @@ type zoomParticipant struct {
 	JoinReason string `json:"join_reason"`
 }
 
-type zoomChatMessage struct {
-	ID       string `json:"id"`
-	Message  string `json:"message"`
-	SenderID string `json:"sender_id"`
-	SenderName string `json:"sender_display_name"`
-	DateTime   string `json:"date_time"`
-}
 
 func (a *Adapter) convertEvent(p zoomWebhookPayload) (providers.Event, bool) {
 	ts := time.UnixMilli(p.EventTS).UTC()
@@ -312,23 +303,6 @@ func (a *Adapter) convertEvent(p zoomWebhookPayload) (providers.Event, bool) {
 			Timestamp:   leaveTime,
 		}, true
 
-	case "meeting.chat_message_sent":
-		if p.Payload.Object.ChatMessage == nil {
-			return providers.Event{}, false
-		}
-		msg := p.Payload.Object.ChatMessage
-		msgTime, _ := time.Parse(time.RFC3339, msg.DateTime)
-		if msgTime.IsZero() {
-			msgTime = ts
-		}
-		return providers.Event{
-			Kind:        providers.EventKindChatMessage,
-			MeetingID:   meetingID,
-			PlatformID:  msg.SenderID,
-			DisplayName: msg.SenderName,
-			Text:        msg.Message,
-			Timestamp:   msgTime,
-		}, true
 	}
 	return providers.Event{}, false
 }

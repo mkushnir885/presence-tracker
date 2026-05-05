@@ -8,7 +8,7 @@ import (
 // It must stay in sync with docs/EVENT_SCHEMA.md and
 // py/src/ptrack_analytics/schema.py.
 //
-// timestamp semantics (schema_version 2):
+// timestamp semantics (schema_version 3):
 //   - meeting_started row: absolute Unix timestamp in milliseconds.
 //   - all other rows: milliseconds elapsed since the meeting_started timestamp.
 //
@@ -25,6 +25,6 @@ var Schema = arrow.NewSchema([]arrow.Field{
 	{Name: "display_name", Type: arrow.BinaryTypes.String, Nullable: true},
 	{Name: "metadata", Type: arrow.BinaryTypes.String, Nullable: true}, // JSON-encoded map
 }, func() *arrow.Metadata {
-	m := arrow.MetadataFrom(map[string]string{"schema_version": "2"})
+	m := arrow.MetadataFrom(map[string]string{"schema_version": "3"})
 	return &m
 }())

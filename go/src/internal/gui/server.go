@@ -25,6 +25,8 @@ import (
 	"presence-tracker/src/internal/config"
 	"presence-tracker/src/internal/eventstore"
 	"presence-tracker/src/internal/gui/views"
+	"presence-tracker/src/internal/messengers"
+	mockmessenger "presence-tracker/src/internal/messengers/mock"
 	"presence-tracker/src/internal/messengers/telegram"
 	"presence-tracker/src/internal/participants"
 	"presence-tracker/src/internal/providers"
@@ -79,7 +81,9 @@ func (s *Server) Serve(ctx context.Context) error {
 	mux.HandleFunc("GET /participants/export.csv", s.handleAllParticipantsCSV)
 	mux.HandleFunc("GET /participants/{p}", s.handleParticipant)
 	mux.HandleFunc("GET /participants/{p}/export.csv", s.handleParticipantCSV)
-	mux.HandleFunc("DELETE /participants", s.handleClearParticipants)
+	mux.HandleFunc("GET /registry", s.handleRegistry)
+	mux.HandleFunc("DELETE /registry/{id}", s.handleDeleteRegistryEntry)
+	mux.HandleFunc("DELETE /registry", s.handleClearRegistry)
 	mux.HandleFunc("POST /meetings/{id}/polls", s.handleTriggerPoll)
 	mux.HandleFunc("GET /questions/{id}", s.handleQuestion)
 	mux.HandleFunc("GET /config", s.handleConfig)
@@ -112,6 +116,20 @@ func (s *Server) Serve(ctx context.Context) error {
 		return fmt.Errorf("gui: serve: %w", err)
 	}
 	return nil
+}
+
+func (s *Server) enabledPlatforms() []string {
+	var out []string
+	if s.cfg.Providers.BBB.Enabled {
+		out = append(out, "bbb")
+	}
+	if s.cfg.Providers.Meet.Enabled {
+		out = append(out, "meet")
+	}
+	if s.cfg.Providers.Zoom.Enabled {
+		out = append(out, "zoom")
+	}
+	return out
 }
 
 // handleDashboard renders the main dashboard page.
@@ -193,18 +211,21 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.cfg.Messengers.Telegram.Enabled {
-		http.Error(w, "no messenger enabled (set messengers.telegram.enabled: true)", http.StatusInternalServerError)
-		return
-	}
-
-	generateCode := func(ctx context.Context, handle string) (string, error) {
-		return s.registry.StartPairing(ctx, "telegram", participants.Handle(handle))
-	}
-	tgAdapter, err := telegram.New(s.cfg.Messengers.Telegram.BotToken, generateCode, session.PairingPrefix)
-	if err != nil {
-		http.Error(w, "telegram init error: "+err.Error(), http.StatusInternalServerError)
-		return
+	challengesEnabled := s.cfg.Challenges.FileBased.Enabled || s.cfg.Challenges.AIGenerated.Enabled
+	var msgr messengers.Messenger
+	if challengesEnabled {
+		if !s.cfg.Messengers.Telegram.Enabled {
+			http.Error(w, "challenges are enabled but no messenger is configured (set messengers.telegram.enabled: true)", http.StatusInternalServerError)
+			return
+		}
+		tgAdapter, err := telegram.New(s.cfg.Messengers.Telegram.BotToken, s.registry, s.enabledPlatforms())
+		if err != nil {
+			http.Error(w, "telegram init error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		msgr = tgAdapter
+	} else {
+		msgr = mockmessenger.New()
 	}
 
 	internalMeetingID := uuid.Must(uuid.NewV7()).String()
@@ -222,14 +243,14 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 		MeetingsDir:                 s.cfg.MeetingsDir,
 		QuestionsDir:                s.cfg.QuestionsDir,
 		ProviderName:                prov.Name(),
-		MessengerName:               tgAdapter.Name(),
+		MessengerName:               msgr.Name(),
 		AnswerWindowSecs:            s.cfg.Challenges.Defaults.AnswerWindowSeconds,
 		MinGapBetweenChallengesSecs: s.cfg.Challenges.Defaults.MinGapBetweenChallengesSecs,
 		EventStoreCompression:       s.cfg.EventStore.Compression,
 		RowGroupSize:                s.cfg.EventStore.RowGroupSize,
 	}
 
-	coord := session.New(sessCfg, prov, tgAdapter, s.registry, store)
+	coord := session.New(sessCfg, prov, msgr, s.registry, store)
 
 	coord.SetPoller(nil) // poller set on demand via poll trigger
 
@@ -546,8 +567,29 @@ func (s *Server) handleAllParticipantsCSV(w http.ResponseWriter, r *http.Request
 	_, _ = w.Write([]byte(csvStr))
 }
 
-// handleClearParticipants removes all registered participants.
-func (s *Server) handleClearParticipants(w http.ResponseWriter, r *http.Request) {
+// handleRegistry renders the participant registry page.
+func (s *Server) handleRegistry(w http.ResponseWriter, r *http.Request) {
+	entries, err := s.registry.List(r.Context())
+	if err != nil {
+		http.Error(w, "list registry: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	locale := localeFromRequest(r)
+	_ = views.Registry(entries, locale).Render(r.Context(), w)
+}
+
+// handleDeleteRegistryEntry removes one registry entry by ParticipantID.
+func (s *Server) handleDeleteRegistryEntry(w http.ResponseWriter, r *http.Request) {
+	id := participants.ParticipantID(r.PathValue("id"))
+	if err := s.registry.Unregister(r.Context(), id); err != nil {
+		http.Error(w, "unregister: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// handleClearRegistry removes all registered participants.
+func (s *Server) handleClearRegistry(w http.ResponseWriter, r *http.Request) {
 	if err := s.registry.ClearAll(r.Context()); err != nil {
 		http.Error(w, "clear failed: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -624,9 +666,8 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		BBBEnabled:                 s.cfg.Providers.BBB.Enabled,
 		BBBBaseURL:                 s.cfg.Providers.BBB.BaseURL,
 		BBBWebhookPort:             s.cfg.Providers.BBB.WebhookPort,
-		TelegramEnabled:            s.cfg.Messengers.Telegram.Enabled,
-		TelegramPairingCodeTTL:     s.cfg.Messengers.Telegram.PairingCodeTTLHours,
-		TelegramBotToken:           s.cfg.Messengers.Telegram.BotToken,
+		TelegramEnabled:  s.cfg.Messengers.Telegram.Enabled,
+		TelegramBotToken: s.cfg.Messengers.Telegram.BotToken,
 		AnswerWindowSeconds:        s.cfg.Challenges.Defaults.AnswerWindowSeconds,
 		MinGapBetweenChallengesSec: s.cfg.Challenges.Defaults.MinGapBetweenChallengesSecs,
 		EventStoreCompression:      s.cfg.EventStore.Compression,
@@ -669,9 +710,6 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 
 	s.cfg.Messengers.Telegram.Enabled = r.FormValue("tg_enabled") == "true"
 	s.cfg.Messengers.Telegram.BotToken = r.FormValue("tg_bot_token")
-	if v, err := strconv.Atoi(r.FormValue("tg_pairing_ttl")); err == nil {
-		s.cfg.Messengers.Telegram.PairingCodeTTLHours = v
-	}
 
 	if v, err := strconv.Atoi(r.FormValue("answer_window")); err == nil {
 		s.cfg.Challenges.Defaults.AnswerWindowSeconds = v

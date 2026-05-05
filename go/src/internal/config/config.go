@@ -63,9 +63,8 @@ type MessengersConfig struct {
 }
 
 type TelegramConfig struct {
-	Enabled             bool   `yaml:"enabled"`
-	BotToken            string `yaml:"bot_token"`
-	PairingCodeTTLHours int    `yaml:"pairing_code_ttl_hours"`
+	Enabled  bool   `yaml:"enabled"`
+	BotToken string `yaml:"bot_token"`
 }
 
 type ChallengesConfig struct {
@@ -142,9 +141,6 @@ func (c *Config) defaults() {
 	}
 	if c.Challenges.Poll.MaxDeliverySkewMS == 0 {
 		c.Challenges.Poll.MaxDeliverySkewMS = 2000
-	}
-	if c.Messengers.Telegram.PairingCodeTTLHours == 0 {
-		c.Messengers.Telegram.PairingCodeTTLHours = 1
 	}
 	if c.EventStore.Compression == "" {
 		c.EventStore.Compression = "zstd"

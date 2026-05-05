@@ -11,7 +11,6 @@ type EventKind string
 const (
 	EventKindParticipantJoined EventKind = "participant_joined"
 	EventKindParticipantLeft   EventKind = "participant_left"
-	EventKindChatMessage       EventKind = "chat_message" // monitored for pairing codes; not persisted
 	EventKindMeetingStarted    EventKind = "meeting_started"
 	EventKindMeetingEnded      EventKind = "meeting_ended"
 )
@@ -22,7 +21,6 @@ type Event struct {
 	MeetingID   string
 	PlatformID  string // platform-specific participant identifier (email, user id, …)
 	DisplayName string // human-readable name as reported by the platform
-	Text        string // populated for EventKindChatMessage only
 	Timestamp   time.Time
 	Extra       map[string]string // provider-specific fields forwarded to metadata
 }
