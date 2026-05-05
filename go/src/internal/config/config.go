@@ -34,8 +34,9 @@ type BBBConfig struct {
 	BaseURL       string `yaml:"base_url"`
 	SharedSecret  string `yaml:"shared_secret"`
 	WebhookPort   int    `yaml:"webhook_port"`
-	WebhookHost   string `yaml:"webhook_host"`   // publicly-reachable hostname/IP for the BBB callback; defaults to "localhost"
-	WebhookSecret string `yaml:"webhook_secret"` // optional extra HMAC secret for hook payloads
+	WebhookHost   string `yaml:"webhook_host"`    // publicly-reachable hostname/IP for the BBB callback; defaults to "localhost"
+	WebhookSecret string `yaml:"webhook_secret"`  // optional extra HMAC secret for hook payloads
+	TLSSkipVerify bool   `yaml:"tls_skip_verify"` // disable TLS certificate verification (for self-signed certs in dev)
 }
 
 type MeetConfig struct {

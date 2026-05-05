@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/apache/arrow/go/v17/parquet"
 	"github.com/apache/arrow/go/v17/parquet/pqarrow"
@@ -74,7 +75,16 @@ func writeAllToFile(path string, records []Record, compression string, rowGroupS
 		return pw.Close()
 	}
 
-	rec := buildRecord(records)
+	// Recover the meeting start time so timestamps are stored correctly.
+	var startTime time.Time
+	for _, r := range records {
+		if r.EventType == "meeting_started" {
+			startTime = r.Timestamp
+			break
+		}
+	}
+
+	rec := buildRecord(records, startTime)
 	defer rec.Release()
 
 	if err := pw.Write(rec); err != nil {

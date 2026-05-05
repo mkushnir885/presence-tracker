@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cli/browser"
+	"github.com/google/uuid"
 
 	"presence-tracker/src/internal/challenges"
 	"presence-tracker/src/internal/challenges/filebased"
@@ -206,14 +207,18 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	store, err := eventstore.NewWriter(s.cfg.MeetingsDir, meetingID, s.cfg.EventStore.Compression, s.cfg.EventStore.RowGroupSize)
+	internalMeetingID := uuid.Must(uuid.NewV7()).String()
+	startTime := time.Now()
+
+	store, err := eventstore.NewWriter(s.cfg.MeetingsDir, startTime, s.cfg.EventStore.Compression, s.cfg.EventStore.RowGroupSize)
 	if err != nil {
 		http.Error(w, "event store error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	sessCfg := session.Config{
-		MeetingID:                   meetingID,
+		MeetingID:                   internalMeetingID,
+		PlatformMeetingID:           meetingID,
 		MeetingsDir:                 s.cfg.MeetingsDir,
 		QuestionsDir:                s.cfg.QuestionsDir,
 		ProviderName:                prov.Name(),

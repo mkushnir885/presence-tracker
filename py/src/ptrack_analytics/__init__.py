@@ -69,16 +69,23 @@ def load(
     data = load_events(pattern)
 
     # Derive meetings frame: one row per meeting.
+    # meeting_started stores absolute Unix ms; other events store ms offsets,
+    # so the max offset across all events equals the meeting duration.
+    meeting_starts = (
+        data.filter(pl.col("event_type") == "meeting_started")
+        .group_by("meeting_id")
+        .agg(
+            pl.from_epoch(pl.col("timestamp").first(), time_unit="ms").alias(
+                "started_at"
+            )
+        )
+    )
     meetings = (
         data.group_by("meeting_id")
-        .agg(
-            pl.col("timestamp").min().alias("started_at"),
-            pl.col("timestamp").max().alias("ended_at"),
-        )
+        .agg(pl.col("timestamp").max().alias("duration_ms"))
+        .join(meeting_starts, on="meeting_id", how="left")
         .with_columns(
-            (pl.col("ended_at") - pl.col("started_at"))
-            .dt.total_seconds()
-            .alias("duration_seconds")
+            (pl.col("duration_ms") / 1_000.0).alias("duration_seconds"),
         )
     )
 

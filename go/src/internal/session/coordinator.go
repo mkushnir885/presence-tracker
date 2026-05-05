@@ -63,7 +63,8 @@ type UnregisteredStatus struct {
 
 // Config holds session-level configuration knobs.
 type Config struct {
-	MeetingID                   string
+	MeetingID                   string // internal UUID written to every Parquet row
+	PlatformMeetingID           string // provider-side meeting identifier (e.g. BBB external meeting ID)
 	MeetingsDir                 string
 	QuestionsDir                string
 	ProviderName                string
@@ -108,7 +109,7 @@ func (c *Coordinator) SetPoller(p *challenges.Poller) { c.poller = p }
 // Run drives the session event loop. It returns when the meeting ends, ctx is
 // cancelled, or an unrecoverable error occurs.
 func (c *Coordinator) Run(ctx context.Context) error {
-	providerEvents, err := c.provider.Subscribe(ctx, c.cfg.MeetingID)
+	providerEvents, err := c.provider.Subscribe(ctx, c.cfg.PlatformMeetingID)
 	if err != nil {
 		return fmt.Errorf("session: subscribe to provider: %w", err)
 	}
@@ -117,12 +118,6 @@ func (c *Coordinator) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("session: start messenger: %w", err)
 	}
-
-	c.writeEvent(ctx, eventstore.Record{
-		EventType: "meeting_started",
-		Source:    "provider:" + c.provider.Name(),
-		Metadata:  map[string]string{"platform": c.provider.Name()},
-	})
 
 	defer func() { //nolint:contextcheck // ctx is cancelled by this point; cleanup uses a fresh context
 		if c.poller != nil {
@@ -171,8 +166,20 @@ func (c *Coordinator) handleProviderEvent(ctx context.Context, evt providers.Eve
 	case providers.EventKindMeetingEnded:
 		// The provider channel will close; no extra action needed here.
 	case providers.EventKindMeetingStarted:
-		// Already recorded on session start; ignore duplicates from the provider.
+		c.onMeetingStarted(ctx, evt)
 	}
+}
+
+// onMeetingStarted records the meeting_started event using the provider's authoritative
+// timestamp and updates the event store's start time so the output file is named correctly.
+func (c *Coordinator) onMeetingStarted(ctx context.Context, evt providers.Event) {
+	c.store.SetStartTime(evt.Timestamp)
+	c.writeEvent(ctx, eventstore.Record{
+		Timestamp: evt.Timestamp,
+		EventType: "meeting_started",
+		Source:    "provider:" + c.provider.Name(),
+		Metadata:  map[string]string{"platform": c.provider.Name()},
+	})
 }
 
 func (c *Coordinator) onJoin(ctx context.Context, evt providers.Event) {
@@ -383,10 +390,13 @@ func (c *Coordinator) eligibleParticipants() []challenges.EligibleParticipant {
 }
 
 // writeEvent stamps and appends one event record to the event store.
+// If r.Timestamp is already set (non-zero), it is preserved; otherwise time.Now() is used.
 func (c *Coordinator) writeEvent(_ context.Context, r eventstore.Record) {
 	r.EventID = uuid.Must(uuid.NewV7()).String()
 	r.MeetingID = c.cfg.MeetingID
-	r.Timestamp = time.Now().UTC()
+	if r.Timestamp.IsZero() {
+		r.Timestamp = time.Now().UTC()
+	}
 	c.store.Append(r)
 }
 

@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"presence-tracker/src/internal/challenges"
@@ -152,7 +153,7 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture, ba
 
 	if fixture != "" {
 		if meetingID == "" {
-			meetingID = "replay-" + time.Now().Format("20060102T150405")
+			meetingID = "fixture"
 		}
 	} else if meetingID == "" {
 		return fmt.Errorf("--meeting is required (or use --fixture for offline replay)")
@@ -192,13 +193,20 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture, ba
 		return fmt.Errorf("init telegram: %w", err)
 	}
 
-	store, err := eventstore.NewWriter(cfg.MeetingsDir, meetingID, cfg.EventStore.Compression, cfg.EventStore.RowGroupSize)
+	// internalMeetingID is a time-based UUID that identifies this session in the
+	// Parquet event log. It is independent of the provider meeting ID (--meeting
+	// flag), which is only used for platform-side meeting lookup.
+	internalMeetingID := uuid.Must(uuid.NewV7()).String()
+	startTime := time.Now()
+
+	store, err := eventstore.NewWriter(cfg.MeetingsDir, startTime, cfg.EventStore.Compression, cfg.EventStore.RowGroupSize)
 	if err != nil {
 		return fmt.Errorf("init event store: %w", err)
 	}
 
 	sessCfg := session.Config{
-		MeetingID:                   meetingID,
+		MeetingID:                   internalMeetingID,
+		PlatformMeetingID:           meetingID,
 		MeetingsDir:                 cfg.MeetingsDir,
 		QuestionsDir:                cfg.QuestionsDir,
 		ProviderName:                prov.Name(),
@@ -245,7 +253,7 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture, ba
 		}()
 	}
 
-	slog.Info("tracking started", "meeting", meetingID, "provider", prov.Name())
+	slog.Info("tracking started", "meeting_id", internalMeetingID, "platform_meeting", meetingID, "provider", prov.Name())
 	return coord.Run(ctx)
 }
 

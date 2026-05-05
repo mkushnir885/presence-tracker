@@ -31,24 +31,36 @@ type Record struct {
 	Metadata       map[string]string // nil → null
 }
 
+// fileTimeFormat is the Go time layout for the date-time stamp in file names: ddmmyy_hhmm.
+const fileTimeFormat = "020106_1504"
+
 // Writer buffers meeting events and flushes them to a Parquet file.
 // It is safe to call from multiple goroutines.
 type Writer struct {
 	mu           sync.Mutex
 	buf          []Record
-	path         string
+	dir          string
+	startTime    time.Time
+	tmpPath      string // <dir>/<start>.parquet — renamed to <start>-<end>.parquet on Close
 	compression  string
 	rowGroupSize int
 }
 
-// NewWriter creates a Writer that will write to path on Flush/Close.
+// NewWriter creates a Writer that will write to <meetingsDir>/<start>.parquet on Flush
+// and rename the file to <start>-<end>.parquet on Close.
 // dir is created if it does not exist.
-func NewWriter(meetingsDir, meetingID, compression string, rowGroupSize int) (*Writer, error) {
+//
+// TODO: add a custom file name option (per-meeting or global default) so teachers can
+// label recordings (e.g. "CS101-lecture3") instead of relying on the timestamp alone.
+func NewWriter(meetingsDir string, startTime time.Time, compression string, rowGroupSize int) (*Writer, error) {
 	if err := os.MkdirAll(meetingsDir, 0o755); err != nil {
 		return nil, fmt.Errorf("eventstore: mkdir %s: %w", meetingsDir, err)
 	}
+	startStr := startTime.UTC().Format(fileTimeFormat)
 	return &Writer{
-		path:         filepath.Join(meetingsDir, meetingID+".parquet"),
+		dir:          meetingsDir,
+		startTime:    startTime,
+		tmpPath:      filepath.Join(meetingsDir, startStr+".parquet"),
 		compression:  compression,
 		rowGroupSize: rowGroupSize,
 	}, nil
@@ -75,19 +87,38 @@ func (w *Writer) Flush(_ context.Context) error {
 	w.buf = w.buf[:0]
 	w.mu.Unlock()
 
-	return w.writeRowGroup(rows)
+	startTime := w.startTime
+	return w.writeRowGroup(rows, startTime)
 }
 
-// Close flushes remaining buffered records and releases resources.
+// SetStartTime updates the meeting start time used to build the final file name.
+// Safe to call any time before Close; has no effect on data already flushed to disk.
+func (w *Writer) SetStartTime(t time.Time) {
+	w.mu.Lock()
+	w.startTime = t
+	w.mu.Unlock()
+}
+
+// Close flushes remaining buffered records and renames the file from
+// <start>.parquet to <start>-<end>.parquet.
 func (w *Writer) Close(ctx context.Context) error {
 	if err := w.Flush(ctx); err != nil {
 		return err
 	}
-	slog.Info("eventstore: closed", "path", w.path)
+	endStr := time.Now().UTC().Format(fileTimeFormat)
+	startStr := w.startTime.UTC().Format(fileTimeFormat)
+	finalPath := filepath.Join(w.dir, startStr+"-"+endStr+".parquet")
+	if err := os.Rename(w.tmpPath, finalPath); err != nil {
+		if !os.IsNotExist(err) {
+			slog.Warn("eventstore: could not rename meeting file", "from", w.tmpPath, "to", finalPath, "err", err)
+		}
+		return nil
+	}
+	slog.Info("eventstore: closed", "path", finalPath)
 	return nil
 }
 
-func (w *Writer) writeRowGroup(rows []Record) error {
+func (w *Writer) writeRowGroup(rows []Record, startTime time.Time) error {
 	codec, err := parseCompression(w.compression)
 	if err != nil {
 		return err
@@ -100,14 +131,14 @@ func (w *Writer) writeRowGroup(rows []Record) error {
 	arrowProps := pqarrow.NewArrowWriterProperties()
 
 	flags := os.O_CREATE | os.O_WRONLY
-	if _, err := os.Stat(w.path); err == nil {
+	if _, err := os.Stat(w.tmpPath); err == nil {
 		flags |= os.O_APPEND
 	} else {
 		flags |= os.O_TRUNC
 	}
-	f, err := os.OpenFile(w.path, flags, 0o644)
+	f, err := os.OpenFile(w.tmpPath, flags, 0o644)
 	if err != nil {
-		return fmt.Errorf("eventstore: open %s: %w", w.path, err)
+		return fmt.Errorf("eventstore: open %s: %w", w.tmpPath, err)
 	}
 	defer func() { _ = f.Close() }()
 
@@ -117,7 +148,7 @@ func (w *Writer) writeRowGroup(rows []Record) error {
 	}
 	defer func() { _ = pw.Close() }()
 
-	rec := buildRecord(rows)
+	rec := buildRecord(rows, startTime)
 	defer rec.Release()
 
 	if err := pw.Write(rec); err != nil {
@@ -126,13 +157,19 @@ func (w *Writer) writeRowGroup(rows []Record) error {
 	return pw.Close()
 }
 
-func buildRecord(rows []Record) arrow.Record {
+// buildRecord encodes rows into an Arrow record batch.
+// timestamp encoding (schema v2):
+//   - meeting_started row → absolute Unix ms (the anchor for other events).
+//   - all other rows → ms elapsed since startTime (the meeting start).
+//
+// If startTime is zero, all rows are stored as absolute Unix ms (safe fallback
+// when no meeting_started event was recorded).
+func buildRecord(rows []Record, startTime time.Time) arrow.Record {
 	pool := memory.NewGoAllocator()
-	tsType := &arrow.TimestampType{Unit: arrow.Millisecond, TimeZone: "UTC"}
 
 	eventID := array.NewStringBuilder(pool)
 	meetingID := array.NewStringBuilder(pool)
-	ts := array.NewTimestampBuilder(pool, tsType)
+	ts := array.NewInt64Builder(pool)
 	source := array.NewStringBuilder(pool)
 	eventType := array.NewStringBuilder(pool)
 	participantID := array.NewStringBuilder(pool)
@@ -152,7 +189,11 @@ func buildRecord(rows []Record) arrow.Record {
 		r := &rows[i]
 		eventID.Append(r.EventID)
 		meetingID.Append(r.MeetingID)
-		ts.Append(arrow.Timestamp(r.Timestamp.UnixMilli()))
+		if r.EventType == "meeting_started" || startTime.IsZero() {
+			ts.Append(r.Timestamp.UnixMilli())
+		} else {
+			ts.Append(r.Timestamp.Sub(startTime).Milliseconds())
+		}
 		source.Append(r.Source)
 		eventType.Append(r.EventType)
 		appendNullable(participantID, r.ParticipantID)

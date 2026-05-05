@@ -79,7 +79,7 @@ func (p *Provider) Subscribe(ctx context.Context, meetingID string) (<-chan prov
 				PlatformID:  fe.PlatformID,
 				DisplayName: fe.DisplayName,
 				Text:        fe.Text,
-				Timestamp:   time.Now().UTC(),
+				Timestamp:   start.Add(time.Duration(fe.OffsetMS) * time.Millisecond),
 				Extra:       fe.Extra,
 			}
 			select {

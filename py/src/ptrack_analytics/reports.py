@@ -23,13 +23,13 @@ def generate_csv(events: pl.LazyFrame) -> str:
     pres = (
         _presence_frame(events)
         .join(
-            meeting_times.select(["meeting_id", "ended_at", "duration_seconds"]),
+            meeting_times.select(["meeting_id", "duration_ms", "duration_seconds"]),
             on="meeting_id",
             how="left",
         )
         .with_columns(
-            pl.when(pl.col("left_at").is_null())
-            .then((pl.col("ended_at") - pl.col("joined_at")).dt.total_seconds())
+            pl.when(pl.col("left_ms").is_null())
+            .then((pl.col("duration_ms") - pl.col("joined_ms")) / 1_000.0)
             .otherwise(pl.col("presence_seconds"))
             .alias("presence_seconds")
         )
@@ -75,14 +75,14 @@ def generate_aggregate_csv(events: pl.LazyFrame) -> str:
         _presence_frame(events)
         .join(
             meeting_times.select(
-                ["meeting_id", "started_at", "ended_at", "duration_seconds"]
+                ["meeting_id", "started_at", "duration_ms", "duration_seconds"]
             ),
             on="meeting_id",
             how="left",
         )
         .with_columns(
-            pl.when(pl.col("left_at").is_null())
-            .then((pl.col("ended_at") - pl.col("joined_at")).dt.total_seconds())
+            pl.when(pl.col("left_ms").is_null())
+            .then((pl.col("duration_ms") - pl.col("joined_ms")) / 1_000.0)
             .otherwise(pl.col("presence_seconds"))
             .alias("presence_seconds")
         )
@@ -120,15 +120,30 @@ def generate_aggregate_csv(events: pl.LazyFrame) -> str:
 
 
 def _meeting_times(events: pl.LazyFrame) -> pl.LazyFrame:
-    """Per-meeting start/end/duration; duration is floored at 1 second."""
-    return events.group_by("meeting_id").agg(
-        pl.col("timestamp").min().alias("started_at"),
-        pl.col("timestamp").max().alias("ended_at"),
-    ).with_columns(
-        pl.when(
-            (pl.col("ended_at") - pl.col("started_at")).dt.total_seconds() > 0
+    """
+    Per-meeting start time (absolute Datetime) and duration.
+
+    Columns: meeting_id, started_at (Datetime UTC), duration_ms (Int64),
+             duration_seconds (Float64, floored at 1 s).
+
+    The meeting_started event stores an absolute Unix ms timestamp; all other
+    events store ms offsets, so the maximum offset equals the meeting duration.
+    """
+    start = (
+        events.filter(pl.col("event_type") == "meeting_started")
+        .group_by("meeting_id")
+        .agg(
+            pl.from_epoch(pl.col("timestamp").first(), time_unit="ms").alias(
+                "started_at"
+            )
         )
-        .then((pl.col("ended_at") - pl.col("started_at")).dt.total_seconds())
+    )
+    duration = events.group_by("meeting_id").agg(
+        pl.col("timestamp").max().alias("duration_ms")
+    )
+    return start.join(duration, on="meeting_id").with_columns(
+        pl.when(pl.col("duration_ms") > 0)
+        .then(pl.col("duration_ms") / 1_000.0)
         .otherwise(pl.lit(1.0))
         .alias("duration_seconds")
     )

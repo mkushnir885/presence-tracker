@@ -12,7 +12,7 @@ schema below covers all event types; question text is never in Parquet.
 
 ## Schema version
 
-Current: **1**. Stored as a Parquet file-level metadata key
+Current: **2**. Stored as a Parquet file-level metadata key
 `schema_version`. Readers refuse files with a higher major version.
 New nullable columns may be added in a minor bump; removals and renames
 are major.
@@ -23,7 +23,7 @@ are major.
 |-------------------|----------------------|----------|----------------------------------------------------------|
 | `event_id`        | `string` (UUIDv7)    | no       | Unique per event. UUIDv7 sorts by time.                  |
 | `meeting_id`      | `string`             | no       | Stable ID for this meeting session.                      |
-| `timestamp`       | `timestamp[ms, UTC]` | no       | Wall-clock time the event was observed.                  |
+| `timestamp`       | `int64`              | no       | For `meeting_started`: absolute Unix timestamp in ms. For all other events: ms elapsed since `meeting_started`. |
 | `source`          | `string`             | no       | Origin of the event. See "Sources" below.                |
 | `event_type`      | `string`             | no       | Event kind. See "Event types" below.                     |
 | `participant_id`  | `string`             | yes      | Internal stable participant ID; null for meeting-scoped events. |

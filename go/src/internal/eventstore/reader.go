@@ -41,17 +41,41 @@ func ReadAll(ctx context.Context, path string) ([]Record, error) {
 	strCols := make([]*strReader, 9)
 	for i := range 9 {
 		if i == 2 {
-			continue // timestamp column
+			continue // timestamp column handled separately
 		}
 		strCols[i] = newStrReader(table.Column(i))
 	}
-	tsReader := newTSReader(table.Column(2))
+	tsCol := newInt64Reader(table.Column(2))
+
+	// Collect raw timestamp values (schema v2: absolute Unix ms for
+	// meeting_started, ms offset from meeting start for all others).
+	rawTS := make([]int64, n)
+	for i := range n {
+		rawTS[i] = tsCol.get(i)
+	}
+
+	// Identify the meeting start time from the meeting_started event so that
+	// all offsets can be reconstructed into absolute wall-clock times.
+	var meetingStart time.Time
+	for i := range n {
+		if strCols[4].get(i) == "meeting_started" {
+			meetingStart = time.UnixMilli(rawTS[i]).UTC()
+			break
+		}
+	}
 
 	for i := range n {
+		var ts time.Time
+		if strCols[4].get(i) == "meeting_started" || meetingStart.IsZero() {
+			ts = time.UnixMilli(rawTS[i]).UTC()
+		} else {
+			ts = meetingStart.Add(time.Duration(rawTS[i]) * time.Millisecond)
+		}
+
 		r := Record{
 			EventID:   strCols[0].get(i),
 			MeetingID: strCols[1].get(i),
-			Timestamp: tsReader.get(i),
+			Timestamp: ts,
 			Source:    strCols[3].get(i),
 			EventType: strCols[4].get(i),
 		}
@@ -127,34 +151,33 @@ func (sr *strReader) isNull(row int) bool {
 	return ch.IsNull(idx)
 }
 
-// tsReader gives row-indexed access across chunked timestamp column data.
-type tsReader struct {
-	chunks []*array.Timestamp
+// int64Reader gives row-indexed access across chunked Int64 column data.
+type int64Reader struct {
+	chunks []*array.Int64
 	ends   []int
 }
 
-func newTSReader(col *arrow.Column) *tsReader {
-	tr := &tsReader{}
+func newInt64Reader(col *arrow.Column) *int64Reader {
+	r := &int64Reader{}
 	offset := 0
 	for _, chunk := range col.Data().Chunks() {
-		ts := chunk.(*array.Timestamp)
-		tr.chunks = append(tr.chunks, ts)
-		offset += ts.Len()
-		tr.ends = append(tr.ends, offset)
+		a := chunk.(*array.Int64)
+		r.chunks = append(r.chunks, a)
+		offset += a.Len()
+		r.ends = append(r.ends, offset)
 	}
-	return tr
+	return r
 }
 
-func (tr *tsReader) get(row int) time.Time {
-	for i, end := range tr.ends {
+func (r *int64Reader) get(row int) int64 {
+	for i, end := range r.ends {
 		if row < end {
 			start := 0
 			if i > 0 {
-				start = tr.ends[i-1]
+				start = r.ends[i-1]
 			}
-			idx := row - start
-			return time.UnixMilli(int64(tr.chunks[i].Value(idx))).UTC()
+			return r.chunks[i].Value(row - start)
 		}
 	}
-	return time.Time{}
+	return 0
 }

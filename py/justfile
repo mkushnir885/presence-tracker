@@ -4,7 +4,7 @@ default:
 build:
   mkdir -p bin
   uv run pyinstaller --onefile --name ptrack_py \
-    --distpath bin src/ptrack_analytics/__main__.py
+    --paths src --distpath bin src/ptrack_py_entry.py
 
 test:
   uv run pytest

@@ -3,8 +3,10 @@ package bbb
 import (
 	"context"
 	"crypto/sha1" //nolint:gosec // BBB API uses SHA-1 by specification
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"log/slog"
 	"net"
@@ -20,6 +22,7 @@ import (
 // Adapter is the BigBlueButton provider.
 type Adapter struct {
 	cfg        *config.BBBConfig
+	httpClient *http.Client
 	httpServer *http.Server
 	events     chan providers.Event
 	cancel     context.CancelFunc
@@ -27,9 +30,16 @@ type Adapter struct {
 
 // New creates a BBB adapter from the given configuration.
 func New(cfg *config.BBBConfig) *Adapter {
+	httpClient := &http.Client{}
+	if cfg.TLSSkipVerify {
+		httpClient.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // self-signed cert in dev; controlled by explicit config flag
+		}
+	}
 	return &Adapter{
-		cfg:    cfg,
-		events: make(chan providers.Event, 64),
+		cfg:        cfg,
+		httpClient: httpClient,
+		events:     make(chan providers.Event, 64),
 	}
 }
 
@@ -43,7 +53,7 @@ func (a *Adapter) Authenticate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("bbb: authenticate: %w", err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := a.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("bbb: authenticate: %w", err)
 	}
@@ -97,6 +107,22 @@ func (a *Adapter) Subscribe(ctx context.Context, meetingID string) (<-chan provi
 	if err := a.registerHook(ctx, meetingID, callbackURL); err != nil {
 		// Non-fatal: log and continue. Events from API polling could be added as fallback.
 		slog.Warn("bbb: hook registration failed — no real-time events will arrive", "err", err)
+	}
+
+	// If the meeting is already running, emit a MeetingStarted event carrying the
+	// actual creation time so the coordinator can correct the file name and log timestamp.
+	if t, err := a.getMeetingCreateTime(ctx, meetingID); err != nil {
+		slog.Warn("bbb: could not fetch meeting start time", "err", err)
+	} else if !t.IsZero() {
+		slog.Info("bbb: meeting already running", "started_at", t)
+		select {
+		case a.events <- providers.Event{
+			Kind:      providers.EventKindMeetingStarted,
+			MeetingID: meetingID,
+			Timestamp: t,
+		}:
+		default:
+		}
 	}
 
 	return a.events, nil
@@ -160,6 +186,13 @@ type bbbEventData struct {
 type bbbAttributes struct {
 	Meeting bbbMeeting `json:"meeting"`
 	User    bbbUser    `json:"user"`
+	Message bbbMessage `json:"message"`
+}
+
+type bbbMessage struct {
+	Message struct {
+		Text string `json:"text"`
+	} `json:"message"`
 }
 
 type bbbMeeting struct {
@@ -208,10 +241,25 @@ func (a *Adapter) convertEvent(w bbbEventWrapper) (providers.Event, bool) {
 			MeetingID: meetingID,
 			Timestamp: ts,
 		}, true
+	case "meeting-created":
+		return providers.Event{
+			Kind:      providers.EventKindMeetingStarted,
+			MeetingID: meetingID,
+			Timestamp: ts,
+		}, true
 	case "chat-public-message-sent":
-		// Chat content is parsed for pairing codes but never stored.
-		// TODO: decode message text from attributes.message field.
-		return providers.Event{}, false
+		text := w.Data.Attributes.Message.Message.Text
+		if text == "" {
+			return providers.Event{}, false
+		}
+		return providers.Event{
+			Kind:        providers.EventKindChatMessage,
+			MeetingID:   meetingID,
+			PlatformID:  user.InternalUserID,
+			DisplayName: user.Name,
+			Text:        text,
+			Timestamp:   ts,
+		}, true
 	}
 	return providers.Event{}, false
 }
@@ -226,7 +274,7 @@ func (a *Adapter) registerHook(ctx context.Context, meetingID, callbackURL strin
 	if err != nil {
 		return fmt.Errorf("bbb: hooks/create request: %w", err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := a.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("bbb: hooks/create: %w", err)
 	}
@@ -254,4 +302,33 @@ func bbbChecksum(action, params, secret string) string {
 	h := sha1.New() //nolint:gosec
 	_, _ = h.Write([]byte(action + params + secret))
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// getMeetingCreateTime calls the BBB getMeetingInfo API and returns the meeting's
+// creation time. Returns a zero time (and nil error) if the meeting does not exist yet.
+func (a *Adapter) getMeetingCreateTime(ctx context.Context, meetingID string) (time.Time, error) {
+	params := "meetingID=" + url.QueryEscape(meetingID)
+	apiURL := a.apiURL("getMeetingInfo", params)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("bbb: getMeetingInfo request: %w", err)
+	}
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("bbb: getMeetingInfo: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var result struct {
+		ReturnCode string `xml:"returncode"`
+		CreateTime int64  `xml:"createTime"`
+	}
+	if err := xml.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return time.Time{}, fmt.Errorf("bbb: getMeetingInfo parse: %w", err)
+	}
+	if result.ReturnCode != "SUCCESS" {
+		return time.Time{}, nil // meeting not found or not yet started
+	}
+	return time.UnixMilli(result.CreateTime).UTC(), nil
 }
