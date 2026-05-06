@@ -50,6 +50,7 @@ func (a *Adapter) Name() string { return "meet" }
 func (a *Adapter) Authenticate(ctx context.Context) error {
 	oauthCfg := providersoauth.Config{
 		ClientID:     a.cfg.OAuth.ClientID,
+		ClientSecret: a.cfg.OAuth.ClientSecret,
 		AuthURL:      authURL,
 		TokenURL:     tokenURL,
 		Scopes:       meetScopes,

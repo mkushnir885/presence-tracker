@@ -33,7 +33,10 @@ func (t *Token) Valid() bool {
 
 // Config holds the parameters needed to run a PKCE flow.
 type Config struct {
-	ClientID     string
+	ClientID string
+	// ClientSecret is optional. Most PKCE providers (e.g. Zoom) do not require
+	// it, but Google's token endpoint demands it even for Desktop-app clients.
+	ClientSecret string
 	AuthURL      string
 	TokenURL     string
 	Scopes       []string
@@ -200,6 +203,9 @@ func exchangeCode(ctx context.Context, cfg Config, code, verifier, redirectURI s
 		"client_id":     {cfg.ClientID},
 		"code_verifier": {verifier},
 	}
+	if cfg.ClientSecret != "" {
+		body.Set("client_secret", cfg.ClientSecret)
+	}
 	return postToken(ctx, cfg.TokenURL, body)
 }
 
@@ -208,6 +214,9 @@ func refreshToken(ctx context.Context, cfg Config, refreshTok string) (*Token, e
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {refreshTok},
 		"client_id":     {cfg.ClientID},
+	}
+	if cfg.ClientSecret != "" {
+		body.Set("client_secret", cfg.ClientSecret)
 	}
 	tok, err := postToken(ctx, cfg.TokenURL, body)
 	if err != nil {

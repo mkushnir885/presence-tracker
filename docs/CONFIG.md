@@ -35,8 +35,9 @@ meet_oauth_client_id: "..."
 bbb_shared_secret: "..."
 ```
 
-Note: Google Meet and Zoom use **PKCE** (no `client_secret`). Only
-`client_id` and a localhost redirect URI are needed.
+Note: Zoom uses **PKCE** with no `client_secret`. Google Meet uses PKCE
+too, but Google's token endpoint requires `client_secret` even for
+Desktop-app clients — include it alongside `client_id`.
 
 ## Full schema (v1)
 
@@ -86,9 +87,11 @@ providers:
   meet:
     enabled: false
     # Google Meet uses polling only — no public address required.
-    # PKCE flow: same as Zoom above.
+    # PKCE flow, but Google's token endpoint also requires client_secret even
+    # for Desktop-app clients. Find it in Cloud Console → Credentials → your app.
     oauth:
       client_id: ${secrets.meet_oauth_client_id}
+      client_secret: ${secrets.meet_oauth_client_secret}
       redirect_port: 9126
     poll_interval_seconds: 10  # how often to query the Meet API for participant changes
 

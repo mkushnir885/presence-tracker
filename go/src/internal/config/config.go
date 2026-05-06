@@ -44,7 +44,10 @@ type BBBConfig struct {
 }
 
 type OAuthConfig struct {
-	ClientID     string `yaml:"client_id"`
+	ClientID string `yaml:"client_id"`
+	// ClientSecret is required by Google's token endpoint even for Desktop-app
+	// PKCE clients. Zoom does not require it and ignores it if present.
+	ClientSecret string `yaml:"client_secret"`
 	RedirectPort int    `yaml:"redirect_port"`
 }
 
