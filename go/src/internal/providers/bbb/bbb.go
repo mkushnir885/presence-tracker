@@ -29,18 +29,33 @@ type Adapter struct {
 }
 
 // New creates a BBB adapter from the given configuration.
-func New(cfg *config.BBBConfig) *Adapter {
-	httpClient := &http.Client{}
-	if cfg.TLSSkipVerify {
-		httpClient.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // self-signed cert in dev; controlled by explicit config flag
-		}
+// If cfg.Mode is "poll", it returns a polling adapter that requires no public address.
+// Otherwise it returns a webhook adapter (default).
+func New(cfg *config.BBBConfig) providers.Provider {
+	if cfg.Mode == "poll" {
+		return newPollAdapter(cfg)
 	}
+	return newWebhookAdapter(cfg)
+}
+
+func newWebhookAdapter(cfg *config.BBBConfig) *Adapter {
 	return &Adapter{
 		cfg:        cfg,
-		httpClient: httpClient,
+		httpClient: newHTTPClient(cfg),
 		events:     make(chan providers.Event, 64),
 	}
+}
+
+// newHTTPClient builds an HTTP client respecting the TLSSkipVerify setting.
+func newHTTPClient(cfg *config.BBBConfig) *http.Client {
+	if cfg.TLSSkipVerify {
+		return &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // self-signed cert in dev; controlled by explicit config flag
+			},
+		}
+	}
+	return &http.Client{}
 }
 
 func (a *Adapter) Name() string { return "bbb" }
@@ -273,11 +288,15 @@ func (a *Adapter) registerHook(ctx context.Context, meetingID, callbackURL strin
 	return nil
 }
 
-// apiURL builds a signed BBB API URL for the given action and query parameters.
-// params must be URL-encoded and NOT include a trailing &.
 func (a *Adapter) apiURL(action, params string) string {
-	checksum := bbbChecksum(action, params, a.cfg.SharedSecret)
-	base := strings.TrimRight(a.cfg.BaseURL, "/") + "/api/" + action
+	return bbbAPIURL(a.cfg.BaseURL, a.cfg.SharedSecret, action, params)
+}
+
+// bbbAPIURL builds a signed BBB API URL for the given action and query parameters.
+// params must be URL-encoded and NOT include a trailing &.
+func bbbAPIURL(baseURL, sharedSecret, action, params string) string {
+	checksum := bbbChecksum(action, params, sharedSecret)
+	base := strings.TrimRight(baseURL, "/") + "/api/" + action
 	if params != "" {
 		return base + "?" + params + "&checksum=" + checksum
 	}

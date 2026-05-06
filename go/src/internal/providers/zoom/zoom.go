@@ -36,7 +36,17 @@ type Adapter struct {
 }
 
 // New creates a Zoom adapter. dataDir is used for OAuth token persistence.
-func New(cfg *config.ZoomConfig, dataDir string) *Adapter {
+// If cfg.Mode is "poll", it returns a polling adapter that requires no public address
+// but needs a Zoom Pro plan and an account-admin OAuth authorisation.
+// Otherwise it returns a webhook adapter (default).
+func New(cfg *config.ZoomConfig, dataDir string) providers.Provider {
+	if cfg.Mode == "poll" {
+		return newPollAdapter(cfg, dataDir)
+	}
+	return newWebhookAdapter(cfg, dataDir)
+}
+
+func newWebhookAdapter(cfg *config.ZoomConfig, dataDir string) *Adapter {
 	return &Adapter{
 		cfg:     cfg,
 		dataDir: dataDir,

@@ -25,18 +25,22 @@ type Config struct {
 
 type ProvidersConfig struct {
 	BBB  BBBConfig  `yaml:"bbb"`
-	Meet MeetConfig `yaml:"meet"` // TODO: Meet provider not implemented yet
-	Zoom ZoomConfig `yaml:"zoom"` // TODO: Zoom provider not implemented yet
+	Meet MeetConfig `yaml:"meet"`
+	Zoom ZoomConfig `yaml:"zoom"`
 }
 
 type BBBConfig struct {
 	Enabled       bool   `yaml:"enabled"`
 	BaseURL       string `yaml:"base_url"`
 	SharedSecret  string `yaml:"shared_secret"`
-	WebhookPort   int    `yaml:"webhook_port"`
-	WebhookHost   string `yaml:"webhook_host"`    // publicly-reachable hostname/IP for the BBB callback; defaults to "localhost"
-	WebhookSecret string `yaml:"webhook_secret"`  // optional extra HMAC secret for hook payloads
+	Mode          string `yaml:"mode"`            // "webhook" (default) or "poll"
 	TLSSkipVerify bool   `yaml:"tls_skip_verify"` // disable TLS certificate verification (for self-signed certs in dev)
+	// Webhook mode — BBB server must be able to reach webhook_host:webhook_port.
+	WebhookPort   int    `yaml:"webhook_port"`
+	WebhookHost   string `yaml:"webhook_host"`   // hostname/IP the BBB server calls back to; defaults to "localhost"
+	WebhookSecret string `yaml:"webhook_secret"` // optional HMAC secret for hook payloads
+	// Poll mode — no public address required; ptrack polls getMeetingInfo on a timer.
+	PollIntervalSeconds int `yaml:"poll_interval_seconds"`
 }
 
 type OAuthConfig struct {
@@ -51,11 +55,16 @@ type MeetConfig struct {
 }
 
 type ZoomConfig struct {
-	Enabled            bool        `yaml:"enabled"`
-	OAuth              OAuthConfig `yaml:"oauth"`
-	WebhookPort        int         `yaml:"webhook_port"`
-	WebhookHost        string      `yaml:"webhook_host"`
-	WebhookSecretToken string      `yaml:"webhook_secret_token"` // Zoom webhook verification token
+	Enabled bool        `yaml:"enabled"`
+	OAuth   OAuthConfig `yaml:"oauth"`
+	Mode    string      `yaml:"mode"` // "webhook" (default) or "poll"
+	// Webhook mode — requires a publicly reachable address (or a tunnel such as Cloudflare Tunnel).
+	WebhookPort        int    `yaml:"webhook_port"`
+	WebhookHost        string `yaml:"webhook_host"`
+	WebhookSecretToken string `yaml:"webhook_secret_token"` // Zoom webhook verification token
+	// Poll mode — no public address required; requires a Zoom Pro plan or higher
+	// and an account-admin OAuth authorization (dashboard_meetings:read:admin scope).
+	PollIntervalSeconds int `yaml:"poll_interval_seconds"`
 }
 
 type MessengersConfig struct {
@@ -163,8 +172,20 @@ func (c *Config) defaults() {
 	if c.Providers.BBB.WebhookPort == 0 {
 		c.Providers.BBB.WebhookPort = 9124
 	}
+	if c.Providers.BBB.Mode == "" {
+		c.Providers.BBB.Mode = "webhook"
+	}
+	if c.Providers.BBB.PollIntervalSeconds == 0 {
+		c.Providers.BBB.PollIntervalSeconds = 10
+	}
 	if c.Providers.Zoom.WebhookPort == 0 {
 		c.Providers.Zoom.WebhookPort = 9123
+	}
+	if c.Providers.Zoom.Mode == "" {
+		c.Providers.Zoom.Mode = "webhook"
+	}
+	if c.Providers.Zoom.PollIntervalSeconds == 0 {
+		c.Providers.Zoom.PollIntervalSeconds = 10
 	}
 	if c.Providers.Zoom.OAuth.RedirectPort == 0 {
 		c.Providers.Zoom.OAuth.RedirectPort = 9125

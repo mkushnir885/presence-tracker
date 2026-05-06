@@ -86,6 +86,18 @@ cancelled. Events emitted: `participant_joined` and `participant_left`.
 Chat is not surfaced through the Provider interface. `FetchPostMeeting`
 is idempotent.
 
+#### Operating modes per platform
+
+Each platform supports one or two operating modes, selected by `providers.<platform>.mode` in the config:
+
+| Platform | `webhook` mode | `poll` mode |
+|----------|---------------|-------------|
+| **BBB**  | BBB server pushes events via `hooks/create`. Requires ptrack to be reachable from the BBB server (campus LAN / VPN is enough; no public internet address needed). | Polls `getMeetingInfo` on a timer. No reachability requirement at all. Works with every BBB installation. |
+| **Zoom** | Zoom's servers push events to ptrack. Requires a publicly reachable HTTPS address (e.g. Cloudflare Tunnel). Works with all Zoom plans. | Polls the Zoom Dashboard API (`dashboard_meetings:read:admin`). No public address required. Requires **Zoom Pro plan or higher** and OAuth authorisation by an account admin. |
+| **Meet** | Not supported — Meet has no webhook API. | Only mode available. Polls the conference records API. No public address required. Requires a Google Workspace account (personal Gmail does not expose conference data through this API). |
+
+`New()` in each provider package reads `cfg.Mode` and returns the appropriate concrete adapter behind the `Provider` interface, so the rest of the system is unaware of which mode is active.
+
 ### Messenger (`go/src/internal/messengers/messenger.go`)
 
 ```go

@@ -57,27 +57,62 @@ retention_days: 180    # purge meeting Parquet + question files older than this
 providers:
   zoom:
     enabled: false
+    # Two operating modes (mode: webhook is the default):
+    #
+    # mode: webhook — Zoom's servers push events to ptrack.
+    #   Requires a publicly reachable address (e.g. a Cloudflare Tunnel).
+    #   Works with all Zoom plans.
+    #
+    # mode: poll — ptrack polls the Zoom Dashboard API on a timer.
+    #   No public address required, but requires:
+    #     • Zoom Pro plan or higher (Dashboard API is not available on free accounts).
+    #     • The OAuth authorisation must be performed by an account admin
+    #       (the dashboard_meetings:read:admin scope requires admin consent).
+    #   Tokens are stored in zoom_poll_oauth.json (separate from webhook mode).
+    mode: webhook  # webhook | poll
     # PKCE flow: only client_id required; no client_secret.
     # On first use, ptrack opens a browser window for the OAuth consent screen.
     # The access + refresh tokens are stored in secrets.yaml after consent.
     oauth:
       client_id: ${secrets.zoom_oauth_client_id}
       redirect_port: 9125      # localhost redirect URI: http://127.0.0.1:9125/callback
+    # Webhook mode fields:
     webhook_port: 9123
+    # webhook_host: "your-tunnel.example.com"  # hostname the Zoom servers can reach
+    # webhook_secret_token: ${secrets.zoom_webhook_secret_token}
+    # Poll mode fields:
+    # poll_interval_seconds: 10
 
   meet:
     enabled: false
+    # Google Meet uses polling only — no public address required.
     # PKCE flow: same as Zoom above.
     oauth:
       client_id: ${secrets.meet_oauth_client_id}
       redirect_port: 9126
-    # Google Meet webhook / polling interval config (if applicable)
+    poll_interval_seconds: 10  # how often to query the Meet API for participant changes
 
   bbb:
     enabled: true
     base_url: "https://bbb.example.edu/bigbluebutton/"
     shared_secret: ${secrets.bbb_shared_secret}
+    # Two operating modes (mode: webhook is the default):
+    #
+    # mode: webhook — BBB server pushes events to ptrack via hooks/create.
+    #   Requires ptrack to be reachable from the BBB server.
+    #   If teacher and BBB server are on the same campus LAN or VPN, a local
+    #   network address (webhook_host: "192.168.1.x") is enough — no public URL.
+    #
+    # mode: poll — ptrack polls getMeetingInfo on a timer.
+    #   No public address required. Works with every BBB installation.
+    #   Available to all users at no extra cost.
+    mode: webhook  # webhook | poll
+    # Webhook mode fields:
     webhook_port: 9124
+    # webhook_host: "192.168.1.42"  # address the BBB server can reach; defaults to "localhost"
+    # webhook_secret: ${secrets.bbb_webhook_secret}  # optional HMAC validation
+    # Poll mode fields:
+    # poll_interval_seconds: 10
 
 # --- Messengers --------------------------------------------------------------
 messengers:
