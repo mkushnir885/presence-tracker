@@ -113,10 +113,18 @@ func (a *Adapter) Subscribe(ctx context.Context, meetingID string) (<-chan provi
 	if host == "" {
 		host = "localhost"
 	}
-	webhookURL := fmt.Sprintf("http://%s:%d/zoom/webhook", host, a.cfg.WebhookPort)
+	// When webhook_host is a public domain (e.g. via Cloudflare Tunnel), Zoom
+	// requires HTTPS on port 443 — the tunnel handles TLS termination. For
+	// localhost the plain HTTP address is what Zoom actually calls.
+	var publicURL string
+	if host == "localhost" || host == "127.0.0.1" {
+		publicURL = fmt.Sprintf("http://%s:%d/zoom/webhook", host, a.cfg.WebhookPort)
+	} else {
+		publicURL = fmt.Sprintf("https://%s/zoom/webhook", host)
+	}
 	slog.Info("zoom: webhook server listening",
 		"addr", addr,
-		"public_url", webhookURL,
+		"public_url", publicURL,
 		"note", "register this URL in your Zoom app Event Subscriptions")
 
 	return a.events, nil
