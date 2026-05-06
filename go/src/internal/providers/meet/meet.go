@@ -291,17 +291,17 @@ func (a *Adapter) listParticipants(ctx context.Context, recordName string) ([]pa
 
 	var result struct {
 		Participants []struct {
-			Name             string `json:"name"`
+			Name              string `json:"name"`
 			EarliestStartTime string `json:"earliestStartTime"`
-			User             struct {
-				SignedInUser *struct {
-					User        string `json:"user"`
-					DisplayName string `json:"displayName"`
-				} `json:"signedinUser"`
-				AnonymousUser *struct {
-					DisplayName string `json:"displayName"`
-				} `json:"anonymousUser"`
-			} `json:"user"`
+			// Proto3 oneof: signedInUser and anonymousUser appear as peer fields,
+			// not nested inside a "user" wrapper.
+			SignedInUser *struct {
+				User        string `json:"user"`
+				DisplayName string `json:"displayName"`
+			} `json:"signedInUser"`
+			AnonymousUser *struct {
+				DisplayName string `json:"displayName"`
+			} `json:"anonymousUser"`
 		} `json:"participants"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -317,10 +317,10 @@ func (a *Adapter) listParticipants(ctx context.Context, recordName string) ([]pa
 		}
 		info.joinTime = joinTime
 
-		if su := p.User.SignedInUser; su != nil {
+		if su := p.SignedInUser; su != nil {
 			info.platformID = su.User
 			info.displayName = su.DisplayName
-		} else if au := p.User.AnonymousUser; au != nil {
+		} else if au := p.AnonymousUser; au != nil {
 			info.platformID = p.Name // use resource name as stable ID for anonymous users
 			info.displayName = au.DisplayName
 		}
