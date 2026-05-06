@@ -24,7 +24,7 @@ const (
 	zoomTokenURL = "https://zoom.us/oauth/token"
 )
 
-var zoomScopes = []string{"meeting:read"}
+var zoomScopes = []string{"meeting:read:meeting", "meeting:read:participant"}
 
 // Adapter is the Zoom provider.
 type Adapter struct {
