@@ -27,7 +27,7 @@ transmit, or export participant data.
    is used, transcripts sent to that backend are the only external
    transmission, and the GUI must warn the teacher before enabling it.
 5. **Retention is bounded.** Default 180 days, configurable down; a
-   weekly purge job runs. Exported PDFs and Parquet files are the
+   weekly purge job runs. Exported CSV and Parquet files are the
    teacher's responsibility after export.
 
 ## Retention rules
@@ -39,7 +39,7 @@ transmit, or export participant data.
 | Question content            | `questions/<id>.jsonl`        | Same as meetings  | Purged alongside the corresponding meeting Parquet file          |
 | Transcript (AI-gen)         | In-memory rolling window only | 20 min            | Never written to disk. Violating this is a design error        |
 | Screen-share frames (AI-gen)| In-memory for 1–2 frames only | Seconds           | Discarded after OCR; never persisted                           |
-| Generated PDFs              | `reports/*.pdf`               | Until deleted     | Teacher's responsibility                                       |
+| Generated CSV reports       | `reports/*.csv`               | Until deleted     | Teacher's responsibility                                       |
 | Secrets (tokens, keys)      | `secrets.yaml` (protected)    | Until rotated     | Never copied into the event log                                |
 
 ## Privacy-preserving defaults

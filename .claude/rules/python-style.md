@@ -37,9 +37,9 @@ globs: ["py/**/*.py", "py/pyproject.toml"]
 
 ## Templates and I/O
 
-- When generating PDFs or HTML, templates live in
-  `py/src/ptrack_analytics/templates/` and are rendered with Jinja2. Do not build
-  HTML with string concatenation.
+- When generating HTML or any other templated text output, templates live
+  in `py/src/ptrack_analytics/templates/` and are rendered with Jinja2.
+  Do not build HTML with string concatenation.
 - Side-effectful code (file writes, subprocess, network) goes in thin
   adapter modules. Analysis modules take and return dataframes; they do
   not read or write files themselves.

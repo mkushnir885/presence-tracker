@@ -5,7 +5,7 @@ during online lessons. Zoom, Google Meet, and BigBlueButton are supported
 behind a common `Provider` interface. Non-intrusive presence challenges
 are delivered to participants privately via a messenger bot (Telegram
 first, abstracted so others can be added). Outputs per-meeting and
-cross-meeting statistics via CLI and a local web GUI, plus PDF reports.
+cross-meeting statistics via CLI and a local web GUI, plus CSV reports.
 
 This is a university diploma project. Clarity and defensible design
 choices matter as much as shipping features.
@@ -21,6 +21,8 @@ choices matter as much as shipping features.
   built with **PyInstaller** (`ptrack_py` / `ptrack_py.exe`). Users
   install the Go binary and the Python binary; no Python runtime or
   `uv` required.
+
+  Reports are emitted as CSV only; no PDF generation in v1.
 - **templ + htmx** — server-rendered GUI with minimal client-side JS.
   Supports dark/light/system color themes and English/Ukrainian UI
   languages (easily extended by adding translation files). Opened in
@@ -51,9 +53,9 @@ presence-tracker/
 │           ├── session/            # meeting lifecycle, event dedup/normalization
 │           ├── config/             # YAML loading, schema validation, live reload
 │           ├── gui/                # templ templates + net/http handlers
-│           └── reporter/           # invokes ptrack_py binary for PDF/chart output
+│           └── reporter/           # invokes ptrack_py binary for CSV output
 ├── py/src/
-│   ├── ptrack_analytics/           # library: Polars analysis + PDF/chart generation
+│   ├── ptrack_analytics/           # library: Polars analysis + CSV report generation
 │   │   └── (Jupyter-compatible; also the PyInstaller entry point)
 │   ├── challenger/                 # question generation from meeting context (v1 stretch)
 │   └── perception/                 # (v2) ASR (Whisper), OCR
@@ -219,11 +221,11 @@ See `@docs/GUI.md` for chart spec, marker encoding, and route map.
 ## Ad-hoc queries
 
 The `ptrack_analytics` library (in `py/src/ptrack_analytics/`) provides
-the full analysis and PDF generation API. Advanced users import it in a
+the full analysis and CSV report API. Advanced users import it in a
 **Jupyter Notebook** for arbitrary exploration:
 
 ```python
-from ptrack_analytics import load, presence, challenges, generate_pdf
+from ptrack_analytics import load, presence, challenges, generate_csv
 
 load("~/Documents/ptrack/meetings/spring-2026-*.parquet")
 presence.group_by("participant_id").agg(pl.col("presence_seconds").mean())
