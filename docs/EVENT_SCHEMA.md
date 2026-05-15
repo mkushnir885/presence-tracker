@@ -93,13 +93,24 @@ registry entry matches their `(platform, display_name)`.
 | `challenge_answered_correct`     | set              | `challenge_id`, `latency_ms`                                       |
 | `challenge_answered_incorrect`   | set              | `challenge_id`, `latency_ms`, `submitted_hash`                     |
 | `challenge_unanswered`           | set              | `challenge_id`                                                     |
-| `challenge_skipped_unregistered` | set              | `challenge_id`, `intended_type`                                    |
-| `challenge_skipped_offline`      | set              | `challenge_id`, `intended_type`, `delivery_error`                  |
-| `challenge_generator_failed`     | null             | `intended_type`, `error_class`                                     |
+| `challenge_skipped_unregistered` | set              | `challenge_id`, `challenge_type`                                   |
+| `challenge_skipped_offline`      | set              | `challenge_id`, `challenge_type`, `delivery_error`                 |
+| `challenge_generator_failed`     | null             | `challenge_type`, `error_class`                                    |
 
 `challenge_id` threads the lifecycle events for one participant's
 challenge together. Multiple `challenge_issued` events (different
 participants, same poll) may share a `question_id`.
+
+`challenge_type` is a free-form label set by the producer of the poll —
+the `--type=<label>` value passed to `ptrack poll`. The system does not
+constrain its values. Conventions used by the built-in producers are
+`custom` (teacher's own bank, the default for `ptrack poll`),
+`combined` (auto-generated YAML submitted manually after review), and
+`aigenerated` (auto-generated YAML submitted automatically by the
+challenger). User scripts may use any other label. The same label
+appears on the related `challenge_skipped_*` and
+`challenge_generator_failed` events so analytics can filter the whole
+poll round by producer.
 
 `question_id` is a UUIDv4 referencing a record in the meeting's
 `<meeting_id>.jsonl` file in `questions_dir`. To retrieve the full

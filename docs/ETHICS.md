@@ -37,19 +37,29 @@ transmit, or export participant data.
 | Raw meeting events          | `meetings/*.parquet`          | 180 days          | Purged by background job                                       |
 | Participant registry        | `participants.db`             | Indefinite        | Teacher-managed; GUI can remove entries                        |
 | Question content            | `questions/<id>.jsonl`        | Same as meetings  | Purged alongside the corresponding meeting Parquet file          |
+| Audio frames (AI-gen)       | Browser → Go → Python; in-memory only | Seconds   | Captured via `getUserMedia`, streamed over WebSocket, consumed by ASR. Never written to disk by Go or Python. |
 | Transcript (AI-gen)         | In-memory rolling window only | 20 min            | Never written to disk. Violating this is a design error        |
 | Screen-share frames (AI-gen)| In-memory for 1–2 frames only | Seconds           | Discarded after OCR; never persisted                           |
+| Auto-generated YAML banks   | `/tmp/ptrack/` (or `%TEMP%\ptrack\`) | Until submitted or superseded | Removed when the bank is dispatched as a poll, or when a newer bank replaces it |
 | Generated CSV reports       | `reports/*.csv`               | Until deleted     | Teacher's responsibility                                       |
 | Secrets (tokens, keys)      | `secrets.yaml` (protected)    | Until rotated     | Never copied into the event log                                |
 
 ## Privacy-preserving defaults
 
-- Chat messages: **not stored** at all. Chat is monitored only to detect
-  pairing codes; no chat content or metadata enters the event log.
+- Chat messages: **not stored** at all. Chat is not monitored — pairing
+  uses display-name registration through the messenger bot, not chat
+  scraping.
 - Telegram handles: stored in the participant registry (not the event
   log); the event log only references the internal `ParticipantID`.
-- No mic, camera, or screen-share state is tracked or stored.
-- Meeting recordings: out of scope. The tool does not record audio or video.
+- No mic, camera, or screen-share state of meeting participants is
+  tracked or stored.
+- Meeting recordings: out of scope. The tool does not record audio or
+  video.
+- The teacher's microphone (used only when AI-generated challenges are
+  enabled) is captured through the browser's `getUserMedia` flow, with
+  the platform's native permission dialog and an explicit mute toggle
+  in the GUI. Audio is streamed in memory only; neither the browser,
+  the Go daemon, nor the Python challenger writes audio bytes to disk.
 
 ## Required teacher-facing disclosures
 
@@ -108,8 +118,7 @@ The following changes surface a blocking modal that the teacher must
 read and confirm before proceeding:
 
 - Setting `gui.bind_addr` to anything other than `127.0.0.1`.
-- Enabling any `providers.*.webhook_port` on a non-loopback interface.
-- Enabling `challenges.aigenerated.generator.backend` to a hosted
+- Enabling `challenges.auto_generation.generator.backend` to a hosted
   provider (OpenAI, Gemini).
 - Raising `retention_days` above 365.
 

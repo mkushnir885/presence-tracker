@@ -48,8 +48,8 @@ globs: ["go/**/*.go", "go/go.mod", "go/go.sum"]
 
 ## Long-running processes
 
-- Adapters that own long-running work (webhook listeners, messenger bots,
-  provider subscriptions) expose a `Start(ctx) error` / `Stop(ctx) error`
+- Adapters that own long-running work (provider pollers, messenger
+  bots, audio relay) expose a `Start(ctx) error` / `Stop(ctx) error`
   pair. Events emitted via a channel returned from `Subscribe` or similar.
 - On `ctx.Done()`, the goroutine must drain, close its channel, and
   return within a short bound (a few seconds). The session coordinator

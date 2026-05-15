@@ -58,31 +58,17 @@ retention_days: 180    # purge meeting Parquet + question files older than this
 providers:
   zoom:
     enabled: false
-    # Two operating modes (mode: webhook is the default):
-    #
-    # mode: webhook — Zoom's servers push events to ptrack.
-    #   Requires a publicly reachable address (e.g. a Cloudflare Tunnel).
-    #   Works with all Zoom plans.
-    #
-    # mode: poll — ptrack polls the Zoom Dashboard API on a timer.
-    #   No public address required, but requires:
-    #     • Zoom Pro plan or higher (Dashboard API is not available on free accounts).
-    #     • The OAuth authorisation must be performed by an account admin
-    #       (the dashboard_meetings:read:admin scope requires admin consent).
-    #   Tokens are stored in zoom_poll_oauth.json (separate from webhook mode).
-    mode: webhook  # webhook | poll
+    # ptrack polls the Zoom Dashboard API on a timer. No public address required, but:
+    #   • Requires Zoom Pro plan or higher (Dashboard API is not available on free accounts).
+    #   • OAuth authorisation must be performed by an account admin
+    #     (the dashboard_meetings:read:admin scope requires admin consent).
     # PKCE flow: only client_id required; no client_secret.
     # On first use, ptrack opens a browser window for the OAuth consent screen.
     # The access + refresh tokens are stored in secrets.yaml after consent.
     oauth:
       client_id: ${secrets.zoom_oauth_client_id}
       redirect_port: 9125      # localhost redirect URI: http://127.0.0.1:9125/callback
-    # Webhook mode fields:
-    webhook_port: 9123
-    # webhook_host: "your-tunnel.example.com"  # hostname the Zoom servers can reach
-    # webhook_secret_token: ${secrets.zoom_webhook_secret_token}
-    # Poll mode fields:
-    # poll_interval_seconds: 10
+    poll_interval_seconds: 10
 
   meet:
     enabled: false
@@ -99,23 +85,9 @@ providers:
     enabled: true
     base_url: "https://bbb.example.edu/bigbluebutton/"
     shared_secret: ${secrets.bbb_shared_secret}
-    # Two operating modes (mode: webhook is the default):
-    #
-    # mode: webhook — BBB server pushes events to ptrack via hooks/create.
-    #   Requires ptrack to be reachable from the BBB server.
-    #   If teacher and BBB server are on the same campus LAN or VPN, a local
-    #   network address (webhook_host: "192.168.1.x") is enough — no public URL.
-    #
-    # mode: poll — ptrack polls getMeetingInfo on a timer.
-    #   No public address required. Works with every BBB installation.
-    #   Available to all users at no extra cost.
-    mode: webhook  # webhook | poll
-    # Webhook mode fields:
-    webhook_port: 9124
-    # webhook_host: "192.168.1.42"  # address the BBB server can reach; defaults to "localhost"
-    # webhook_secret: ${secrets.bbb_webhook_secret}  # optional HMAC validation
-    # Poll mode fields:
-    # poll_interval_seconds: 10
+    # ptrack polls getMeetingInfo on a timer. No reachability requirement;
+    # works with every BBB installation, at no extra cost.
+    poll_interval_seconds: 10
 
 # --- Messengers --------------------------------------------------------------
 messengers:
@@ -127,7 +99,11 @@ messengers:
 
 # --- Challenges --------------------------------------------------------------
 challenges:
-  # Zero challenge types enabled is valid (tracking-only mode).
+  # One pipeline, many producers. See @docs/CHALLENGES.md.
+  # A session with no polls at all is valid (tracking-only mode).
+
+  # Default poll behaviour, applied to every ptrack poll invocation
+  # regardless of producer.
   defaults:
     answer_window_seconds: 30
     min_gap_between_challenges_seconds: 60
@@ -135,15 +111,37 @@ challenges:
   poll:
     max_delivery_skew_ms: 2000
 
-  filebased:
-    enabled: true
-    # Path to the teacher's own question-bank YAML files.
-    # The system reads from this directory but never writes to it.
-    # The teacher is responsible for managing their bank files here.
-    banks_dir: "~/Documents/ptrack/question-banks"
+  # Teacher-prepared YAML banks live here. ptrack reads but never writes
+  # to this directory.
+  banks_dir: "~/Documents/ptrack/question-banks"
 
-  aigenerated:
+  # Optional autonomous YAML producer. When enabled, ptrack_py runs as a
+  # long-lived child process of the Go daemon for the duration of every
+  # session and writes generated banks to pending_dir.
+  auto_generation:
     enabled: false
+
+    # If true, the challenger invokes `ptrack poll --type=aigenerated`
+    # immediately after writing a YAML. If false, the YAML is left in
+    # pending_dir and surfaced in the GUI's Trigger poll menu so the
+    # teacher can review/edit and submit it manually (as --type=combined).
+    auto_submit: true
+
+    # Where generated YAML banks land. Only the most recent file is kept.
+    # Files are removed on submission or when superseded by a new one.
+    # Platform default is /tmp/ptrack on Linux, %TEMP%\ptrack on Windows.
+    pending_dir: ""
+
+    # If true (default), block session start until ASR + LLM are loaded.
+    # If false, models load lazily on first generation — faster session
+    # start, slower first poll.
+    preload_models: true
+
+    # Auto-release ASR + LLM after this many seconds of idle inside the
+    # challenger. 0 disables auto-unload; the teacher releases models
+    # explicitly via the GUI's "Free models" button. Default: 0.
+    idle_unload_after_seconds: 0
+
     poll_interval_seconds: 1200
     questions_per_poll: 15
     early_poll_on_context_ready: true
@@ -221,11 +219,13 @@ A separate "Edit secrets" flow writes `secrets.yaml` directly.
 
 | Section                                                       | Reload behavior                                  |
 |---------------------------------------------------------------|--------------------------------------------------|
-| `challenges.defaults`                                         | Next challenge uses new values                   |
+| `challenges.defaults`                                         | Next poll uses new values                        |
 | `challenges.poll`                                             | Next poll uses new delivery skew value           |
-| `challenges.aigenerated.poll_interval_seconds`                | Immediately via API; next poll                   |
-| `challenges.aigenerated.questions_per_poll`                   | Immediately via API; next poll                   |
-| `challenges.aigenerated` (other keys)                         | Requires `challenger` restart; done at next meeting |
+| `challenges.banks_dir`                                        | Next file picker refresh                         |
+| `challenges.auto_generation.poll_interval_seconds`            | Immediately via API; next poll                   |
+| `challenges.auto_generation.questions_per_poll`               | Immediately via API; next poll                   |
+| `challenges.auto_generation.auto_submit`                      | Immediately via API; next generation             |
+| `challenges.auto_generation` (other keys)                     | Requires `challenger` restart; done at next meeting |
 | `providers.*`                                                 | Next meeting only                                |
 | `messengers.*`                                                | Next meeting only                                |
 | `gui.*`                                                       | Requires full restart                            |
@@ -237,9 +237,9 @@ The schema enforces:
 
 - Every enabled provider has credentials referenced from secrets.
 - Exactly one `messengers.*` is enabled (in v1).
-- Paths exist (`banks_dir`, ASR/LLM model paths where applicable).
+- Paths exist (`challenges.banks_dir`, ASR/LLM model paths where applicable).
 - Port numbers are in valid range and don't collide between `gui.port`,
-  `providers.*.webhook_port`, and the challenger's auto-assigned port.
+  `providers.*.oauth.redirect_port`, and the challenger's auto-assigned port.
 
 Note: **zero challenge types enabled is explicitly allowed.**
 

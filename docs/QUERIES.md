@@ -26,7 +26,7 @@ participants: pl.LazyFrame # one row per known participant (id, display_name)
 from ptrack_analytics import presence, challenges, questions
 
 presence: pl.LazyFrame     # (participant_id, meeting_id, presence_seconds, ...)
-challenges: pl.LazyFrame   # (participant_id, meeting_id, challenge_id, type, state, latency_ms)
+challenges: pl.LazyFrame   # (participant_id, meeting_id, challenge_id, challenge_type, state, latency_ms)
 questions: pl.LazyFrame    # loaded from .jsonl files: (question_id, prompt, question_type, choices, ...)
 ```
 
@@ -35,6 +35,12 @@ correspond to the loaded meetings. Polars reads them with `read_ndjson`;
 absent fields for irrelevant question types become nulls. Join with the
 `challenges` frame on `question_id` to access question text alongside
 challenge results.
+
+`challenge_type` on the `challenges` frame is the free-form producer
+label captured at poll time (`custom`, `combined`, `aigenerated`, or any
+user-defined value — see `@docs/CHALLENGES.md` and
+`@docs/EVENT_SCHEMA.md`). It is useful for filtering or grouping
+challenges by where the questions came from.
 
 ### Example session
 

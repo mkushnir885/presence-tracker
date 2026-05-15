@@ -46,17 +46,41 @@ globs: ["py/**/*.py", "py/pyproject.toml"]
 
 ## Challenger service (v1 stretch / v2)
 
-- The challenger service (`py/src/challenger/`) is a long-running HTTP
-  server on localhost invoked by Go. It owns the ASR and LLM processes
-  so they stay warm across the meeting.
-- Models are loaded at startup, not on first request. Log the load time
-  and memory footprint clearly — these are the numbers that determine
-  whether the teacher's laptop can run the system.
+- The challenger service (`py/src/challenger/`) is a long-running child
+  process of the Go daemon, started once per session when
+  `challenges.auto_generation.enabled` is true. It is a **YAML
+  producer**, not an in-process RPC server: it accepts audio from Go,
+  maintains a rolling transcript, and on its own schedule writes a
+  generated bank to the pending directory (`/tmp/ptrack/` on Linux,
+  `%TEMP%\ptrack\` on Windows).
+- When `challenges.auto_generation.auto_submit` is true, the service
+  invokes `ptrack poll --type=aigenerated <path>` itself immediately
+  after writing the file. When false, it stops at writing and the
+  teacher submits manually from the GUI. The CLI re-entry is the only
+  place where this Python code triggers any side effect outside its own
+  process.
+- Audio is captured by the browser GUI through `getUserMedia` and
+  relayed by Go over a small localhost HTTP endpoint
+  (`POST /context/audio`) or over the child process's stdin. Either
+  way, the service never opens the OS-level audio device itself.
+- Models are loaded at startup by default (`preload_models: true`), not
+  on first request. Log the load time and memory footprint clearly —
+  these are the numbers that determine whether the teacher's laptop can
+  run the system. Setting `preload_models: false` swaps the trade-off
+  to lazy loading on first generation.
+- Models stay resident across meetings; they are released only by an
+  explicit `POST /control/unload-models` call (triggered by the GUI's
+  Free models button) or by the configured
+  `idle_unload_after_seconds` timeout. The process itself terminates on
+  `POST /control/shutdown` or SIGTERM, which is what the GUI's Shut
+  down button ultimately triggers via Go.
 - For local inference use `faster-whisper` (ASR) and `llama-cpp-python`
   (LLM). Model paths come from config, not hardcoded.
 - For hosted inference (OpenAI / Gemini) the service abstracts over a
   small `Generator` protocol — local and hosted backends are
   interchangeable.
-- The service never persists transcript data to disk. Transcript lives
-  in a rolling in-memory window sized per config. This is a hard privacy
+- The service never persists transcript or raw audio data to disk.
+  Transcript lives in a rolling in-memory window sized per config; the
+  only files written are the generated YAML banks in the pending
+  directory, and those are short-lived. This is a hard privacy
   requirement, not a nice-to-have.

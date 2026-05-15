@@ -6,10 +6,10 @@ without cameras and without interrupting the teacher.
 ## Design principles
 
 1. **The teacher is never interrupted.** Delivery, timing, and scoring
-   happen automatically. For file-based challenges, the teacher triggers
-   the poll but does not manage individual deliveries.
-2. **Delivery is out-of-band.** Challenges go to Telegram, not the
-   meeting chat. Individual responses are private.
+   happen automatically once a poll has been triggered.
+2. **Delivery is out-of-band.** Challenges go to the participant's
+   messenger (Telegram in v1), not the meeting chat. Individual responses
+   are private.
 3. **Synchronized delivery.** All eligible participants receive their
    question at the same moment. A student cannot pass their answer to a
    classmate because the classmate is simultaneously busy with their own
@@ -19,88 +19,146 @@ without cameras and without interrupting the teacher.
    or produce a false "unanswered" mark.
 5. **Honest limits.** No challenge is cheat-proof. The goal is to make
    cheating at least as much work as attending.
-6. **Zero challenges is valid.** Any number of challenge types may be
-   enabled, including zero (tracking-only mode).
+6. **Zero challenges is valid.** A session may have no polls at all
+   (tracking-only mode) and still produce useful presence data.
 
-## Question storage
+## One pipeline, many producers
 
-Questions are stored as **JSON Lines (`.jsonl`) files**, one per meeting,
-in the configured `questions_dir`:
+There is exactly **one** challenge pipeline inside the system:
+
+1. A YAML "challenge bank" file is handed to the system.
+2. The system validates it, calls `Provider.FetchPresence` for a
+   just-in-time snapshot of who is in the meeting right now, picks
+   eligible participants from that snapshot, randomly assigns one
+   question per participant, appends every issued question to the
+   meeting's `.jsonl` file with a fresh UUIDv4, fans out the questions
+   simultaneously via the configured messenger, and scores answers as
+   they arrive (or marks them `unanswered` when `answer_window` elapses).
+
+The just-in-time presence fetch decouples dispatch accuracy from the
+background `Provider` polling cadence: a long polling interval (tens
+of seconds) is fine because the moment that matters — choosing the
+recipients of this round — is backed by its own fresh API call.
+
+The interesting variability sits **outside** the system: how the YAML
+file was produced. Three producer roles are recognized:
+
+| Producer            | Convention `--type=` label | Notes                                                                            |
+|---------------------|----------------------------|----------------------------------------------------------------------------------|
+| Teacher, by hand    | `custom` (default)         | The teacher prepares a YAML bank in their editor and selects it from the GUI or shell. |
+| Auto-generator      | `aigenerated`              | The Python challenger process writes a YAML to the pending directory and immediately invokes `ptrack poll` itself (when `auto_submit` is on). |
+| Reviewed auto-gen   | `combined`                 | The Python challenger writes a YAML to the pending directory and stops; the teacher reviews/edits it and triggers the poll via the GUI menu (when `auto_submit` is off). |
+| User scripts        | any other label            | Any tool that produces a valid YAML bank can call `ptrack poll --type=<anything> <path>`. The label is free-form; the system stores it verbatim on every `challenge_issued` event. |
+
+The `--type` label is purely a CLI/transport-side tag. It is **never**
+written inside the YAML file itself — the YAML stays a clean,
+producer-agnostic bank format.
+
+## The poll trigger: `ptrack poll`
 
 ```
-~/Documents/ptrack/questions/
-├── 2026-04-21-algebra.jsonl
-└── 2026-04-23-algebra.jsonl
+ptrack poll [--type=<label>] [--meeting=<id>] [--wait] <path-to-bank.yaml>
 ```
 
-The filename matches the meeting ID. Each line is one JSON object. At
-poll time, one object is appended per unique question in the poll round.
-`challenge_issued` events in the Parquet reference the same `question_id`.
+`ptrack poll` is a **thin client** to the running `ptrack` daemon. It
+contains no challenge logic of its own: it reads the daemon's listener
+port from the `PTRACK_PORT` environment variable, opens a localhost
+HTTP connection to `127.0.0.1:$PTRACK_PORT`, and posts the poll
+request.
 
-Every question gets a **UUIDv4** assigned at poll time. There is no
-cross-poll or cross-meeting ID linking; the `.jsonl` record is a
-verbatim snapshot of what was asked.
+- `--type` defaults to `custom`. Any string is accepted; the conventions
+  above are recommendations, not constraints.
+- `--meeting` defaults to the active session. If zero or more than one
+  session is active, the daemon responds with 409 and the CLI prints a
+  helpful message; specify `--meeting=<id>` to disambiguate.
+- `--wait` keeps the CLI attached until the poll's `answer_window`
+  elapses, then prints `delivered N, correct K, incorrect M, unanswered U`
+  to stdout and uses the exit code accordingly. Without `--wait`, the
+  CLI exits immediately on the 200 OK that confirms the poll was
+  scheduled — useful for fire-and-forget callers like the Python
+  generator.
 
-Question bank files (teacher-prepared YAML) are **not** stored by the
-system. When a poll runs, the issued questions are written to the `.jsonl`
-file. The original bank YAML is the teacher's own responsibility.
+The same code path serves the GUI's **Trigger poll** menu (see
+`@docs/GUI.md`). Both invocations end up calling
+`POST /meetings/{id}/polls` on the running daemon's HTTP API.
 
-JSON Lines is chosen over YAML because Polars loads it natively
-(`pl.read_ndjson()`), variable fields per question type work naturally
-as absent keys, and it is compact and append-friendly.
+### Listener port discovery
 
-### Question record fields
+On startup, `ptrack serve` and `ptrack track` export `PTRACK_PORT` into
+their own process environment with the port their HTTP control plane
+bound to:
 
-| Field           | Always present | Description                                                  |
-|-----------------|----------------|--------------------------------------------------------------|
-| `question_id`   | yes            | UUIDv4; referenced by `challenge_issued` events in Parquet   |
-| `challenge_type`| yes            | `filebased` or `aigenerated`                                 |
-| `question_type` | yes            | `multiple_choice`, `numeric`, `short_text`                   |
-| `prompt`        | yes            | Question text shown to the student                           |
-| `choices`       | MCQ only       | Array of choice strings                                      |
-| `correct_answer`| yes            | Sorted list for MCQ/short_text; number for numeric           |
-| `match_mode`    | short_text only| `exact`, `substring_ci`, or `regex`                          |
-| `tolerance`     | numeric only   | Allowed tolerance (±)                                        |
-| `issued_at`     | yes            | ISO-8601 UTC timestamp of the poll that issued this question |
+- `ptrack serve` — the configured `gui.bind_addr` port (default 8080).
+- `ptrack track` (headless) — a random free loopback port.
 
-Example file:
+Every child process the daemon spawns inherits this variable, which is
+how the Python challenger and any `ptrack poll` invocation it makes
+find their way back to the same daemon — no on-disk descriptor, no
+cleanup on shutdown.
 
-```jsonl
-{"question_id":"3f2a...","challenge_type":"filebased","question_type":"multiple_choice","prompt":"Which is prime?","choices":["21","23","27","51"],"correct_answer":["23"],"issued_at":"2026-04-21T10:15:00Z"}
-{"question_id":"9c1b...","challenge_type":"filebased","question_type":"numeric","prompt":"What is 7!?","correct_answer":5040,"tolerance":0,"issued_at":"2026-04-21T10:15:00Z"}
-{"question_id":"7d4e...","challenge_type":"aigenerated","question_type":"short_text","prompt":"Name a property of isosceles triangles.","correct_answer":["two equal sides","two equal angles"],"match_mode":"substring_ci","issued_at":"2026-04-21T10:32:00Z"}
+When the teacher runs `ptrack poll` directly from a fresh shell
+(`PTRACK_PORT` not set), the CLI falls back to the port from
+`config.yaml`, then to `8080`. The CLI's `--server=URL` flag overrides
+both.
+
+### Endpoint shape
+
+```
+POST /meetings/{id}/polls            # explicit meeting
+POST /meetings/active/polls          # alias; 409 if 0 or >1 active sessions
 ```
 
-The `ptrack_analytics` library discovers the matching `.jsonl` file when
-loading a meeting and exposes a `questions` lazy frame. Joining
-`challenges` with `questions` on `question_id` gives full question
-context for any challenge event.
+Request body:
 
-## Types
+```json
+{ "type": "custom", "bank_path": "/abs/path/to/bank.yaml" }
+```
 
-### File-based (v1 MVP)
+Response (immediate, 200 OK):
 
-Teacher prepares question-bank YAML files before the semester (or before
-each meeting).
+```json
+{ "poll_id": "...", "scheduled_count": 8, "skipped_count": 1 }
+```
 
-**Poll flow:**
+Error codes used by the poll endpoint:
 
-1. Teacher selects a question-bank file in the GUI and presses
-   **Start Poll**.
-2. The system takes all questions from the file, shuffles them, and
-   assigns one question per eligible participant (cycling through the
-   shuffled list if the class is larger than the bank).
-3. A UUIDv4 is assigned to each question and the questions are appended
-   to the meeting's `.jsonl` file in `questions_dir`.
-4. Questions are delivered simultaneously to all eligible participants
-   via the messenger.
-5. After `answer_window` elapses, results are saved.
+| Code | Meaning                                                       |
+|------|---------------------------------------------------------------|
+| 404  | `bank_path` does not exist or is unreadable                   |
+| 409  | No active session, or multiple active and `--meeting` missing |
+| 422  | YAML is invalid (response body lists errors with JSON pointers) |
+| 503  | Messenger is currently unavailable                            |
 
-#### File format
+## Pending directory
 
-YAML, one file per question bank. The bank has no top-level `title` or
-`id` fields — the filename is the identifier and question IDs are derived
-automatically from content.
+Auto-generated YAMLs land in a known temp directory:
+
+| OS      | Path                                                       |
+|---------|------------------------------------------------------------|
+| Linux   | `/tmp/ptrack/`                                             |
+| Windows | `%TEMP%\ptrack\`                                           |
+
+Files in this directory are short-lived:
+
+- The GUI's **Trigger poll** menu enables the **Auto-generated** option
+  only when at least one YAML is present here. On selection, the menu
+  calls `ptrack poll --type=combined <path>`.
+- When `auto_submit` is on, the Python challenger calls
+  `ptrack poll --type=aigenerated <path>` itself immediately after
+  writing the file.
+- A YAML in this directory is removed in either of two events:
+  1. It has been submitted (whether via GUI or auto-submit).
+  2. A new YAML has been generated to replace it (only the most recent
+     pending file is ever kept).
+
+The directory is local-only and never contains data older than the
+current session.
+
+## Question bank format (YAML)
+
+One file per bank. The bank has no top-level `title` or `id` fields —
+the filename is the identifier and question IDs are assigned at issue
+time.
 
 ```yaml
 version: 1
@@ -125,15 +183,11 @@ questions:
     match: substring_ci       # exact | substring_ci | regex
 ```
 
-If a teacher edits a question in the bank file, the change only affects
-future polls — it has no impact on historical data. The `.jsonl` records
-for past meetings are verbatim snapshots of what was asked.
+Validation rules in `go/src/internal/challenges/validate.go`. Validation
+errors are surfaced through the `ptrack poll` exit code and through the
+GUI file picker before submission.
 
-Validation rules in `go/src/internal/challenges/filebased/validate.go`. The
-teacher sees validation errors in the file picker before they can load
-an invalid file.
-
-#### Answer matching
+### Answer matching
 
 - `multiple_choice` — the student's selected set must equal the `answer`
   set exactly (same elements, order-insensitive). No partial credit.
@@ -145,57 +199,106 @@ an invalid file.
 - `short_text` — matched per the `match` mode. Default is
   `substring_ci`.
 
-### AI-generated (v1 stretch / v2)
+## Question records (`.jsonl`)
 
-A local (or hosted) small LLM generates questions from the meeting
-context. Polls fire automatically when a configured amount of new
-context has accumulated.
+When a poll runs, every issued question is appended to the meeting's
+`<meeting_id>.jsonl` file in `questions_dir`. Each line is one JSON
+object with the full question content plus a UUIDv4 `question_id`.
+`challenge_issued` events in the Parquet file reference the same
+`question_id`. The `--type` label of the poll is **not** written here —
+it lives on the event row in Parquet (`challenge_type` column).
 
-**Poll flow:**
+JSON Lines is chosen over YAML because Polars loads it natively
+(`pl.read_ndjson()`), variable fields per question type work naturally
+as absent keys, and it is compact and append-friendly.
 
-1. The `challenger` service accumulates meeting context (ASR transcript,
-   optionally screen-share OCR).
-2. When the context window reaches the configured threshold, Go calls
-   `POST /challenges/generate` with the requested question count.
-3. The Python challenger returns a batch of questions in the file-based
-   YAML format. Malformed questions are discarded (logged, not raised).
-4. Each valid question is assigned a UUIDv4 and appended to the
-   meeting's `.jsonl` file in `questions_dir`.
-5. Questions are shuffled and delivered simultaneously via the messenger.
-6. After `answer_window` elapses, results are saved.
+### Question record fields
 
-**The generator output is the file-based YAML format, byte-for-byte.**
-The same parser, validator, and messenger rendering logic consume both
-sources. This unification is a hard requirement.
+| Field           | Always present | Description                                                  |
+|-----------------|----------------|--------------------------------------------------------------|
+| `question_id`   | yes            | UUIDv4; referenced by `challenge_issued` events in Parquet   |
+| `question_type` | yes            | `multiple_choice`, `numeric`, `short_text`                   |
+| `prompt`        | yes            | Question text shown to the student                           |
+| `choices`       | MCQ only       | Array of choice strings                                      |
+| `correct_answer`| yes            | Sorted list for MCQ/short_text; number for numeric           |
+| `match_mode`    | short_text only| `exact`, `substring_ci`, or `regex`                          |
+| `tolerance`     | numeric only   | Allowed tolerance (±)                                        |
+| `issued_at`     | yes            | ISO-8601 UTC timestamp of the poll that issued this question |
 
-**Dynamic configuration during a meeting:** `questions_per_poll` and
-`poll_interval_seconds` can be changed from the live status view at any
-time without restarting the `challenger` service.
+Example file:
 
-#### Context inputs
+```jsonl
+{"question_id":"3f2a...","question_type":"multiple_choice","prompt":"Which is prime?","choices":["21","23","27","51"],"correct_answer":["23"],"issued_at":"2026-04-21T10:15:00Z"}
+{"question_id":"9c1b...","question_type":"numeric","prompt":"What is 7!?","correct_answer":5040,"tolerance":0,"issued_at":"2026-04-21T10:15:00Z"}
+{"question_id":"7d4e...","question_type":"short_text","prompt":"Name a property of isosceles triangles.","correct_answer":["two equal sides","two equal angles"],"match_mode":"substring_ci","issued_at":"2026-04-21T10:32:00Z"}
+```
 
-- **Audio transcript** (always on when AI-gen is enabled). Rolling
-  window, size configurable (default: last 20 minutes of speech).
-- **Screen-share OCR** (off by default). Capture one frame per second
-  and OCR text regions.
+The `ptrack_analytics` library discovers the matching `.jsonl` file when
+loading a meeting and exposes a `questions` lazy frame. Joining
+`challenges` with `questions` on `question_id` gives full question
+context for any challenge event.
 
-#### Question language
+## Auto-generation (optional)
 
-Configured via `challenges.aigenerated.question_language` (ISO code,
-e.g. `uk`, `en`). Default: `uk`. Independent of the UI language.
+Auto-generation is an out-of-band producer of YAML banks. The Python
+binary `ptrack_py` runs as a long-lived child process of the Go daemon
+for the duration of a session whenever
+`challenges.auto_generation.enabled` is true.
 
-#### Generation prompt
+The Python process:
 
-A stable system prompt instructs the model to produce questions as YAML
-conforming to the file-based format. Prompts live in
+1. Receives audio captured by the browser GUI and relayed by Go (see
+   "Audio capture path" below). It maintains a rolling in-memory
+   transcript window sized per config.
+2. When the configured interval elapses (or the early-regen condition
+   fires), it asks the local or hosted LLM for a batch of questions in
+   the YAML bank format, validates the result, and writes the file to
+   the pending directory.
+3. If `challenges.auto_generation.auto_submit` is true, it then exec's
+   `ptrack poll --type=aigenerated <path>` to dispatch the poll
+   immediately.
+4. If `auto_submit` is false, it stops there. The GUI surfaces the file
+   in the **Auto-generated** option of the Trigger poll menu; the
+   teacher submits it (with `--type=combined`) after optionally
+   reviewing or editing it.
+
+Malformed generator output is dropped silently at debug log level. A
+failed generation emits a `challenge_generator_failed` event so the
+teacher sees it in the GUI's system log.
+
+### Audio capture path
+
+Audio capture is browser-side, not OS-side. The browser captures
+microphone input through `navigator.mediaDevices.getUserMedia`, which:
+
+- shows the platform's native microphone permission dialog;
+- exposes a built-in device picker so the teacher can choose between
+  headset, laptop mic, or any other input;
+- works on mobile browsers, which is how Android-on-Termux use is
+  supported.
+
+The GUI streams PCM (or Opus) audio frames over a WebSocket to the Go
+daemon's control plane. Go forwards these to the Python challenger over
+stdin (or its localhost HTTP audio endpoint, depending on the
+implementation choice in `internal/challenger/`). The data is consumed
+by faster-whisper inside Python and never written to disk by any party.
+
+The browser exposes a mute toggle next to the meeting status panel,
+which simply pauses the WebSocket stream and synthesizes a silence
+marker on resume so faster-whisper does not mis-segment around the gap.
+
+### Generation prompt
+
+A stable system prompt instructs the LLM to produce questions as YAML
+conforming to the bank format. Prompts live in
 `py/src/challenger/prompts.py` — treat this file as part of the system's
 public contract.
 
 If the model emits JSON or mis-shaped YAML, the Python challenger
 tolerates both (loads with a permissive parser, normalizes before
-returning). Invalid questions are dropped silently at debug log level.
+writing). Invalid questions are dropped silently.
 
-#### Model choices
+### Model choices
 
 | Use case           | Default local model          | Alt (smaller)  | Alt (hosted)       |
 |--------------------|------------------------------|----------------|--------------------|
@@ -204,27 +307,52 @@ returning). Invalid questions are dropped silently at debug log level.
 
 See `@docs/CONFIG.md` for configuration keys.
 
+### Model lifecycle (warm start)
+
+The Python challenger loads its ASR and LLM models once at session
+start and keeps them resident for the rest of the session. Each
+subsequent generation reuses the warm models; load cost is paid once,
+not per poll.
+
+Two notable departures from the obvious lifecycle:
+
+- **Models are not unloaded on `meeting_ended`.** They stay resident.
+  The teacher releases them explicitly via the GUI's **Free models**
+  button (see `@docs/GUI.md`). Rationale: back-to-back meetings should
+  not pay the load cost twice.
+- **Process termination is explicit.** The full shutdown path
+  (Python process exits, Go daemon stops, all listeners closed) is
+  triggered by the GUI's **Shut down** button, which then renders a
+  "you can close this browser tab" page. Closing the browser tab by
+  itself does not stop anything — the daemon survives, models stay
+  warm, and a new tab reconnects to the same session.
+
+Two config-driven optimizations:
+
+- `challenges.auto_generation.preload_models: true|false` —
+  if true (default), Python blocks startup until models are loaded and
+  reports `loaded faster-whisper small in 4.2s, 480 MB; loaded
+  llama-cpp Qwen2.5-3B in 7.1s, 2.4 GB` over its stderr (Go relays this
+  to the GUI's system log). If false, models load lazily on the first
+  generation, trading a faster session start for a slower first poll.
+- `challenges.auto_generation.idle_unload_after_seconds` —
+  if non-zero, the challenger auto-unloads after that many seconds of
+  inactivity. Default 0 (never auto-unload). Useful on memory-tight
+  machines.
+
+Hosted backends (`generator.backend: openai | gemini`,
+`asr.backend: whisper-api`) skip the load step entirely; the warm-start
+machinery still holds the transcript window and API client state, just
+without the multi-gigabyte memory footprint.
+
 ## Poll coordination
 
-Config keys that apply to all poll types:
+Config keys that apply to every poll regardless of producer:
 
 - `answer_window_seconds` — deadline for an answer (default 30s). After
   this time the message is edited (inline keyboard removed) or deleted.
 - `max_delivery_skew_ms` — warn if class-wide fanout takes longer than
   this. Default 2000 ms.
-
-### File-based poll config
-
-No automatic interval — the teacher triggers each poll manually from the GUI.
-
-### AI-generated poll config (runtime-adjustable)
-
-- `poll_interval_seconds` — minimum time between polls. Default 1200 s.
-- `questions_per_poll` — questions requested per poll. Default 15.
-- `early_regen_on_context_ready` — fire early if significant new context
-  arrived. Default true.
-- `question_language` — ISO language code for generated questions.
-  Default `uk`.
 
 ### Per-participant eligibility
 
@@ -251,7 +379,8 @@ Additional diagnostic events (not counted in challenge stats):
 
 - `challenge_skipped_unregistered` — participant has no messenger handle.
 - `challenge_skipped_offline` — messenger delivery failed.
-- `challenge_generator_failed` — AI-gen only; no questions produced.
+- `challenge_generator_failed` — auto-generation produced no usable
+  questions for a scheduled batch.
 
 ## Copy-paste defenses
 
@@ -262,9 +391,10 @@ Additional diagnostic events (not counted in challenge stats):
    hard for a relay through a third party.
 3. **Random distribution** of questions reduces the value of sharing.
 
-## Adding a new challenge type
+## Adding a new producer
 
-1. Create `go/src/internal/challenges/<n>/` with an implementation of `ChallengeType`.
-2. Register in `go/src/cmd/ptrack/main.go`.
-3. Document the type in this file under "Types".
-4. Add tests that exercise correct/incorrect/unanswered on the mock messenger.
+Producers do not need to be registered anywhere. Anything that can
+write a valid YAML bank and invoke `ptrack poll` is a producer. To
+distinguish a new producer's output in analytics, pick a stable
+`--type=<label>` and document it in the team's own notes — the system
+records the label verbatim and does not constrain its value.

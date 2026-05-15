@@ -41,16 +41,16 @@ presence-tracker/
 │   ├── go.mod
 │   ├── go.sum
 │   └── src/
-│       ├── cmd/ptrack/             # single CLI binary: serve, track, report
+│       ├── cmd/ptrack/             # single CLI binary: serve, track, poll, report
 │       └── internal/
 │           ├── providers/          # video-conferencing adapters (Zoom, Meet, BBB)
 │           ├── messengers/         # messenger adapters (Telegram first)
-│           ├── challenges/         # Challenge interface, scheduler, built-in types
-│           │   ├── filebased/      # teacher-prepared question files
-│           │   └── aigenerated/    # AI-generated questions (delegates to Python)
+│           ├── challenges/         # single YAML pipeline: parse, validate, fan out, score
+│           ├── challenger/         # supervises the optional ptrack_py challenger subprocess
 │           ├── participants/       # cross-platform identity registry + pairing flow
 │           ├── eventstore/         # Arrow/Parquet read+write
 │           ├── session/            # meeting lifecycle, event dedup/normalization
+│           ├── controlplane/       # HTTP API shared by GUI and ptrack poll CLI; PTRACK_PORT env
 │           ├── config/             # YAML loading, schema validation, live reload
 │           ├── gui/                # templ templates + net/http handlers
 │           └── reporter/           # invokes ptrack_py binary for CSV output
@@ -63,23 +63,26 @@ presence-tracker/
 └── docs/                           # reference docs, loaded on demand via @docs/...
 ```
 
-## The four abstractions
+## The three abstractions
 
-Four parallel, small interfaces define the extension points. Each has its
-own directory under `internal/` and follows the same pattern: interface +
-adapter sub-packages + tests against a mock implementation.
+Three parallel, small interfaces define the extension points. Each has
+its own directory under `internal/` and follows the same pattern:
+interface + adapter sub-packages + tests against a mock implementation.
 
 | Abstraction | What varies                   | Built-in impls                  |
 | ----------- | ----------------------------- | ------------------------------- |
 | `Provider`  | video-conferencing platform   | `zoom`, `meet`, `bbb`, `mock`   |
 | `Messenger` | message-delivery channel      | `telegram`, `mock`              |
-| `Challenge` | question kind + scoring logic | `filebased`, `aigenerated`      |
 | `EventSink` | where events are written      | `parquet` (default); extensible |
 
-When adding a new implementation of any of these: add a subdirectory,
-register it in `go/src/cmd/ptrack/main.go`, add a fixture under `test/fixtures/`,
-and document quirks in the relevant doc (`@docs/ARCHITECTURE.md` for the
-interfaces, `@docs/CHALLENGES.md` for challenge types).
+The challenge layer is intentionally **not** an abstraction: there is one
+pipeline, one YAML bank format, one scorer. The variability that used to
+live behind a `Challenge` interface ("how do we get the questions?") was
+moved outside the system entirely — see "Challenge system" below.
+
+When adding a new implementation of any abstraction: add a subdirectory,
+register it in `go/src/cmd/ptrack/main.go`, add a fixture under
+`test/fixtures/`, and document quirks in `@docs/ARCHITECTURE.md`.
 
 See `@docs/ARCHITECTURE.md` for interface signatures and rationale.
 
@@ -150,12 +153,39 @@ teacher to pick a canonical name with the single-file rename button.
 
 ## Challenge system
 
-Challenges are generated, delivered, timed, and scored entirely outside
-the meeting. The teacher is never interrupted by the challenge flow.
+Challenges are delivered, timed, and scored entirely outside the meeting.
+The teacher is never interrupted by the challenge flow.
 
-The MVP implements **file-based challenges** end-to-end. AI-generated
-challenges reuse the same delivery/scoring pipeline and only add a new
-generator.
+There is exactly **one** challenge pipeline. The input to it is a YAML
+"question bank" file; the output is a poll round: each eligible
+participant gets one randomly assigned question over the messenger,
+answers are scored within `answer_window`, and events are written to
+the Parquet log. The pipeline does not care where the YAML came from.
+
+Sending a poll always goes through the single CLI subcommand
+
+```
+ptrack poll [--type=<label>] [--meeting=<id>] [--wait] <path-to-bank.yaml>
+```
+
+which is a thin HTTP client to the running `ptrack serve` / `ptrack track`
+daemon (see "Control plane" in `@docs/ARCHITECTURE.md`). The GUI's
+**Trigger poll** menu, the user's terminal, and the Python challenger
+when auto-submit is on all dispatch through this same endpoint.
+
+`--type` is a free-form label that is stored verbatim on every
+`challenge_issued` event for the round. The system does not constrain
+its values. Conventions used by the built-in producers:
+
+- `custom` — teacher's own bank from `challenges.banks_dir`. Default for
+  bare `ptrack poll`.
+- `combined` — auto-generated YAML that the teacher reviewed/edited and
+  dispatched manually from the GUI.
+- `aigenerated` — auto-generated YAML dispatched automatically by the
+  Python challenger.
+
+`--type` never appears inside the YAML — the YAML stays a clean,
+producer-agnostic bank format.
 
 Three result states are recorded per challenge:
 
@@ -171,18 +201,28 @@ meeting in `<questions_dir>/`, named by meeting ID. Each line is a JSON
 object with the full question content (prompt, type, choices, correct
 answer, etc.) and a UUIDv4 `question_id`. `challenge_issued` events in
 the Parquet reference that UUID. `ptrack_analytics.load()` automatically
-discovers the matching `.jsonl` file and exposes a `questions` lazy frame
-for Jupyter analysis. Polars loads `.jsonl` natively with `read_ndjson`.
+discovers the matching `.jsonl` file and exposes a `questions` lazy
+frame for Jupyter analysis. Polars loads `.jsonl` natively with
+`read_ndjson`.
 
-Question bank files (teacher-prepared YAML) are not stored by the system.
-When a poll runs, questions are written to the meeting's `.jsonl` file;
-the original bank YAML is the teacher's responsibility to keep.
+Question bank files (teacher-prepared YAML) are not stored by the
+system. When a poll runs, questions are written to the meeting's
+`.jsonl` file; the original bank YAML is the teacher's responsibility
+to keep.
 
-Any number of challenge types may be enabled simultaneously, including
-zero (tracking-only mode). Enabling zero challenges is valid.
+Auto-generated banks land in a short-lived pending directory
+(`/tmp/ptrack/` on Linux, `%TEMP%\ptrack\` on Windows) and are removed
+once dispatched or once a newer file replaces them. Audio for the
+generator is captured by the **browser** through
+`navigator.mediaDevices.getUserMedia` (with a mute toggle and the
+browser's native device picker) and streamed to the daemon over a
+WebSocket — mobile-friendly, including Android-on-Termux.
 
-See `@docs/CHALLENGES.md` for the interface, file format, AI pipeline,
-and design rationale.
+Polls are optional. A session with no polls at all is valid
+(tracking-only mode).
+
+See `@docs/CHALLENGES.md` for the YAML format, the auto-generation
+pipeline, the model warm-start lifecycle, and design rationale.
 
 ## Configuration
 
@@ -205,13 +245,20 @@ Three main views:
 
 1. **Live status view** — shown during an active meeting. Displays system
    information: warnings, errors, delivery diagnostics, scheduler events.
-   No participant timeline is rendered live.
+   No participant timeline is rendered live. Hosts the **Trigger poll**
+   menu (Custom / Auto-generated), the **Audio** card with the browser's
+   microphone toggle and device picker, and the **Free models** and
+   **Shut down** lifecycle buttons.
 2. **Meeting analysis view** — timeline chart per participant from a
    saved meeting file. Time on X-axis, presence and challenge bands
    horizontally. Hovering a challenge marker fetches and displays the
    question text.
 3. **Config editor** — schema-driven form for the YAML config, with
    validation and live reload.
+
+Closing the browser tab does not stop the daemon — the **Shut down**
+button is the only graceful exit path. After it runs, the GUI replaces
+itself with a "ptrack has stopped — you can close this tab" screen.
 
 For advanced data analysis beyond the built-in charts, use Jupyter
 Notebooks with `ptrack_analytics` directly.
@@ -240,18 +287,25 @@ API is documented in `@docs/QUERIES.md`.
 Go and Python never share a process. They communicate via:
 
 1. **Parquet files** for event data — schema in `@docs/EVENT_SCHEMA.md`.
-2. **Subprocess invocation** — Go invokes the Python binary as
-   `ptrack_py report ...` or `ptrack_py generate ...`. The binary is
-   the PyInstaller-built `ptrack_py` / `ptrack_py.exe`, located next to
-   the Go binary or in PATH.
-3. **Localhost HTTP on a short-lived port** for the AI-generated challenge
-   pipeline, where Go pushes transcript chunks and requests questions;
-   the Python side owns the ASR + LLM process so models stay warm.
+2. **One-shot subprocess invocation** for analytics — Go invokes
+   `ptrack_py report ...` / `ptrack_py aggregate ...` to obtain CSV
+   output on stdout, no Python process kept alive.
+3. **Long-running subprocess + YAML files + CLI re-entry** for the
+   optional auto-generated challenges. Go spawns `ptrack_py challenger
+   run` once per session; the Python side writes generated YAML banks
+   to the pending directory, and (when `auto_submit` is on) re-enters
+   the system through `ptrack poll --type=aigenerated <path>` like any
+   other producer.
+4. **Localhost HTTP** for the audio path only: the browser's WebSocket
+   stream lands on the Go daemon and is relayed to the challenger over
+   a small `POST /context/audio` endpoint (or its stdin), so the ASR
+   process can ingest it. No `POST /challenges/generate` exists — Go
+   never asks Python for a batch.
 
-When the event schema changes, update `go/src/internal/eventstore/` (Go Arrow
-schema), `py/src/ptrack_analytics/schema.py`, and `@docs/EVENT_SCHEMA.md`.
-All three must match. Prefer adding optional columns over changing
-existing ones.
+When the event schema changes, update `go/src/internal/eventstore/` (Go
+Arrow schema), `py/src/ptrack_analytics/schema.py`, and
+`@docs/EVENT_SCHEMA.md`. All three must match. Prefer adding optional
+columns over changing existing ones.
 
 ## Go conventions
 
@@ -284,44 +338,73 @@ For releases: PyInstaller single-file binary (`ptrack_py`).
 | Run a fixture end-to-end        | `./bin/ptrack track --provider=mock --fixture=test/fixtures/bbb/lesson1` |
 | Track without GUI (headless)    | `./bin/ptrack track --provider=bbb --meeting=<id>`                       |
 | Start GUI (connect via browser) | `./bin/ptrack serve --port=8080` — use the Connect form on the dashboard |
+| Trigger a poll (any producer)   | `./bin/ptrack poll --type=custom path/to/bank.yaml`                      |
+| Trigger a poll, wait for result | `./bin/ptrack poll --wait path/to/bank.yaml`                             |
 | Export CSV report for a meeting | `./bin/ptrack report --in meeting.parquet --out report.csv`              |
 | Export cross-meeting CSV report | `./bin/ptrack report --in 'meetings/*.parquet' --out semester.csv`       |
 | Ad-hoc analysis (Jupyter)       | `cd py && jupyter notebook` — import `ptrack_analytics`, call `load()`   |
 
 ## Current status
 
-**Core implementation complete.** The following are implemented and compile
-cleanly:
+**Core implementation, MVP-era.** The following are implemented and
+compile cleanly, but predate the recent design changes around the
+single challenge pipeline, the `ptrack poll` CLI, and browser-side
+audio capture. The code still reflects the older "two challenge types"
+layout and needs to be reshaped against the current docs.
 
-- Go: config loader, BBB provider (webhook), Meet provider (polling via
-  REST API v2), Zoom provider (webhook, HMAC-validated), mock provider (fixture
-  replay), shared OAuth 2.0 PKCE helper (`internal/providers/oauth/`), Telegram
-  messenger, mock messenger, file-based challenge type + poller, BoltDB participant
-  registry, Arrow/Parquet event store, session coordinator, `ptrack track` and
-  `ptrack report` CLI commands, `internal/reporter/` package (subprocess invocation
-  of `ptrack_py`, CSV parsing for GUI use).
-  Note: the Telegram messenger and participant registry still implement the old
-  pairing-code flow and need to be updated to the display-name flow described above.
-- Python: `ptrack_analytics` library with schema, `load()`, derived frames
-  (`presence`, `challenge_results`), CSV report generation (`generate_csv`,
-  `generate_aggregate_csv` in `reports.py`), and `ptrack_py report` /
-  `ptrack_py aggregate` CLI commands.
-- GUI (`ptrack serve`) and `internal/gui/` package: HTTP server with all
-  routes from `docs/GUI.md`, in-process session management, templ + htmx
-  templates (dashboard, live status, meeting analysis with SVG timeline,
-  cross-meeting participant view, config editor), CSS in `views/assets/`,
-  English/Ukrainian i18n via `gui/locales/*.json` and a cookie-based locale
-  selector. Parquet reader (`eventstore.ReadAll`) and display-name rewrite
+- Go: config loader, BBB provider (webhook adapter — to be replaced by
+  polling), Meet provider (polling via REST API v2), Zoom provider
+  (webhook adapter, HMAC-validated — to be replaced by Dashboard API
+  polling), mock provider (fixture replay), shared OAuth 2.0 PKCE
+  helper
+  (`internal/providers/oauth/`), Telegram messenger, mock messenger,
+  file-based challenge type + poller, BoltDB participant registry,
+  Arrow/Parquet event store, session coordinator, `ptrack track` and
+  `ptrack report` CLI commands, `internal/reporter/` package (subprocess
+  invocation of `ptrack_py`, CSV parsing for GUI use).
+  Note: the Telegram messenger and participant registry still implement
+  the old pairing-code flow and need to be updated to the display-name
+  flow described above.
+- Python: `ptrack_analytics` library with schema, `load()`, derived
+  frames (`presence`, `challenge_results`), CSV report generation
+  (`generate_csv`, `generate_aggregate_csv` in `reports.py`), and
+  `ptrack_py report` / `ptrack_py aggregate` CLI commands.
+- GUI (`ptrack serve`) and `internal/gui/` package: HTTP server with
+  all routes from the older `docs/GUI.md`, in-process session
+  management, templ + htmx templates (dashboard, live status, meeting
+  analysis with SVG timeline, cross-meeting participant view, config
+  editor), CSS in `views/assets/`, English/Ukrainian i18n via
+  `gui/locales/*.json` and a cookie-based locale selector. Parquet
+  reader (`eventstore.ReadAll`) and display-name rewrite
   (`eventstore.UpdateDisplayName`) also implemented.
 
-**Not yet implemented (TODO stubs in code):**
+**Pending against the current design (not yet in code):**
 
-- AI-generated challenges (`challenges/aigenerated/`, `py/src/challenger/`).
+- Collapse `challenges/filebased/` and `challenges/aigenerated/` into
+  the single `challenges/` pipeline; drop the `ChallengeType`
+  interface.
+- Introduce `internal/controlplane/`; expose `POST /meetings/{id}/polls`
+  (and the `active` alias) as the shared GUI + CLI entry point. Publish
+  the listener port to children via the `PTRACK_PORT` environment
+  variable.
+- Add the `ptrack poll` CLI subcommand as a thin HTTP client.
+- Replace the GUI's Start Poll button with the Custom / Auto-generated
+  menu; add the Audio card, Free models, and Shut down controls.
+- Browser-side audio capture via `getUserMedia` and a WebSocket to the
+  daemon; relay path Go → Python.
+- `internal/challenger/` package to supervise the optional
+  `ptrack_py challenger run` subprocess and forward audio.
+- Auto-generation pipeline on the Python side: rolling transcript,
+  YAML producer, optional `ptrack poll` re-entry.
 - Named GUI analyses (`py/src/ptrack_analytics/analyses.py`).
+- Replace the BBB webhook adapter with a `getMeetingInfo` poller and
+  the Zoom webhook adapter with a Dashboard API poller. Drop all
+  `webhook_*` config fields and the `mode` selector from
+  `providers.*`. ptrack now uses polling for all three providers.
 
 When adding code, confirm the module layout in this file and
-`@docs/ARCHITECTURE.md` are still current, and prefer updating docs first
-when a design decision differs from what is documented.
+`@docs/ARCHITECTURE.md` are still current, and prefer updating docs
+first when a design decision differs from what is documented.
 
 ## Staging
 
@@ -329,14 +412,20 @@ when a design decision differs from what is documented.
 
 - Provider adapters: BBB first, then Meet, then Zoom
 - Messenger: Telegram
-- Challenges: file-based
-- GUI: live meeting view + multi-meeting aggregate + config editor
+- Challenges: single YAML pipeline + `ptrack poll` CLI + GUI Trigger
+  poll menu (Custom path only — auto-generation is stretch)
+- GUI: live meeting view + multi-meeting aggregate + config editor +
+  system controls (Free models, Shut down)
 - CSV reports (single meeting and cross-meeting)
 - Polars analytics via `ptrack_analytics` library and CLI
 
 **v1 stretch:**
 
-- AI-generated challenges using ASR (Whisper) + small LLM (Qwen/Gemma/Phi)
+- Auto-generated challenges via the optional `ptrack_py challenger`
+  subprocess (ASR with Whisper + small LLM Qwen/Gemma/Phi), with both
+  `auto_submit` modes wired through `ptrack poll`
+- Browser-side audio capture via `getUserMedia` + WebSocket relay to
+  the daemon (prerequisite for the above)
 - Optional: screen-share OCR for cross-modal challenges
 - Optional: local-only mode with Ollama / llama.cpp
 

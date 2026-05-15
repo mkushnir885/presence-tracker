@@ -38,9 +38,15 @@ Rendered server-side with templ; interactive bits use htmx.
 | `GET /registry`                                      | Participant registry page — list all registered display-name entries           |
 | `DELETE /registry/{id}`                              | Remove one registry entry by ParticipantID                                     |
 | `DELETE /registry`                                   | Clear all registry entries (pairing data only; Parquet files untouched)        |
-| `POST /meetings/{id}/polls`                          | Trigger a file-based poll for an active meeting                                |
-| `PATCH /meetings/{id}/polls/config`                  | Update AI-generated poll config mid-meeting                                    |
+| `POST /meetings/{id}/polls`                          | Trigger a poll for an active meeting (body: `{type, bank_path}`)               |
+| `POST /meetings/active/polls`                        | Alias for the currently active session; 409 if 0 or >1 active sessions         |
+| `PATCH /meetings/{id}/polls/config`                  | Update auto-generation poll config mid-meeting                                 |
+| `GET /poll/pending`                                  | htmx fragment: pending auto-generated YAML (file path, timestamp) or empty     |
+| `GET /poll/pending/preview`                          | Return the pending YAML's contents for inline preview / edit                   |
 | `GET /questions/{id}`                                | Return question text for a marker hover tooltip (reads from `.jsonl`)          |
+| `POST /audio/stream`                                 | WebSocket upgrade; browser pushes PCM/Opus frames captured via `getUserMedia`  |
+| `POST /system/unload-models`                         | Release the Python challenger's resident ASR + LLM (the process keeps running) |
+| `POST /system/shutdown`                              | Stop the active session, terminate the challenger, close all listeners         |
 | `GET /config`                                        | Config editor page                                                             |
 | `POST /config`                                       | Save config (validated before write)                                           |
 
@@ -118,14 +124,96 @@ events). Severity-coded; new entries appear at the top.
 
 ### Poll controls
 
-For **file-based** polls: file picker with pre-validation, "Start Poll"
-button, most-recent poll status (delivered / answered / unanswered
-counts), cooldown indicator. These controls live in the "Last poll" card
-or in a dedicated poll panel below the cards.
+A single **Trigger poll** button on the status dashboard opens a small
+menu with two options:
 
-For **AI-generated** polls: `poll_interval_seconds` and
-`questions_per_poll` with inline edit fields. Changes applied via
-`PATCH /meetings/{id}/polls/config`. Last-poll summary.
+```
+┌────────────────────────────────────────┐
+│  Trigger poll                          │
+├────────────────────────────────────────┤
+│  ▸ Custom bank…                        │
+│  ▸ Auto-generated (2 min ago)   [view] │
+└────────────────────────────────────────┘
+```
+
+- **Custom bank…** opens a file picker rooted in `challenges.banks_dir`,
+  pre-validates the chosen YAML, and on confirmation submits
+  `POST /meetings/active/polls` with `{"type": "custom", "bank_path": "<chosen>"}`.
+  Equivalent to running `ptrack poll --type=custom <bank>` from a shell.
+- **Auto-generated** is enabled only when `GET /poll/pending` returns a
+  non-empty file. The label shows the file's age. Clicking it submits
+  `POST /meetings/active/polls` with
+  `{"type": "combined", "bank_path": "<pending-file>"}`. A small
+  **[view]** affordance next to the option opens the YAML in a modal
+  for inline preview/edit before submission (backed by
+  `GET /poll/pending/preview`); the edited copy is saved back to the
+  same path before the poll is dispatched. On successful submission the
+  file is removed from the pending directory.
+
+If auto-generation is configured with `auto_submit: true`, the Python
+challenger submits its own polls (with `type=aigenerated`) without ever
+populating the menu — the **Auto-generated** option appears only when
+the teacher's intervention is expected.
+
+The "Last poll" card shows the most recent poll's `type`, dispatch
+time, and result counts (delivered / correct / incorrect / unanswered),
+plus a cooldown indicator (`min_gap_between_challenges_seconds`).
+
+Inline edit fields for `auto_generation.poll_interval_seconds` and
+`auto_generation.questions_per_poll` are shown when auto-generation is
+enabled. Changes apply via `PATCH /meetings/{id}/polls/config`.
+
+### Audio capture (auto-generation only)
+
+When `challenges.auto_generation.enabled` is true, the status dashboard
+shows an **Audio** card with the microphone permission state and a
+mute/resume toggle. Audio is captured by the browser through
+`navigator.mediaDevices.getUserMedia` and streamed to the daemon over
+a WebSocket at `POST /audio/stream`; the daemon relays the frames to
+the Python challenger for ASR.
+
+```
+┌──────────────────────────────┐
+│  Audio                       │
+│                              │
+│  ● Streaming · Built-in mic  │
+│                              │
+│  [ Change device ]  [ Mute ] │
+└──────────────────────────────┘
+```
+
+- **Change device** opens the browser's native device picker via
+  `enumerateDevices()`. The chosen device is remembered in
+  `localStorage`.
+- **Mute** pauses the WebSocket stream; the challenger receives a
+  silence marker so faster-whisper does not mis-segment around the
+  gap. Resume reopens the stream.
+- The card surfaces permission-denied and device-error states with a
+  short remediation hint.
+
+Browser-side capture means the same flow works on a mobile browser —
+including Android-on-Termux — without any extra OS plumbing.
+
+### System controls
+
+The status dashboard footer (and the bottom of the config editor)
+exposes two buttons:
+
+- **Free models** — `POST /system/unload-models`. Releases the
+  challenger's resident ASR + LLM and reclaims the multi-gigabyte
+  memory footprint. The challenger process keeps running; the next
+  generation reloads on demand. Useful between long pauses in
+  back-to-back lessons.
+- **Shut down** — `POST /system/shutdown`. Stops the active session,
+  terminates the challenger, closes all listeners, and replaces the
+  current page with a static "ptrack has stopped — you can close this
+  browser tab" screen. A confirmation modal is shown first.
+
+Closing the browser tab on its own does **not** shut anything down —
+the daemon and the challenger keep running, models stay warm, and a
+new tab reconnects to the same session at the same
+`http://127.0.0.1:<port>` URL. The **Shut down** button is the only
+graceful exit path from the GUI.
 
 ## Meeting analysis view
 
@@ -249,12 +337,9 @@ thin vertical rules at each state change.
 ### Challenge markers
 
 Each marker is drawn at the X-coordinate of the `challenge_issued` event.
-
-| Marker shape | Challenge type |
-| ------------ | -------------- |
-| ● circle     | `filebased`    |
-| ◆ diamond    | `aigenerated`  |
-| ▲ triangle   | future types   |
+All markers use the same shape (● circle); the `--type` label of the
+poll is shown in the hover tooltip but does not influence the marker's
+shape.
 
 | Marker color | Result state                                             |
 | ------------ | -------------------------------------------------------- |
@@ -265,8 +350,8 @@ Each marker is drawn at the X-coordinate of the `challenge_issued` event.
 
 **Hover on a marker** fetches `GET /questions/{id}` (which looks up the
 record in the meeting's `.jsonl` file) and shows a tooltip with: exact
-timestamp, challenge type, time-to-answer (for answered ones), and the
-question prompt and choices.
+timestamp, poll `type` label, time-to-answer (for answered ones), and
+the question prompt and choices.
 
 ### Presence band legend
 
