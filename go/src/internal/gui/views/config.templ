@@ -88,10 +88,6 @@ templ ConfigEditor(data ConfigData, locale Locale) {
 						<label for="bbb_base_url">{ locale.T("config.bbb_base_url") }</label>
 						<input id="bbb_base_url" name="bbb_base_url" type="url" value={ data.BBBBaseURL }/>
 					</div>
-					<div class="field">
-						<label for="bbb_webhook_port">{ locale.T("config.bbb_webhook_port") }</label>
-						<input id="bbb_webhook_port" name="bbb_webhook_port" type="number" min="1" max="65535" value={ fmt.Sprintf("%d", data.BBBWebhookPort) } style="width:auto;"/>
-					</div>
 				</div>
 			</details>
 			<details>

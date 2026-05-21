@@ -30,17 +30,11 @@ type ProvidersConfig struct {
 }
 
 type BBBConfig struct {
-	Enabled       bool   `yaml:"enabled"`
-	BaseURL       string `yaml:"base_url"`
-	SharedSecret  string `yaml:"shared_secret"`
-	Mode          string `yaml:"mode"`            // "webhook" (default) or "poll"
-	TLSSkipVerify bool   `yaml:"tls_skip_verify"` // disable TLS certificate verification (for self-signed certs in dev)
-	// Webhook mode — BBB server must be able to reach webhook_host:webhook_port.
-	WebhookPort   int    `yaml:"webhook_port"`
-	WebhookHost   string `yaml:"webhook_host"`   // hostname/IP the BBB server calls back to; defaults to "localhost"
-	WebhookSecret string `yaml:"webhook_secret"` // optional HMAC secret for hook payloads
-	// Poll mode — no public address required; ptrack polls getMeetingInfo on a timer.
-	PollIntervalSeconds int `yaml:"poll_interval_seconds"`
+	Enabled             bool   `yaml:"enabled"`
+	BaseURL             string `yaml:"base_url"`
+	SharedSecret        string `yaml:"shared_secret"`
+	TLSSkipVerify       bool   `yaml:"tls_skip_verify"` // disable TLS certificate verification (for self-signed certs in dev)
+	PollIntervalSeconds int    `yaml:"poll_interval_seconds"`
 }
 
 type OAuthConfig struct {
@@ -58,16 +52,9 @@ type MeetConfig struct {
 }
 
 type ZoomConfig struct {
-	Enabled bool        `yaml:"enabled"`
-	OAuth   OAuthConfig `yaml:"oauth"`
-	Mode    string      `yaml:"mode"` // "webhook" (default) or "poll"
-	// Webhook mode — requires a publicly reachable address (or a tunnel such as Cloudflare Tunnel).
-	WebhookPort        int    `yaml:"webhook_port"`
-	WebhookHost        string `yaml:"webhook_host"`
-	WebhookSecretToken string `yaml:"webhook_secret_token"` // Zoom webhook verification token
-	// Poll mode — no public address required; requires a Zoom Pro plan or higher
-	// and an account-admin OAuth authorization (dashboard_meetings:read:admin scope).
-	PollIntervalSeconds int `yaml:"poll_interval_seconds"`
+	Enabled             bool        `yaml:"enabled"`
+	OAuth               OAuthConfig `yaml:"oauth"`
+	PollIntervalSeconds int         `yaml:"poll_interval_seconds"`
 }
 
 type MessengersConfig struct {
@@ -160,20 +147,8 @@ func (c *Config) defaults() {
 	if c.Logging.Format == "" {
 		c.Logging.Format = "text"
 	}
-	if c.Providers.BBB.WebhookPort == 0 {
-		c.Providers.BBB.WebhookPort = 9124
-	}
-	if c.Providers.BBB.Mode == "" {
-		c.Providers.BBB.Mode = "webhook"
-	}
 	if c.Providers.BBB.PollIntervalSeconds == 0 {
 		c.Providers.BBB.PollIntervalSeconds = 10
-	}
-	if c.Providers.Zoom.WebhookPort == 0 {
-		c.Providers.Zoom.WebhookPort = 9123
-	}
-	if c.Providers.Zoom.Mode == "" {
-		c.Providers.Zoom.Mode = "webhook"
 	}
 	if c.Providers.Zoom.PollIntervalSeconds == 0 {
 		c.Providers.Zoom.PollIntervalSeconds = 10

@@ -85,7 +85,6 @@
   "config.bbb": "BigBlueButton",
   "config.enabled": "Увімкнено",
   "config.bbb_base_url": "Базова URL",
-  "config.bbb_webhook_port": "Порт вебхуку",
   "config.telegram": "Telegram",
   "config.tg_bot_token": "Токен бота",
   "config.challenges": "Завдання",

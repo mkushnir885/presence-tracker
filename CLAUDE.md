@@ -349,10 +349,9 @@ For releases: PyInstaller single-file binary (`ptrack_py`).
 and `ptrack poll` CLI now match the current design. Auto-generation,
 audio capture, and the BBB/Zoom polling rewrite are still pending.
 
-- Go: config loader, BBB provider (webhook adapter — to be replaced by
-  polling), Meet provider (polling via REST API v2), Zoom provider
-  (webhook adapter, HMAC-validated — to be replaced by Dashboard API
-  polling), mock provider (fixture replay), shared OAuth 2.0 PKCE
+- Go: config loader, BBB provider (polling `getMeetingInfo`), Meet
+  provider (polling via REST API v2), Zoom provider (polling the
+  Dashboard API), mock provider (fixture replay), shared OAuth 2.0 PKCE
   helper (`internal/providers/oauth/`), Telegram messenger, mock
   messenger, single `internal/challenges/` pipeline (load, score,
   per-session `Pipeline` with `RunPoll`/`HandleAnswer`), BoltDB
@@ -391,10 +390,6 @@ audio capture, and the BBB/Zoom polling rewrite are still pending.
 - Auto-generation pipeline on the Python side: rolling transcript,
   YAML producer, optional `ptrack poll` re-entry.
 - Named GUI analyses (`py/src/ptrack_analytics/analyses.py`).
-- Replace the BBB webhook adapter with a `getMeetingInfo` poller and
-  the Zoom webhook adapter with a Dashboard API poller. Drop all
-  `webhook_*` config fields and the `mode` selector from
-  `providers.*`. ptrack now uses polling for all three providers.
 
 When adding code, confirm the module layout in this file and
 `@docs/ARCHITECTURE.md` are still current, and prefer updating docs

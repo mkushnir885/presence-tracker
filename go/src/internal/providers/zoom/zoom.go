@@ -2,14 +2,9 @@ package zoom
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"path/filepath"
 	"time"
@@ -21,32 +16,25 @@ import (
 
 const (
 	zoomAuthURL  = "https://zoom.us/oauth/authorize"
-	zoomTokenURL = "https://zoom.us/oauth/token"
+	zoomTokenURL = "https://zoom.us/oauth/token" //nolint:gosec // G101: OAuth token endpoint URL, not a credential
+	zoomAPIBase  = "https://api.zoom.us/v2"
 )
 
-var zoomScopes = []string{"meeting:read:meeting", "meeting:read:participant"}
+// dashboard_meetings:read:admin requires account-admin authorisation on a
+// Zoom Pro plan or higher.
+var zoomScopes = []string{"meeting:read:meeting", "dashboard_meetings:read:admin"}
 
-// Adapter is the Zoom provider.
+// Adapter polls the Zoom Dashboard API for live participant state.
 type Adapter struct {
-	cfg        *config.ZoomConfig
-	dataDir    string
-	httpServer *http.Server
-	events     chan providers.Event
-	cancel     context.CancelFunc
+	cfg     *config.ZoomConfig
+	dataDir string
+	client  *http.Client
+	events  chan providers.Event
 }
 
-// New creates a Zoom adapter. dataDir is used for OAuth token persistence.
-// If cfg.Mode is "poll", it returns a polling adapter that requires no public address
-// but needs a Zoom Pro plan and an account-admin OAuth authorisation.
-// Otherwise it returns a webhook adapter (default).
-func New(cfg *config.ZoomConfig, dataDir string) providers.Provider {
-	if cfg.Mode == "poll" {
-		return newPollAdapter(cfg, dataDir)
-	}
-	return newWebhookAdapter(cfg, dataDir)
-}
-
-func newWebhookAdapter(cfg *config.ZoomConfig, dataDir string) *Adapter {
+// New creates a Zoom poll adapter. dataDir is used for OAuth token
+// persistence (zoom_oauth.json).
+func New(cfg *config.ZoomConfig, dataDir string) *Adapter {
 	return &Adapter{
 		cfg:     cfg,
 		dataDir: dataDir,
@@ -56,7 +44,9 @@ func newWebhookAdapter(cfg *config.ZoomConfig, dataDir string) *Adapter {
 
 func (a *Adapter) Name() string { return "zoom" }
 
-// Authenticate runs the PKCE OAuth flow if no valid token is stored.
+// Authenticate runs the PKCE OAuth flow with the
+// dashboard_meetings:read:admin scope. The authorising account must be a
+// Zoom account admin.
 func (a *Adapter) Authenticate(ctx context.Context) error {
 	oauthCfg := providersoauth.Config{
 		ClientID:     a.cfg.OAuth.ClientID,
@@ -66,261 +56,179 @@ func (a *Adapter) Authenticate(ctx context.Context) error {
 		RedirectPort: a.cfg.OAuth.RedirectPort,
 		TokenFile:    filepath.Join(a.dataDir, "zoom_oauth.json"),
 	}
-	_, err := providersoauth.EnsureToken(ctx, oauthCfg)
+	client, err := providersoauth.AuthorizedClient(ctx, oauthCfg)
 	if err != nil {
 		return fmt.Errorf("zoom: authenticate: %w", err)
 	}
+	a.client = client
 	return nil
 }
 
-// Subscribe starts the local webhook HTTP server and returns a channel of events.
-// The channel is closed when the meeting ends or ctx is cancelled.
-//
-// meetingID is the Zoom meeting number (e.g. "123456789"). It is used to filter
-// incoming webhook events so that events from other meetings are ignored.
+// Subscribe starts polling the Zoom Dashboard API and returns a channel of
+// events. The channel is closed when the meeting ends or ctx is cancelled.
 func (a *Adapter) Subscribe(ctx context.Context, meetingID string) (<-chan providers.Event, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	a.cancel = cancel
-
-	addr := fmt.Sprintf(":%d", a.cfg.WebhookPort)
-	ln, err := net.Listen("tcp", addr) //nolint:noctx
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("zoom: listen on %s: %w", addr, err)
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/zoom/webhook", func(w http.ResponseWriter, r *http.Request) {
-		a.handleWebhook(w, r, meetingID)
-	})
-	a.httpServer = &http.Server{Handler: mux}
-
-	go func() {
-		if err := a.httpServer.Serve(ln); err != nil && err != http.ErrServerClosed {
-			slog.Error("zoom: webhook server error", "err", err)
-		}
-	}()
-
-	go func() { //nolint:gosec
-		<-ctx.Done()
-		shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer shutCancel()
-		_ = a.httpServer.Shutdown(shutCtx) //nolint:contextcheck
-		close(a.events)
-	}()
-
-	host := a.cfg.WebhookHost
-	if host == "" {
-		host = "localhost"
-	}
-	// When webhook_host is a public domain (e.g. via Cloudflare Tunnel), Zoom
-	// requires HTTPS on port 443 — the tunnel handles TLS termination. For
-	// localhost the plain HTTP address is what Zoom actually calls.
-	var publicURL string
-	if host == "localhost" || host == "127.0.0.1" {
-		publicURL = fmt.Sprintf("http://%s:%d/zoom/webhook", host, a.cfg.WebhookPort)
-	} else {
-		publicURL = fmt.Sprintf("https://%s/zoom/webhook", host)
-	}
-	slog.Info("zoom: webhook server listening",
-		"addr", addr,
-		"public_url", publicURL,
-		"note", "register this URL in your Zoom app Event Subscriptions")
-
+	go a.pollLoop(ctx, meetingID)
 	return a.events, nil
 }
 
-// FetchPostMeeting is not implemented for Zoom.
+// FetchPostMeeting is not implemented for Zoom in v1.
 func (a *Adapter) FetchPostMeeting(_ context.Context, _ string) ([]providers.Event, error) {
 	return nil, nil
 }
 
-// handleWebhook processes incoming Zoom webhook POST requests.
-func (a *Adapter) handleWebhook(w http.ResponseWriter, r *http.Request, meetingID string) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-	if err != nil {
-		http.Error(w, "read error", http.StatusBadRequest)
-		return
-	}
+type zoomParticipant struct {
+	id    string // participantUUID
+	name  string
+	email string
+}
 
-	// Zoom challenge-response handshake (sent when the endpoint is first registered).
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(body, &raw); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
-		return
-	}
-	if _, ok := raw["payload"]; !ok {
-		// Could be a URL validation challenge.
-		var challenge struct {
-			Event   string `json:"event"`
-			Payload struct {
-				PlainToken string `json:"plainToken"`
-			} `json:"payload"`
-		}
-		if err := json.Unmarshal(body, &challenge); err == nil && challenge.Payload.PlainToken != "" {
-			a.respondChallenge(w, challenge.Payload.PlainToken)
-			return
-		}
-	}
+func (a *Adapter) pollLoop(ctx context.Context, meetingID string) {
+	defer close(a.events)
 
-	// Validate HMAC signature if a secret token is configured.
-	if a.cfg.WebhookSecretToken != "" {
-		if !a.validateSignature(r, body) {
-			slog.Warn("zoom: webhook signature validation failed")
-			http.Error(w, "invalid signature", http.StatusUnauthorized)
-			return
-		}
-	}
+	interval := time.Duration(a.cfg.PollIntervalSeconds) * time.Second
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 
-	var payload zoomWebhookPayload
-	if err := json.Unmarshal(body, &payload); err != nil {
-		slog.Warn("zoom: could not parse webhook payload", "err", err)
-		w.WriteHeader(http.StatusOK)
-		return
-	}
+	active := map[string]string{} // platformID → displayName
+	meetingLive := false
 
-	// Filter events not belonging to the tracked meeting.
-	if payload.Payload.Object.ID != meetingID {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	if evt, ok := a.convertEvent(payload); ok {
+	for {
 		select {
-		case a.events <- evt:
-		default:
-			slog.Warn("zoom: event channel full, dropping event", "type", payload.Event)
-		}
-
-		// If meeting ended, stop the server after delivering the event.
-		if evt.Kind == providers.EventKindMeetingEnded && a.cancel != nil {
-			a.cancel()
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if done := a.tick(ctx, meetingID, active, &meetingLive); done {
+				return
+			}
 		}
 	}
-
-	w.WriteHeader(http.StatusOK)
 }
 
-// respondChallenge handles Zoom's endpoint verification handshake.
-func (a *Adapter) respondChallenge(w http.ResponseWriter, plainToken string) {
-	mac := hmac.New(sha256.New, []byte(a.cfg.WebhookSecretToken))
-	mac.Write([]byte(plainToken))
-	encryptedToken := hex.EncodeToString(mac.Sum(nil))
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"plainToken":     plainToken,
-		"encryptedToken": encryptedToken,
-	})
-}
-
-// validateSignature checks the x-zm-signature header using HMAC-SHA256.
-func (a *Adapter) validateSignature(r *http.Request, body []byte) bool {
-	sig := r.Header.Get("x-zm-signature")
-	ts := r.Header.Get("x-zm-request-timestamp")
-	if sig == "" || ts == "" {
+// tick performs one poll cycle. Returns true when the meeting has ended.
+func (a *Adapter) tick(ctx context.Context, meetingID string, active map[string]string, meetingLive *bool) bool {
+	participants, live, err := a.fetchParticipants(ctx, meetingID)
+	if err != nil {
+		slog.Warn("zoom: fetch participants", "err", err)
 		return false
 	}
-	// Zoom signature: "v0=" + HMAC-SHA256("v0:{timestamp}:{body}")
-	msg := "v0:" + ts + ":" + string(body)
-	mac := hmac.New(sha256.New, []byte(a.cfg.WebhookSecretToken))
-	mac.Write([]byte(msg))
-	expected := "v0=" + hex.EncodeToString(mac.Sum(nil))
-	return hmac.Equal([]byte(sig), []byte(expected))
-}
 
-// Zoom webhook payload structures.
-type zoomWebhookPayload struct {
-	Event   string `json:"event"`
-	EventTS int64  `json:"event_ts"` // Unix milliseconds
-	Payload struct {
-		AccountID string `json:"account_id"`
-		Object    struct {
-			ID       string `json:"id"`   // meeting number
-			UUID     string `json:"uuid"` // meeting instance UUID
-			Topic    string `json:"topic"`
-			Duration int    `json:"duration"`
-			// Participant is set for participant_joined/left events.
-			Participant *zoomParticipant `json:"participant"`
-		} `json:"object"`
-	} `json:"payload"`
-}
-
-type zoomParticipant struct {
-	UserID    string `json:"user_id"`
-	UserName  string `json:"user_name"`
-	Email     string `json:"email"`
-	JoinTime  string `json:"join_time"`
-	LeaveTime string `json:"leave_time"`
-	JoinReason string `json:"join_reason"`
-}
-
-
-func (a *Adapter) convertEvent(p zoomWebhookPayload) (providers.Event, bool) {
-	ts := time.UnixMilli(p.EventTS).UTC()
-	meetingID := p.Payload.Object.ID
-
-	switch p.Event {
-	case "meeting.started":
-		return providers.Event{
+	if !*meetingLive && live {
+		*meetingLive = true
+		a.emit(providers.Event{
 			Kind:      providers.EventKindMeetingStarted,
 			MeetingID: meetingID,
-			Timestamp: ts,
-			Extra:     map[string]string{"topic": p.Payload.Object.Topic},
-		}, true
-
-	case "meeting.ended":
-		return providers.Event{
-			Kind:      providers.EventKindMeetingEnded,
-			MeetingID: meetingID,
-			Timestamp: ts,
-			Extra: map[string]string{
-				"duration_seconds": fmt.Sprintf("%d", p.Payload.Object.Duration*60),
-			},
-		}, true
-
-	case "meeting.participant_joined":
-		if p.Payload.Object.Participant == nil {
-			return providers.Event{}, false
-		}
-		par := p.Payload.Object.Participant
-		platformID := par.Email
-		if platformID == "" {
-			platformID = par.UserID
-		}
-		joinTime, _ := time.Parse(time.RFC3339, par.JoinTime)
-		if joinTime.IsZero() {
-			joinTime = ts
-		}
-		return providers.Event{
-			Kind:        providers.EventKindParticipantJoined,
-			MeetingID:   meetingID,
-			PlatformID:  platformID,
-			DisplayName: par.UserName,
-			Timestamp:   joinTime,
-		}, true
-
-	case "meeting.participant_left":
-		if p.Payload.Object.Participant == nil {
-			return providers.Event{}, false
-		}
-		par := p.Payload.Object.Participant
-		platformID := par.Email
-		if platformID == "" {
-			platformID = par.UserID
-		}
-		leaveTime, _ := time.Parse(time.RFC3339, par.LeaveTime)
-		if leaveTime.IsZero() {
-			leaveTime = ts
-		}
-		return providers.Event{
-			Kind:        providers.EventKindParticipantLeft,
-			MeetingID:   meetingID,
-			PlatformID:  platformID,
-			DisplayName: par.UserName,
-			Timestamp:   leaveTime,
-		}, true
-
+			Timestamp: time.Now().UTC(),
+		})
 	}
-	return providers.Event{}, false
+
+	if *meetingLive {
+		current := map[string]string{}
+		for _, p := range participants {
+			id := p.email
+			if id == "" {
+				id = p.id
+			}
+			current[id] = p.name
+
+			if _, seen := active[id]; !seen {
+				a.emit(providers.Event{
+					Kind:        providers.EventKindParticipantJoined,
+					MeetingID:   meetingID,
+					PlatformID:  id,
+					DisplayName: p.name,
+					Timestamp:   time.Now().UTC(),
+				})
+				active[id] = p.name
+			}
+		}
+
+		for id := range active {
+			if _, ok := current[id]; !ok {
+				a.emit(providers.Event{
+					Kind:       providers.EventKindParticipantLeft,
+					MeetingID:  meetingID,
+					PlatformID: id,
+					Timestamp:  time.Now().UTC(),
+				})
+				delete(active, id)
+			}
+		}
+
+		if !live {
+			a.emit(providers.Event{
+				Kind:      providers.EventKindMeetingEnded,
+				MeetingID: meetingID,
+				Timestamp: time.Now().UTC(),
+			})
+			return true
+		}
+	}
+
+	return false
+}
+
+// fetchParticipants calls the Zoom Dashboard API for live participants.
+// live is false when the meeting is not yet started or has ended; in that
+// case the returned slice is empty and err is nil.
+func (a *Adapter) fetchParticipants(ctx context.Context, meetingID string) ([]zoomParticipant, bool, error) {
+	var all []zoomParticipant
+	pageToken := ""
+
+	for {
+		u := fmt.Sprintf("%s/metrics/meetings/%s/participants?type=live&page_size=300", zoomAPIBase, meetingID)
+		if pageToken != "" {
+			u += "&next_page_token=" + pageToken
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			return nil, false, fmt.Errorf("build request: %w", err)
+		}
+		resp, err := a.client.Do(req)
+		if err != nil {
+			return nil, false, fmt.Errorf("request: %w", err)
+		}
+
+		if resp.StatusCode == http.StatusNotFound {
+			_ = resp.Body.Close()
+			return nil, false, nil // meeting not live
+		}
+		if resp.StatusCode != http.StatusOK {
+			_ = resp.Body.Close()
+			return nil, false, fmt.Errorf("unexpected status %d", resp.StatusCode)
+		}
+
+		var body struct {
+			NextPageToken string `json:"next_page_token"`
+			Participants  []struct {
+				ID       string `json:"id"`
+				UserName string `json:"user_name"`
+				Email    string `json:"email"`
+			} `json:"participants"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			_ = resp.Body.Close()
+			return nil, false, fmt.Errorf("decode: %w", err)
+		}
+		_ = resp.Body.Close()
+
+		for _, p := range body.Participants {
+			all = append(all, zoomParticipant{id: p.ID, name: p.UserName, email: p.Email})
+		}
+
+		if body.NextPageToken == "" {
+			break
+		}
+		pageToken = body.NextPageToken
+	}
+
+	return all, true, nil
+}
+
+func (a *Adapter) emit(evt providers.Event) {
+	select {
+	case a.events <- evt:
+	default:
+		slog.Warn("zoom: event channel full, dropping event", "kind", evt.Kind)
+	}
 }

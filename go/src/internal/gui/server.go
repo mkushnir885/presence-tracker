@@ -645,7 +645,6 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		LogFormat:                  s.cfg.Logging.Format,
 		BBBEnabled:                 s.cfg.Providers.BBB.Enabled,
 		BBBBaseURL:                 s.cfg.Providers.BBB.BaseURL,
-		BBBWebhookPort:             s.cfg.Providers.BBB.WebhookPort,
 		TelegramEnabled:            s.cfg.Messengers.Telegram.Enabled,
 		TelegramBotToken:           s.cfg.Messengers.Telegram.BotToken,
 		AnswerWindowSeconds:        s.cfg.Challenges.Defaults.AnswerWindowSeconds,
@@ -684,9 +683,6 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 
 	s.cfg.Providers.BBB.Enabled = r.FormValue("bbb_enabled") == "true"
 	s.cfg.Providers.BBB.BaseURL = r.FormValue("bbb_base_url")
-	if v, err := strconv.Atoi(r.FormValue("bbb_webhook_port")); err == nil {
-		s.cfg.Providers.BBB.WebhookPort = v
-	}
 
 	s.cfg.Messengers.Telegram.Enabled = r.FormValue("tg_enabled") == "true"
 	s.cfg.Messengers.Telegram.BotToken = r.FormValue("tg_bot_token")

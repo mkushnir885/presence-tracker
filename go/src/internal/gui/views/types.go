@@ -21,7 +21,7 @@ type DashboardData struct {
 
 // MeetingFile represents one Parquet file in the meetings directory.
 type MeetingFile struct {
-	ID      string    // filename without .parquet
+	ID      string // filename without .parquet
 	ModTime time.Time
 	SizeKB  int64
 }
@@ -122,7 +122,6 @@ type ConfigData struct {
 	LogFormat                  string
 	BBBEnabled                 bool
 	BBBBaseURL                 string
-	BBBWebhookPort             int
 	TelegramEnabled            bool
 	TelegramBotToken           string
 	AnswerWindowSeconds        int
