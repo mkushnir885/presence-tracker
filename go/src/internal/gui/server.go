@@ -20,9 +20,8 @@ import (
 	"github.com/cli/browser"
 	"github.com/google/uuid"
 
-	"presence-tracker/src/internal/challenges"
-	"presence-tracker/src/internal/challenges/filebased"
 	"presence-tracker/src/internal/config"
+	"presence-tracker/src/internal/controlplane"
 	"presence-tracker/src/internal/eventstore"
 	"presence-tracker/src/internal/gui/views"
 	"presence-tracker/src/internal/messengers"
@@ -84,7 +83,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	mux.HandleFunc("GET /registry", s.handleRegistry)
 	mux.HandleFunc("DELETE /registry/{id}", s.handleDeleteRegistryEntry)
 	mux.HandleFunc("DELETE /registry", s.handleClearRegistry)
-	mux.HandleFunc("POST /meetings/{id}/polls", s.handleTriggerPoll)
+	controlplane.Mount(mux, s)
 	mux.HandleFunc("GET /questions/{id}", s.handleQuestion)
 	mux.HandleFunc("GET /config", s.handleConfig)
 	mux.HandleFunc("POST /config", s.handleSaveConfig)
@@ -93,6 +92,12 @@ func (s *Server) Serve(ctx context.Context) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("gui: listen %s: %w", addr, err)
+	}
+
+	chosen := ln.Addr().(*net.TCPAddr).Port
+	if err := controlplane.PublishPort(chosen); err != nil {
+		_ = ln.Close()
+		return err
 	}
 
 	slog.Info("gui: server started", "addr", "http://"+addr)
@@ -211,13 +216,8 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	challengesEnabled := s.cfg.Challenges.FileBased.Enabled || s.cfg.Challenges.AIGenerated.Enabled
 	var msgr messengers.Messenger
-	if challengesEnabled {
-		if !s.cfg.Messengers.Telegram.Enabled {
-			http.Error(w, "challenges are enabled but no messenger is configured (set messengers.telegram.enabled: true)", http.StatusInternalServerError)
-			return
-		}
+	if s.cfg.Messengers.Telegram.Enabled {
 		tgAdapter, err := telegram.New(s.cfg.Messengers.Telegram.BotToken, s.registry, s.enabledPlatforms())
 		if err != nil {
 			http.Error(w, "telegram init error: "+err.Error(), http.StatusInternalServerError)
@@ -251,8 +251,6 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	coord := session.New(sessCfg, prov, msgr, s.registry, store)
-
-	coord.SetPoller(nil) // poller set on demand via poll trigger
 
 	sessCtx, cancel := context.WithCancel(context.Background())
 	buf := newLogBuffer(200, slog.Default().Handler())
@@ -597,39 +595,21 @@ func (s *Server) handleClearRegistry(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// handleTriggerPoll triggers a challenge poll in the active session.
-func (s *Server) handleTriggerPoll(w http.ResponseWriter, r *http.Request) {
+// Resolve implements controlplane.Sessions. The GUI hosts at most one
+// active session at a time, so both the explicit meeting ID and the
+// "active" alias resolve to the same coordinator.
+func (s *Server) Resolve(meetingID string) (*session.Coordinator, error) {
 	s.mu.RLock()
 	act := s.active
 	s.mu.RUnlock()
 
 	if act == nil {
-		http.Error(w, "no active session", http.StatusConflict)
-		return
+		return nil, controlplane.ErrNoActiveSession
 	}
-
-	var body struct {
-		BankPath string `json:"bank_path"`
+	if meetingID == controlplane.ActiveMeetingID || meetingID == act.coord.MeetingID() {
+		return act.coord, nil
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "bad request body", http.StatusBadRequest)
-		return
-	}
-
-	bankLoader := func(path string) (challenges.ChallengeType, error) {
-		fb := &filebased.ChallengeType{}
-		return fb, fb.LoadBank(path)
-	}
-
-	if err := act.coord.TriggerPollWithBank(r.Context(), bankLoader, body.BankPath); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	return nil, controlplane.ErrMeetingNotFound
 }
 
 // handleQuestion returns a question record as JSON.
@@ -666,8 +646,8 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		BBBEnabled:                 s.cfg.Providers.BBB.Enabled,
 		BBBBaseURL:                 s.cfg.Providers.BBB.BaseURL,
 		BBBWebhookPort:             s.cfg.Providers.BBB.WebhookPort,
-		TelegramEnabled:  s.cfg.Messengers.Telegram.Enabled,
-		TelegramBotToken: s.cfg.Messengers.Telegram.BotToken,
+		TelegramEnabled:            s.cfg.Messengers.Telegram.Enabled,
+		TelegramBotToken:           s.cfg.Messengers.Telegram.BotToken,
 		AnswerWindowSeconds:        s.cfg.Challenges.Defaults.AnswerWindowSeconds,
 		MinGapBetweenChallengesSec: s.cfg.Challenges.Defaults.MinGapBetweenChallengesSecs,
 		EventStoreCompression:      s.cfg.EventStore.Compression,

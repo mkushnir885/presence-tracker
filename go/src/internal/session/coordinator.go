@@ -2,11 +2,8 @@ package session
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -86,7 +83,7 @@ type Coordinator struct {
 	messenger messengers.Messenger
 	registry  participants.Registry
 	store     *eventstore.Writer
-	poller    *challenges.Poller
+	pipeline  *challenges.Pipeline
 
 	mu           sync.Mutex
 	present      map[participants.ParticipantID]*presenceInfo
@@ -94,9 +91,9 @@ type Coordinator struct {
 	unregistered map[string]*unregisteredInfo    // platformID → info
 }
 
-// New creates a Coordinator. Call SetPoller before Run.
+// New creates a Coordinator.
 func New(cfg Config, provider providers.Provider, messenger messengers.Messenger, registry participants.Registry, store *eventstore.Writer) *Coordinator {
-	return &Coordinator{
+	c := &Coordinator{
 		cfg:          cfg,
 		provider:     provider,
 		messenger:    messenger,
@@ -106,10 +103,13 @@ func New(cfg Config, provider providers.Provider, messenger messengers.Messenger
 		pending:      make(map[string]*pendingVerification),
 		unregistered: make(map[string]*unregisteredInfo),
 	}
+	window := time.Duration(cfg.AnswerWindowSecs) * time.Second
+	c.pipeline = challenges.NewPipeline(c, window)
+	return c
 }
 
-// SetPoller wires the challenge poller into the coordinator.
-func (c *Coordinator) SetPoller(p *challenges.Poller) { c.poller = p }
+// MeetingID returns the internal meeting ID of this session.
+func (c *Coordinator) MeetingID() string { return c.cfg.MeetingID }
 
 // Run drives the session event loop. It returns when the meeting ends, ctx is
 // cancelled, or an unrecoverable error occurs.
@@ -125,9 +125,7 @@ func (c *Coordinator) Run(ctx context.Context) error {
 	}
 
 	defer func() { //nolint:contextcheck // ctx is cancelled by this point; cleanup uses a fresh context
-		if c.poller != nil {
-			c.poller.Drain()
-		}
+		c.pipeline.Drain()
 		bg := context.Background()
 		c.writeEvent(bg, eventstore.Record{
 			EventType: "meeting_ended",
@@ -315,15 +313,12 @@ func (c *Coordinator) handleMessengerEvent(ctx context.Context, evt messengers.E
 	case messengers.EventKindRegistration:
 		c.onRegistration(ctx, evt)
 	case messengers.EventKindAnswerReceived:
-		if c.poller == nil {
-			return
-		}
 		answer := challenges.Answer{
 			Text:       evt.Answer,
 			Selected:   evt.Selected,
 			MessageRef: evt.AnswerMessageRef.Opaque,
 		}
-		if !c.poller.HandleAnswer(evt.ChallengeID, answer) {
+		if !c.pipeline.HandleAnswer(evt.ChallengeID, answer) {
 			slog.Debug("session: answer arrived after window closed", "challenge", evt.ChallengeID)
 		}
 	}
@@ -417,15 +412,17 @@ func (c *Coordinator) onRegistration(ctx context.Context, evt messengers.Event) 
 	c.sendVerification(ctx, pid, handle, joinEvt)
 }
 
-// TriggerPoll starts a poll round using the active poller.
-func (c *Coordinator) TriggerPoll(ctx context.Context) error {
-	if c.poller == nil {
-		return nil
+// RunPoll loads a question bank from disk and dispatches one poll round
+// to the eligible participants currently in the meeting. typeLabel is the
+// free-form producer tag stamped onto every challenge_issued event for
+// this round (e.g. "custom", "combined", "aigenerated").
+func (c *Coordinator) RunPoll(ctx context.Context, bankPath, typeLabel string) (challenges.PollResult, error) {
+	bank, err := challenges.Load(bankPath)
+	if err != nil {
+		return challenges.PollResult{}, err
 	}
 	eligible := c.eligibleParticipants()
-	if len(eligible) == 0 {
-		return nil
-	}
+
 	sendFn := func(ctx context.Context, handle, challengeID string, q challenges.Question) (string, error) {
 		mp := messengers.ChallengePrompt{
 			ChallengeID:  challengeID,
@@ -440,22 +437,7 @@ func (c *Coordinator) TriggerPoll(ctx context.Context) error {
 		}
 		return ref.Opaque, nil
 	}
-	return c.poller.TriggerPoll(ctx, eligible, c.cfg.QuestionsDir, c.cfg.MeetingID, sendFn)
-}
-
-// TriggerPollWithBank loads a question bank, installs a fresh poller, and
-// immediately runs a poll round.
-func (c *Coordinator) TriggerPollWithBank(ctx context.Context, loadBank BankLoader, bankPath string) error {
-	ct, err := loadBank(bankPath)
-	if err != nil {
-		return fmt.Errorf("load bank: %w", err)
-	}
-	window := time.Duration(c.cfg.AnswerWindowSecs) * time.Second
-	if c.poller != nil {
-		c.poller.Drain()
-	}
-	c.poller = challenges.NewPoller(ct, c, window)
-	return c.TriggerPoll(ctx)
+	return c.pipeline.RunPoll(ctx, bank, typeLabel, eligible, sendFn, c.cfg.QuestionsDir, c.cfg.MeetingID)
 }
 
 // eligibleParticipants returns verified participants currently in the meeting,
@@ -501,7 +483,7 @@ func (c *Coordinator) RecordChallengeIssued(ctx context.Context, issued challeng
 		ParticipantID: issued.ParticipantID,
 		Metadata: map[string]string{
 			"challenge_id":    issued.ChallengeID,
-			"challenge_type":  c.poller.ChallengeTypeName(),
+			"challenge_type":  issued.TypeLabel,
 			"question_id":     issued.Question.QuestionID,
 			"answer_window_s": fmt.Sprintf("%d", c.cfg.AnswerWindowSecs),
 		},
@@ -559,62 +541,4 @@ func (c *Coordinator) RecordChallengeSkipped(ctx context.Context, participantID,
 // DeleteMessage implements challenges.EventSink.
 func (c *Coordinator) DeleteMessage(ctx context.Context, ref string) error {
 	return c.messenger.DeleteMessage(ctx, messengers.MessageRef{Opaque: ref})
-}
-
-// BankLoader creates a ChallengeType from a question-bank file path.
-type BankLoader func(bankPath string) (challenges.ChallengeType, error)
-
-type controlRequest struct {
-	BankPath string `json:"bank_path"`
-}
-
-type controlResponse struct {
-	OK    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
-}
-
-// Listen starts a Unix domain socket at socketPath and accepts poll-trigger
-// requests for the lifetime of ctx.
-func (c *Coordinator) Listen(ctx context.Context, socketPath string, loadBank BankLoader) {
-	_ = os.Remove(socketPath)
-	ln, err := net.Listen("unix", socketPath) //nolint:noctx // synchronous bind; cancellation via goroutine
-	if err != nil {
-		slog.Warn("session: could not start control socket", "err", err)
-		return
-	}
-
-	go func() {
-		<-ctx.Done()
-		_ = ln.Close()
-		_ = os.Remove(socketPath)
-	}()
-
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			go c.handleControl(ctx, conn, loadBank)
-		}
-	}()
-
-	slog.Info("session: control socket ready", "path", socketPath)
-}
-
-func (c *Coordinator) handleControl(ctx context.Context, conn net.Conn, loadBank BankLoader) {
-	defer func() { _ = conn.Close() }()
-
-	var req controlRequest
-	if err := json.NewDecoder(conn).Decode(&req); err != nil {
-		_ = json.NewEncoder(conn).Encode(controlResponse{Error: "invalid request: " + err.Error()}) //nolint:errchkjson
-		return
-	}
-
-	if err := c.TriggerPollWithBank(ctx, loadBank, req.BankPath); err != nil {
-		_ = json.NewEncoder(conn).Encode(controlResponse{Error: err.Error()}) //nolint:errchkjson
-		return
-	}
-
-	_ = json.NewEncoder(conn).Encode(controlResponse{OK: true}) //nolint:errchkjson
 }

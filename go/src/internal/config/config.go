@@ -80,10 +80,8 @@ type TelegramConfig struct {
 }
 
 type ChallengesConfig struct {
-	Defaults    ChallengeDefaults `yaml:"defaults"`
-	Poll        PollConfig        `yaml:"poll"`
-	FileBased   FileBasedConfig   `yaml:"filebased"`
-	AIGenerated AIGeneratedConfig `yaml:"aigenerated"`
+	Defaults ChallengeDefaults `yaml:"defaults"`
+	Poll     PollConfig        `yaml:"poll"`
 }
 
 type ChallengeDefaults struct {
@@ -93,16 +91,6 @@ type ChallengeDefaults struct {
 
 type PollConfig struct {
 	MaxDeliverySkewMS int `yaml:"max_delivery_skew_ms"`
-}
-
-type FileBasedConfig struct {
-	Enabled  bool   `yaml:"enabled"`
-	BanksDir string `yaml:"banks_dir"`
-}
-
-type AIGeneratedConfig struct {
-	Enabled bool `yaml:"enabled"`
-	// TODO: AI-generated challenges not implemented yet.
 }
 
 type EventStoreConfig struct {

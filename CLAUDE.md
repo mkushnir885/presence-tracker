@@ -177,8 +177,7 @@ when auto-submit is on all dispatch through this same endpoint.
 `challenge_issued` event for the round. The system does not constrain
 its values. Conventions used by the built-in producers:
 
-- `custom` — teacher's own bank from `challenges.banks_dir`. Default for
-  bare `ptrack poll`.
+- `custom` — teacher's own bank file. Default for bare `ptrack poll`.
 - `combined` — auto-generated YAML that the teacher reviewed/edited and
   dispatched manually from the GUI.
 - `aigenerated` — auto-generated YAML dispatched automatically by the
@@ -346,22 +345,22 @@ For releases: PyInstaller single-file binary (`ptrack_py`).
 
 ## Current status
 
-**Core implementation, MVP-era.** The following are implemented and
-compile cleanly, but predate the recent design changes around the
-single challenge pipeline, the `ptrack poll` CLI, and browser-side
-audio capture. The code still reflects the older "two challenge types"
-layout and needs to be reshaped against the current docs.
+**Core implementation, MVP-era.** The challenge pipeline, control plane,
+and `ptrack poll` CLI now match the current design. Auto-generation,
+audio capture, and the BBB/Zoom polling rewrite are still pending.
 
 - Go: config loader, BBB provider (webhook adapter — to be replaced by
   polling), Meet provider (polling via REST API v2), Zoom provider
   (webhook adapter, HMAC-validated — to be replaced by Dashboard API
   polling), mock provider (fixture replay), shared OAuth 2.0 PKCE
-  helper
-  (`internal/providers/oauth/`), Telegram messenger, mock messenger,
-  file-based challenge type + poller, BoltDB participant registry,
-  Arrow/Parquet event store, session coordinator, `ptrack track` and
-  `ptrack report` CLI commands, `internal/reporter/` package (subprocess
-  invocation of `ptrack_py`, CSV parsing for GUI use).
+  helper (`internal/providers/oauth/`), Telegram messenger, mock
+  messenger, single `internal/challenges/` pipeline (load, score,
+  per-session `Pipeline` with `RunPoll`/`HandleAnswer`), BoltDB
+  participant registry, Arrow/Parquet event store, session coordinator,
+  `internal/controlplane/` package exposing
+  `POST /meetings/{id|active}/polls` and `PublishPort` for
+  `PTRACK_PORT`, `ptrack track` / `ptrack serve` / `ptrack poll` /
+  `ptrack report` CLI commands, `internal/reporter/` package.
   Note: the Telegram messenger and participant registry still implement
   the old pairing-code flow and need to be updated to the display-name
   flow described above.
@@ -376,20 +375,15 @@ layout and needs to be reshaped against the current docs.
   editor), CSS in `views/assets/`, English/Ukrainian i18n via
   `gui/locales/*.json` and a cookie-based locale selector. Parquet
   reader (`eventstore.ReadAll`) and display-name rewrite
-  (`eventstore.UpdateDisplayName`) also implemented.
+  (`eventstore.UpdateDisplayName`) also implemented. The GUI mounts the
+  shared controlplane handler — there is one implementation of the poll
+  endpoint, not two.
 
 **Pending against the current design (not yet in code):**
 
-- Collapse `challenges/filebased/` and `challenges/aigenerated/` into
-  the single `challenges/` pipeline; drop the `ChallengeType`
-  interface.
-- Introduce `internal/controlplane/`; expose `POST /meetings/{id}/polls`
-  (and the `active` alias) as the shared GUI + CLI entry point. Publish
-  the listener port to children via the `PTRACK_PORT` environment
-  variable.
-- Add the `ptrack poll` CLI subcommand as a thin HTTP client.
-- Replace the GUI's Start Poll button with the Custom / Auto-generated
-  menu; add the Audio card, Free models, and Shut down controls.
+- Replace the GUI's single Trigger Poll button with the Custom /
+  Auto-generated menu; add the Audio card, Free models, and Shut down
+  controls.
 - Browser-side audio capture via `getUserMedia` and a WebSocket to the
   daemon; relay path Go → Python.
 - `internal/challenger/` package to supervise the optional

@@ -136,8 +136,8 @@ menu with two options:
 └────────────────────────────────────────┘
 ```
 
-- **Custom bank…** opens a file picker rooted in `challenges.banks_dir`,
-  pre-validates the chosen YAML, and on confirmation submits
+- **Custom bank…** opens a file picker (browser-native), pre-validates
+  the chosen YAML, and on confirmation submits
   `POST /meetings/active/polls` with `{"type": "custom", "bank_path": "<chosen>"}`.
   Equivalent to running `ptrack poll --type=custom <bank>` from a shell.
 - **Auto-generated** is enabled only when `GET /poll/pending` returns a

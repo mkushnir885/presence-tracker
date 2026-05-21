@@ -98,6 +98,5 @@ func expandHomeDirs(c *Config) error {
 	c.ReportsDir = expand(c.ReportsDir)
 	c.DataDir = expand(c.DataDir)
 	c.CacheDir = expand(c.CacheDir)
-	c.Challenges.FileBased.BanksDir = expand(c.Challenges.FileBased.BanksDir)
 	return nil
 }

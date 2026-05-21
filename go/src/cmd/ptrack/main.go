@@ -3,35 +3,37 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
-	"presence-tracker/src/internal/challenges"
-	"presence-tracker/src/internal/challenges/filebased"
 	"presence-tracker/src/internal/config"
+	"presence-tracker/src/internal/controlplane"
 	"presence-tracker/src/internal/eventstore"
 	"presence-tracker/src/internal/gui"
 	"presence-tracker/src/internal/messengers"
 	mockmessenger "presence-tracker/src/internal/messengers/mock"
 	"presence-tracker/src/internal/messengers/telegram"
 	"presence-tracker/src/internal/participants"
-	"presence-tracker/src/internal/paths"
 	"presence-tracker/src/internal/providers"
-	bbbprovider  "presence-tracker/src/internal/providers/bbb"
+	bbbprovider "presence-tracker/src/internal/providers/bbb"
 	meetprovider "presence-tracker/src/internal/providers/meet"
-	mockprovider  "presence-tracker/src/internal/providers/mock"
+	mockprovider "presence-tracker/src/internal/providers/mock"
 	zoomprovider "presence-tracker/src/internal/providers/zoom"
 	"presence-tracker/src/internal/reporter"
 	"presence-tracker/src/internal/session"
@@ -62,15 +64,13 @@ func trackCmd() *cobra.Command {
 		providerName string
 		meetingID    string
 		fixture      string
-		bankPath     string
-		pollEvery    time.Duration
 	)
 
 	cmd := &cobra.Command{
 		Use:   "track",
 		Short: "Track presence for a meeting",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runTrack(cmd.Context(), cfgPath, providerName, meetingID, fixture, bankPath, pollEvery)
+			return runTrack(cmd.Context(), cfgPath, providerName, meetingID, fixture)
 		},
 	}
 
@@ -78,30 +78,32 @@ func trackCmd() *cobra.Command {
 	cmd.Flags().StringVar(&providerName, "provider", "bbb", "video-conferencing provider (bbb, meet, zoom)")
 	cmd.Flags().StringVar(&meetingID, "meeting", "", "meeting ID (required when not using --fixture)")
 	cmd.Flags().StringVar(&fixture, "fixture", "", "path to a recorded fixture directory for offline replay")
-	cmd.Flags().StringVar(&bankPath, "poll-bank", "", "question-bank YAML to use for automatic polls (optional)")
-	cmd.Flags().DurationVar(&pollEvery, "poll-interval", 0, "trigger a poll at this fixed interval (requires --poll-bank)")
 
 	return cmd
 }
 
-// pollCmd triggers a challenge poll in the currently running tracker session.
+// pollCmd is a thin HTTP client to the running daemon's control plane.
 func pollCmd() *cobra.Command {
-	var bankPath string
+	var (
+		cfgPath   string
+		typeLabel string
+		meetingID string
+		serverURL string
+	)
 
 	cmd := &cobra.Command{
-		Use:   "poll",
-		Short: "Trigger a challenge poll in the running tracker session",
-		Long: `Load a question-bank YAML file and trigger an immediate challenge poll
-in the ptrack track session that is currently running on this machine.
-
-ptrack track must be running before calling this command.`,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runPoll(cmd.Context(), bankPath)
+		Use:   "poll <path-to-bank.yaml>",
+		Short: "Trigger a challenge poll on the running ptrack daemon",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runPoll(cmd.Context(), cfgPath, serverURL, typeLabel, meetingID, args[0])
 		},
 	}
 
-	cmd.Flags().StringVar(&bankPath, "bank", "", "question-bank YAML file")
-	_ = cmd.MarkFlagRequired("bank")
+	cmd.Flags().StringVar(&cfgPath, "config", "", "path to config.yaml (used only to discover the daemon port when PTRACK_PORT is not set)")
+	cmd.Flags().StringVar(&typeLabel, "type", "custom", "free-form producer label stored on every challenge_issued event")
+	cmd.Flags().StringVar(&meetingID, "meeting", "", "meeting ID; defaults to the single active session")
+	cmd.Flags().StringVar(&serverURL, "server", "", "override the daemon URL (e.g. http://127.0.0.1:8080)")
 
 	return cmd
 }
@@ -147,7 +149,7 @@ func runReport(ctx context.Context, input, output string) error {
 	return os.WriteFile(output, []byte(csv), 0o644)
 }
 
-func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture, bankPath string, pollEvery time.Duration) error {
+func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture string) error {
 	cfg, err := loadConfig(cfgPath)
 	if err != nil {
 		return err
@@ -185,19 +187,9 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture, ba
 		}
 	}()
 
-	challengesEnabled := cfg.Challenges.FileBased.Enabled || cfg.Challenges.AIGenerated.Enabled
-	var msgr messengers.Messenger
-	if challengesEnabled {
-		if !cfg.Messengers.Telegram.Enabled {
-			return errors.New("challenges are enabled but no messenger is configured (set messengers.telegram.enabled: true)")
-		}
-		tgAdapter, err := telegram.New(cfg.Messengers.Telegram.BotToken, registry, enabledPlatforms(cfg))
-		if err != nil {
-			return fmt.Errorf("init telegram: %w", err)
-		}
-		msgr = tgAdapter
-	} else {
-		msgr = mockmessenger.New()
+	msgr, err := buildMessenger(cfg, registry)
+	if err != nil {
+		return err
 	}
 
 	// internalMeetingID is a time-based UUID that identifies this session in the
@@ -226,79 +218,110 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture, ba
 
 	coord := session.New(sessCfg, prov, msgr, registry, store)
 
-	// Always start the control socket so ptrack poll can trigger rounds.
-	coord.Listen(ctx, paths.ControlSocketPath(), func(path string) (challenges.ChallengeType, error) {
-		fb := &filebased.ChallengeType{}
-		return fb, fb.LoadBank(path)
-	})
-
-	if bankPath != "" {
-		fb := &filebased.ChallengeType{}
-		if err := fb.LoadBank(bankPath); err != nil {
-			return fmt.Errorf("load question bank: %w", err)
-		}
-		window := time.Duration(cfg.Challenges.Defaults.AnswerWindowSeconds) * time.Second
-		poller := challenges.NewPoller(fb, coord, window)
-		coord.SetPoller(poller)
+	port, err := startControlPlane(ctx, &controlplane.SingleSession{Coord: coord}, 0)
+	if err != nil {
+		return err
 	}
+	slog.Info("tracking started", "meeting_id", internalMeetingID, "platform_meeting", meetingID, "provider", prov.Name(), "control_port", port)
 
-	if pollEvery > 0 && bankPath != "" {
-		go func() {
-			t := time.NewTicker(pollEvery)
-			defer t.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-t.C:
-					slog.Info("track: triggering scheduled poll")
-					if err := coord.TriggerPoll(ctx); err != nil {
-						slog.Error("track: poll failed", "err", err)
-					}
-				}
-			}
-		}()
-	}
-
-	slog.Info("tracking started", "meeting_id", internalMeetingID, "platform_meeting", meetingID, "provider", prov.Name())
 	return coord.Run(ctx)
 }
 
-// runPoll connects to the running tracker session via the control socket and
-// asks it to trigger a poll using the given question-bank file.
-func runPoll(ctx context.Context, bankPath string) error {
+// startControlPlane binds a loopback TCP listener (port 0 → random free),
+// mounts the controlplane routes, publishes PTRACK_PORT, and serves until
+// ctx is cancelled. Returns the chosen port.
+func startControlPlane(ctx context.Context, sessions controlplane.Sessions, port int) (int, error) {
+	mux := http.NewServeMux()
+	controlplane.Mount(mux, sessions)
+
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return 0, fmt.Errorf("controlplane: listen %s: %w", addr, err)
+	}
+	chosen := ln.Addr().(*net.TCPAddr).Port
+	if err := controlplane.PublishPort(chosen); err != nil {
+		_ = ln.Close()
+		return 0, err
+	}
+
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	go func() {
+		<-ctx.Done()
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
+	}()
+	go func() {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("controlplane: serve", "err", err)
+		}
+	}()
+	return chosen, nil
+}
+
+// runPoll posts to the running daemon's POST /meetings/{id}/polls endpoint.
+func runPoll(ctx context.Context, cfgPath, serverURL, typeLabel, meetingID, bankPath string) error {
 	abs, err := filepath.Abs(bankPath)
 	if err != nil {
 		return fmt.Errorf("resolve bank path: %w", err)
 	}
 
-	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", paths.ControlSocketPath())
+	base, err := resolveDaemonURL(serverURL, cfgPath)
 	if err != nil {
-		return fmt.Errorf("connect to running tracker: %w\n(is ptrack track running?)", err)
-	}
-	defer func() { _ = conn.Close() }()
-
-	req := struct {
-		BankPath string `json:"bank_path"`
-	}{BankPath: abs}
-	if err := json.NewEncoder(conn).Encode(req); err != nil {
-		return fmt.Errorf("send poll request: %w", err)
+		return err
 	}
 
-	var resp struct {
-		OK    bool   `json:"ok"`
-		Error string `json:"error,omitempty"`
-	}
-	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
-		return fmt.Errorf("read poll response: %w", err)
+	id := meetingID
+	if id == "" {
+		id = controlplane.ActiveMeetingID
 	}
 
-	if !resp.OK {
-		return fmt.Errorf("poll failed: %s", resp.Error)
+	body, _ := json.Marshal(map[string]string{"type": typeLabel, "bank_path": abs})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/meetings/"+id+"/polls", bytes.NewReader(body))
+	if err != nil {
+		return err
 	}
+	req.Header.Set("Content-Type", "application/json")
 
-	slog.Info("poll triggered successfully")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("contact ptrack daemon at %s: %w\n(is ptrack track or ptrack serve running?)", base, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("poll rejected (HTTP %d): %s", resp.StatusCode, bytes.TrimSpace(respBody))
+	}
+	_, _ = fmt.Fprintln(os.Stdout, string(bytes.TrimSpace(respBody)))
 	return nil
+}
+
+// resolveDaemonURL picks the daemon's base URL in priority order:
+// --server flag, PTRACK_PORT env, config.yaml gui.port, 8080.
+func resolveDaemonURL(serverURL, cfgPath string) (string, error) {
+	if serverURL != "" {
+		return serverURL, nil
+	}
+	if v := os.Getenv("PTRACK_PORT"); v != "" {
+		port, err := strconv.Atoi(v)
+		if err != nil {
+			return "", fmt.Errorf("invalid PTRACK_PORT=%q: %w", v, err)
+		}
+		return fmt.Sprintf("http://127.0.0.1:%d", port), nil
+	}
+	port := 8080
+	if cfgPath != "" {
+		if cfg, err := config.Load(cfgPath); err == nil && cfg.GUI.Port != 0 {
+			port = cfg.GUI.Port
+		}
+	} else if path, ok := config.Default(); ok {
+		if cfg, err := config.Load(path); err == nil && cfg.GUI.Port != 0 {
+			port = cfg.GUI.Port
+		}
+	}
+	return fmt.Sprintf("http://127.0.0.1:%d", port), nil
 }
 
 // serveCmd starts the GUI web server.
@@ -354,6 +377,17 @@ func enabledPlatforms(cfg *config.Config) []string {
 		out = append(out, "zoom")
 	}
 	return out
+}
+
+func buildMessenger(cfg *config.Config, registry participants.Registry) (messengers.Messenger, error) {
+	if !cfg.Messengers.Telegram.Enabled {
+		return mockmessenger.New(), nil
+	}
+	tg, err := telegram.New(cfg.Messengers.Telegram.BotToken, registry, enabledPlatforms(cfg))
+	if err != nil {
+		return nil, fmt.Errorf("init telegram: %w", err)
+	}
+	return tg, nil
 }
 
 func buildProvider(name, fixture string, cfg *config.Config) (providers.Provider, error) {

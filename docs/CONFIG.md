@@ -111,10 +111,6 @@ challenges:
   poll:
     max_delivery_skew_ms: 2000
 
-  # Teacher-prepared YAML banks live here. ptrack reads but never writes
-  # to this directory.
-  banks_dir: "~/Documents/ptrack/question-banks"
-
   # Optional autonomous YAML producer. When enabled, ptrack_py runs as a
   # long-lived child process of the Go daemon for the duration of every
   # session and writes generated banks to pending_dir.
@@ -221,7 +217,6 @@ A separate "Edit secrets" flow writes `secrets.yaml` directly.
 |---------------------------------------------------------------|--------------------------------------------------|
 | `challenges.defaults`                                         | Next poll uses new values                        |
 | `challenges.poll`                                             | Next poll uses new delivery skew value           |
-| `challenges.banks_dir`                                        | Next file picker refresh                         |
 | `challenges.auto_generation.poll_interval_seconds`            | Immediately via API; next poll                   |
 | `challenges.auto_generation.questions_per_poll`               | Immediately via API; next poll                   |
 | `challenges.auto_generation.auto_submit`                      | Immediately via API; next generation             |
@@ -237,7 +232,7 @@ The schema enforces:
 
 - Every enabled provider has credentials referenced from secrets.
 - Exactly one `messengers.*` is enabled (in v1).
-- Paths exist (`challenges.banks_dir`, ASR/LLM model paths where applicable).
+- Paths exist (ASR/LLM model paths where applicable).
 - Port numbers are in valid range and don't collide between `gui.port`,
   `providers.*.oauth.redirect_port`, and the challenger's auto-assigned port.
 
