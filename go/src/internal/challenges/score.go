@@ -9,12 +9,12 @@ import (
 // Score evaluates a submitted answer against a question's answer key.
 func Score(q Question, submitted Answer) ScoreResult {
 	switch q.QuestionType {
-	case "multiple_choice":
+	case MultipleChoice:
 		expected, _ := q.Answer.([]string)
 		if equalSets(expected, submitted.Selected) {
 			return ScoreCorrect
 		}
-	case "numeric":
+	case Numeric:
 		expected, _ := q.Answer.(float64)
 		var got float64
 		if _, err := fmt.Sscanf(submitted.Text, "%f", &got); err == nil {
@@ -26,7 +26,7 @@ func Score(q Question, submitted Answer) ScoreResult {
 				return ScoreCorrect
 			}
 		}
-	case "short_text":
+	case ShortText:
 		expected, _ := q.Answer.([]string)
 		for _, ans := range expected {
 			if matchText(q.MatchMode, submitted.Text, ans) {

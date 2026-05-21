@@ -428,7 +428,7 @@ func (c *Coordinator) RunPoll(ctx context.Context, bankPath, typeLabel string) (
 			ChallengeID:  challengeID,
 			QuestionID:   q.QuestionID,
 			Prompt:       q.Prompt,
-			QuestionType: q.QuestionType,
+			QuestionType: string(q.QuestionType),
 			Choices:      q.Choices,
 		}
 		ref, err := c.messenger.SendChallenge(ctx, handle, mp)

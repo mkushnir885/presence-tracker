@@ -700,7 +700,7 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.cfgPath != "" {
-		data, err := yaml.Marshal(s.cfg)
+		data, err := marshalConfig(s.cfg, s.cfgPath)
 		if err != nil {
 			http.Error(w, "marshal config: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -712,6 +712,25 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/config", http.StatusSeeOther)
+}
+
+// marshalConfig serializes cfg in the format implied by path's extension.
+// JSON output for .json; YAML otherwise. Field names come from the json
+// tags on Config — yaml output is produced by round-tripping through a
+// generic map so the same naming is preserved.
+func marshalConfig(cfg *config.Config, path string) ([]byte, error) {
+	jsonBytes, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	if strings.EqualFold(filepath.Ext(path), ".json") {
+		return append(jsonBytes, '\n'), nil
+	}
+	var v any
+	if err := yaml.Unmarshal(jsonBytes, &v); err != nil {
+		return nil, err
+	}
+	return yaml.Marshal(v)
 }
 
 // buildServeProvider creates a provider for the serve context (no fixture support).

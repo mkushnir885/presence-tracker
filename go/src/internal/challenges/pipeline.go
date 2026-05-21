@@ -151,7 +151,7 @@ func (p *Pipeline) saveQuestions(questions []Question, typeLabel, questionsDir, 
 		records = append(records, eventstore.QuestionRecord{
 			QuestionID:    q.QuestionID,
 			ChallengeType: typeLabel,
-			QuestionType:  q.QuestionType,
+			QuestionType:  string(q.QuestionType),
 			Prompt:        q.Prompt,
 			Choices:       q.Choices,
 			CorrectAnswer: q.Answer,

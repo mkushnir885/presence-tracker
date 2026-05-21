@@ -13,6 +13,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"presence-tracker/src/internal/challenges"
 	"presence-tracker/src/internal/messengers"
 	"presence-tracker/src/internal/participants"
 )
@@ -327,7 +328,7 @@ func (a *Adapter) SendChallenge(ctx context.Context, handle string, c messengers
 	}
 
 	var msg tgbotapi.MessageConfig
-	if c.QuestionType == "multiple_choice" && len(c.Choices) > 0 {
+	if c.QuestionType == string(challenges.MultipleChoice) && len(c.Choices) > 0 {
 		msg = buildMCQMessage(chatID, c)
 	} else {
 		msg = buildTextMessage(chatID, c)
@@ -338,7 +339,7 @@ func (a *Adapter) SendChallenge(ctx context.Context, handle string, c messengers
 		return messengers.MessageRef{}, fmt.Errorf("telegram: send challenge: %w", err)
 	}
 
-	if c.QuestionType != "multiple_choice" {
+	if c.QuestionType != string(challenges.MultipleChoice) {
 		key := pendingKey{chatID: chatID, messageID: sent.MessageID}
 		a.mu.Lock()
 		a.pending[key] = c.ChallengeID
@@ -367,7 +368,7 @@ func buildMCQMessage(chatID int64, c messengers.ChallengePrompt) tgbotapi.Messag
 func buildTextMessage(chatID int64, c messengers.ChallengePrompt) tgbotapi.MessageConfig {
 	// TODO: use the configured UI language for these prompts
 	suffix := "\n\nPlease reply to this message with your answer."
-	if c.QuestionType == "numeric" {
+	if c.QuestionType == string(challenges.Numeric) {
 		suffix = "\n\nPlease reply to this message with a number."
 	}
 	return tgbotapi.NewMessage(chatID, c.Prompt+suffix)

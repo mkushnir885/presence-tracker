@@ -1,0 +1,270 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "default": 1,
+      "minimum": 1,
+      "maximum": 1
+    },
+    "meetings_dir": {
+      "type": "string",
+      "default": "~/.local/share/ptrack/meetings",
+      "minLength": 1
+    },
+    "questions_dir": {
+      "type": "string",
+      "default": "~/.local/share/ptrack/questions",
+      "minLength": 1
+    },
+    "reports_dir": {
+      "type": "string",
+      "default": "~/.local/share/ptrack/reports",
+      "minLength": 1
+    },
+    "data_dir": {
+      "type": "string",
+      "default": "~/.local/share/ptrack",
+      "minLength": 1
+    },
+    "cache_dir": {
+      "type": "string",
+      "default": "~/.cache/ptrack",
+      "minLength": 1
+    },
+    "retention_days": {
+      "type": "integer",
+      "default": 180,
+      "minimum": 0
+    },
+    "providers": {
+      "type": "object",
+      "properties": {
+        "bbb": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "base_url": {
+              "type": "string",
+              "default": ""
+            },
+            "shared_secret": {
+              "type": "string",
+              "default": ""
+            },
+            "tls_skip_verify": {
+              "type": "boolean",
+              "default": false
+            },
+            "poll_interval_seconds": {
+              "type": "integer",
+              "default": 10,
+              "minimum": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "meet": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "oauth": {
+              "type": "object",
+              "properties": {
+                "client_id": {
+                  "type": "string",
+                  "default": ""
+                },
+                "client_secret": {
+                  "type": "string",
+                  "default": ""
+                },
+                "redirect_port": {
+                  "type": "integer",
+                  "default": 9126,
+                  "minimum": 1,
+                  "maximum": 65535
+                }
+              },
+              "additionalProperties": false
+            },
+            "poll_interval_seconds": {
+              "type": "integer",
+              "default": 10,
+              "minimum": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "zoom": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "oauth": {
+              "type": "object",
+              "properties": {
+                "client_id": {
+                  "type": "string",
+                  "default": ""
+                },
+                "client_secret": {
+                  "type": "string",
+                  "default": ""
+                },
+                "redirect_port": {
+                  "type": "integer",
+                  "default": 9125,
+                  "minimum": 1,
+                  "maximum": 65535
+                }
+              },
+              "additionalProperties": false
+            },
+            "poll_interval_seconds": {
+              "type": "integer",
+              "default": 10,
+              "minimum": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "messengers": {
+      "type": "object",
+      "properties": {
+        "telegram": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "bot_token": {
+              "type": "string",
+              "default": ""
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "challenges": {
+      "type": "object",
+      "properties": {
+        "defaults": {
+          "type": "object",
+          "properties": {
+            "answer_window_seconds": {
+              "type": "integer",
+              "default": 30,
+              "minimum": 1
+            },
+            "min_gap_between_challenges_seconds": {
+              "type": "integer",
+              "default": 60,
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        },
+        "poll": {
+          "type": "object",
+          "properties": {
+            "max_delivery_skew_ms": {
+              "type": "integer",
+              "default": 2000,
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "eventstore": {
+      "type": "object",
+      "properties": {
+        "compression": {
+          "type": "string",
+          "default": "zstd",
+          "enum": [
+            "zstd",
+            "snappy",
+            "none"
+          ]
+        },
+        "row_group_size": {
+          "type": "integer",
+          "default": 10000,
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "gui": {
+      "type": "object",
+      "properties": {
+        "bind_addr": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "minLength": 1
+        },
+        "port": {
+          "type": "integer",
+          "default": 8080,
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "open_browser_on_start": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "logging": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "string",
+          "default": "info",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ]
+        },
+        "format": {
+          "type": "string",
+          "default": "text",
+          "enum": [
+            "text",
+            "json"
+          ]
+        },
+        "file": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Presence Tracker config",
+  "description": "Generated from go/src/internal/config — do not edit by hand.",
+  "additionalProperties": false
+}

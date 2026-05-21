@@ -3,6 +3,7 @@ default:
 
 gen:
   go tool templ generate -path src/internal/gui/views
+  go run ./src/cmd/schemagen --dir ..
 
 build: gen
   mkdir -p bin
