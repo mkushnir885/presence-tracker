@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,11 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cli/browser"
 	"github.com/google/uuid"
 
 	"presence-tracker/src/internal/config"
-	"presence-tracker/src/internal/controlplane"
 	"presence-tracker/src/internal/eventstore"
 	"presence-tracker/src/internal/gui/views"
 	"presence-tracker/src/internal/messengers"
@@ -62,10 +59,9 @@ func New(cfg *config.Config, cfgPath string, registry participants.Registry) *Se
 	return &Server{cfg: cfg, cfgPath: cfgPath, registry: registry}
 }
 
-// Serve starts the HTTP server and blocks until ctx is cancelled.
-func (s *Server) Serve(ctx context.Context) error {
-	mux := http.NewServeMux()
-
+// RegisterRoutes attaches the GUI's HTML and htmx routes to mux. The HTTP
+// server lifecycle is owned by the caller (cmd/ptrack).
+func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	sub, _ := fs.Sub(views.Assets, "assets")
 	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServerFS(sub)))
 
@@ -83,44 +79,21 @@ func (s *Server) Serve(ctx context.Context) error {
 	mux.HandleFunc("GET /registry", s.handleRegistry)
 	mux.HandleFunc("DELETE /registry/{id}", s.handleDeleteRegistryEntry)
 	mux.HandleFunc("DELETE /registry", s.handleClearRegistry)
-	controlplane.Mount(mux, s)
 	mux.HandleFunc("GET /questions/{id}", s.handleQuestion)
 	mux.HandleFunc("GET /config", s.handleConfig)
 	mux.HandleFunc("POST /config", s.handleSaveConfig)
+}
 
-	addr := fmt.Sprintf("%s:%d", s.cfg.GUI.BindAddr, s.cfg.GUI.Port)
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("gui: listen %s: %w", addr, err)
+// Coord returns the coordinator of the currently active session, or nil
+// when no session is running. Used by cmd/ptrack to mount the poll
+// handler with lazy access to the GUI-managed session.
+func (s *Server) Coord() *session.Coordinator {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.active == nil {
+		return nil
 	}
-
-	chosen := ln.Addr().(*net.TCPAddr).Port
-	if err := controlplane.PublishPort(chosen); err != nil {
-		_ = ln.Close()
-		return err
-	}
-
-	slog.Info("gui: server started", "addr", "http://"+addr)
-
-	if s.cfg.GUI.OpenBrowserOnStart {
-		go func() {
-			time.Sleep(200 * time.Millisecond)
-			_ = browser.OpenURL("http://" + addr)
-		}()
-	}
-
-	srv := &http.Server{Handler: mux}
-	go func() {
-		<-ctx.Done()
-		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutCtx)
-	}()
-
-	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("gui: serve: %w", err)
-	}
-	return nil
+	return s.active.coord
 }
 
 func (s *Server) enabledPlatforms() []string {
@@ -593,23 +566,6 @@ func (s *Server) handleClearRegistry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
-}
-
-// Resolve implements controlplane.Sessions. The GUI hosts at most one
-// active session at a time, so both the explicit meeting ID and the
-// "active" alias resolve to the same coordinator.
-func (s *Server) Resolve(meetingID string) (*session.Coordinator, error) {
-	s.mu.RLock()
-	act := s.active
-	s.mu.RUnlock()
-
-	if act == nil {
-		return nil, controlplane.ErrNoActiveSession
-	}
-	if meetingID == controlplane.ActiveMeetingID || meetingID == act.coord.MeetingID() {
-		return act.coord, nil
-	}
-	return nil, controlplane.ErrMeetingNotFound
 }
 
 // handleQuestion returns a question record as JSON.

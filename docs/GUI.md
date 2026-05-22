@@ -38,9 +38,8 @@ Rendered server-side with templ; interactive bits use htmx.
 | `GET /registry`                                      | Participant registry page — list all registered display-name entries           |
 | `DELETE /registry/{id}`                              | Remove one registry entry by ParticipantID                                     |
 | `DELETE /registry`                                   | Clear all registry entries (pairing data only; Parquet files untouched)        |
-| `POST /meetings/{id}/polls`                          | Trigger a poll for an active meeting (body: `{type, bank_path}`)               |
-| `POST /meetings/active/polls`                        | Alias for the currently active session; 409 if 0 or >1 active sessions         |
-| `PATCH /meetings/{id}/polls/config`                  | Update auto-generation poll config mid-meeting                                 |
+| `POST /poll`                                         | Trigger a poll on the active session (body: `{type, bank_path}`); 409 if none  |
+| `PATCH /poll/config`                                 | Update auto-generation poll config mid-meeting                                 |
 | `GET /poll/pending`                                  | htmx fragment: pending auto-generated YAML (file path, timestamp) or empty     |
 | `GET /poll/pending/preview`                          | Return the pending YAML's contents for inline preview / edit                   |
 | `GET /questions/{id}`                                | Return question text for a marker hover tooltip (reads from `.jsonl`)          |
@@ -138,11 +137,11 @@ menu with two options:
 
 - **Custom bank…** opens a file picker (browser-native), pre-validates
   the chosen YAML, and on confirmation submits
-  `POST /meetings/active/polls` with `{"type": "custom", "bank_path": "<chosen>"}`.
+  `POST /poll` with `{"type": "custom", "bank_path": "<chosen>"}`.
   Equivalent to running `ptrack poll --type=custom <bank>` from a shell.
 - **Auto-generated** is enabled only when `GET /poll/pending` returns a
   non-empty file. The label shows the file's age. Clicking it submits
-  `POST /meetings/active/polls` with
+  `POST /poll` with
   `{"type": "combined", "bank_path": "<pending-file>"}`. A small
   **[view]** affordance next to the option opens the YAML in a modal
   for inline preview/edit before submission (backed by
@@ -161,7 +160,7 @@ plus a cooldown indicator (`min_gap_between_challenges_seconds`).
 
 Inline edit fields for `auto_generation.poll_interval_seconds` and
 `auto_generation.questions_per_poll` are shown when auto-generation is
-enabled. Changes apply via `PATCH /meetings/{id}/polls/config`.
+enabled. Changes apply via `PATCH /poll/config`.
 
 ### Audio capture (auto-generation only)
 

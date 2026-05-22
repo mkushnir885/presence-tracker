@@ -16,14 +16,15 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/cli/browser"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"presence-tracker/src/internal/config"
-	"presence-tracker/src/internal/controlplane"
 	"presence-tracker/src/internal/eventstore"
 	"presence-tracker/src/internal/gui"
 	"presence-tracker/src/internal/messengers"
@@ -82,12 +83,12 @@ func trackCmd() *cobra.Command {
 	return cmd
 }
 
-// pollCmd is a thin HTTP client to the running daemon's control plane.
+// pollCmd is a thin HTTP client to the running daemon.
 func pollCmd() *cobra.Command {
 	var (
 		cfgPath   string
 		typeLabel string
-		meetingID string
+		port      int
 		serverURL string
 	)
 
@@ -96,13 +97,13 @@ func pollCmd() *cobra.Command {
 		Short: "Trigger a challenge poll on the running ptrack daemon",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPoll(cmd.Context(), cfgPath, serverURL, typeLabel, meetingID, args[0])
+			return runPoll(cmd.Context(), cfgPath, serverURL, typeLabel, port, args[0])
 		},
 	}
 
-	cmd.Flags().StringVar(&cfgPath, "config", "", "path to config.yaml (used only to discover the daemon port when PTRACK_PORT is not set)")
+	cmd.Flags().StringVar(&cfgPath, "config", "", "path to config.yaml (used only to discover the daemon port when PTRACK_PORTS is unset)")
 	cmd.Flags().StringVar(&typeLabel, "type", "custom", "free-form producer label stored on every challenge_issued event")
-	cmd.Flags().StringVar(&meetingID, "meeting", "", "meeting ID; defaults to the single active session")
+	cmd.Flags().IntVar(&port, "port", 0, "daemon port; required when several ptrack processes are running")
 	cmd.Flags().StringVar(&serverURL, "server", "", "override the daemon URL (e.g. http://127.0.0.1:8080)")
 
 	return cmd
@@ -218,33 +219,28 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 
 	coord := session.New(sessCfg, prov, msgr, registry, store)
 
-	port, err := startControlPlane(ctx, &controlplane.SingleSession{Coord: coord}, 0)
+	mux := http.NewServeMux()
+	mountPollHandler(mux, func() *session.Coordinator { return coord })
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
+	chosen := ln.Addr().(*net.TCPAddr).Port
+	if err := appendCurrentPort(chosen); err != nil {
+		_ = ln.Close()
 		return err
 	}
-	slog.Info("tracking started", "meeting_id", internalMeetingID, "platform_meeting", meetingID, "provider", prov.Name(), "control_port", port)
+	go runHTTPServer(ctx, ln, mux)
+
+	slog.Info("tracking started", "meeting_id", internalMeetingID, "platform_meeting", meetingID, "provider", prov.Name(), "control_port", chosen)
 
 	return coord.Run(ctx)
 }
 
-// startControlPlane binds a loopback TCP listener (port 0 → random free),
-// mounts the controlplane routes, publishes PTRACK_PORT, and serves until
-// ctx is cancelled. Returns the chosen port.
-func startControlPlane(ctx context.Context, sessions controlplane.Sessions, port int) (int, error) {
-	mux := http.NewServeMux()
-	controlplane.Mount(mux, sessions)
-
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return 0, fmt.Errorf("controlplane: listen %s: %w", addr, err)
-	}
-	chosen := ln.Addr().(*net.TCPAddr).Port
-	if err := controlplane.PublishPort(chosen); err != nil {
-		_ = ln.Close()
-		return 0, err
-	}
-
+// runHTTPServer serves mux on ln until ctx is cancelled. Blocks; intended
+// to be called from a goroutine when the caller needs to do other work.
+func runHTTPServer(ctx context.Context, ln net.Listener, mux *http.ServeMux) {
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -252,33 +248,105 @@ func startControlPlane(ctx context.Context, sessions controlplane.Sessions, port
 		defer cancel()
 		_ = srv.Shutdown(shutCtx)
 	}()
-	go func() {
-		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("controlplane: serve", "err", err)
-		}
-	}()
-	return chosen, nil
+	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		slog.Error("http: serve", "err", err)
+	}
 }
 
-// runPoll posts to the running daemon's POST /meetings/{id}/polls endpoint.
-func runPoll(ctx context.Context, cfgPath, serverURL, typeLabel, meetingID, bankPath string) error {
+// pollRequest / pollResponse / pollErrorResponse are the wire types shared
+// between the daemon's POST /poll endpoint and ptrack poll.
+type pollRequest struct {
+	Type     string `json:"type"`
+	BankPath string `json:"bank_path"`
+}
+
+type pollResponse struct {
+	PollID         string `json:"poll_id"`
+	ScheduledCount int    `json:"scheduled_count"`
+	SkippedCount   int    `json:"skipped_count"`
+}
+
+type pollErrorResponse struct {
+	Error string `json:"error"`
+}
+
+// mountPollHandler registers POST /poll on mux. coordFn returns the active
+// session coordinator, or nil when no session is running yet.
+func mountPollHandler(mux *http.ServeMux, coordFn func() *session.Coordinator) {
+	mux.HandleFunc("POST /poll", func(w http.ResponseWriter, r *http.Request) {
+		var req pollRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writePollError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+			return
+		}
+		if req.BankPath == "" {
+			writePollError(w, http.StatusBadRequest, "bank_path is required")
+			return
+		}
+		if req.Type == "" {
+			req.Type = "custom"
+		}
+
+		coord := coordFn()
+		if coord == nil {
+			writePollError(w, http.StatusConflict, "no active session")
+			return
+		}
+
+		result, err := coord.RunPoll(r.Context(), req.BankPath, req.Type)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				writePollError(w, http.StatusNotFound, err.Error())
+				return
+			}
+			writePollError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+
+		writePollJSON(w, http.StatusOK, pollResponse{
+			PollID:         result.PollID,
+			ScheduledCount: result.ScheduledCount,
+			SkippedCount:   result.SkippedCount,
+		})
+	})
+}
+
+func writePollJSON(w http.ResponseWriter, status int, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body) //nolint:errchkjson // response bodies are simple structs
+}
+
+func writePollError(w http.ResponseWriter, status int, msg string) {
+	writePollJSON(w, status, pollErrorResponse{Error: msg})
+}
+
+// appendCurrentPort appends port to the PTRACK_PORTS environment variable
+// (comma-separated). Child processes the daemon spawns inherit the list,
+// which is how ptrack poll finds its way back to the daemon.
+func appendCurrentPort(port int) error {
+	existing := os.Getenv("PTRACK_PORTS")
+	portStr := strconv.Itoa(port)
+	if existing == "" {
+		return os.Setenv("PTRACK_PORTS", portStr)
+	}
+	return os.Setenv("PTRACK_PORTS", existing+","+portStr)
+}
+
+// runPoll posts to the running daemon's POST /poll endpoint.
+func runPoll(ctx context.Context, cfgPath, serverURL, typeLabel string, port int, bankPath string) error {
 	abs, err := filepath.Abs(bankPath)
 	if err != nil {
 		return fmt.Errorf("resolve bank path: %w", err)
 	}
 
-	base, err := resolveDaemonURL(serverURL, cfgPath)
+	base, err := resolveDaemonURL(serverURL, cfgPath, port)
 	if err != nil {
 		return err
 	}
 
-	id := meetingID
-	if id == "" {
-		id = controlplane.ActiveMeetingID
-	}
-
 	body, _ := json.Marshal(map[string]string{"type": typeLabel, "bank_path": abs})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/meetings/"+id+"/polls", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/poll", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -299,29 +367,38 @@ func runPoll(ctx context.Context, cfgPath, serverURL, typeLabel, meetingID, bank
 }
 
 // resolveDaemonURL picks the daemon's base URL in priority order:
-// --server flag, PTRACK_PORT env, config.yaml gui.port, 8080.
-func resolveDaemonURL(serverURL, cfgPath string) (string, error) {
+// --server flag, --port flag, PTRACK_PORTS env (when it lists exactly one
+// port), config.yaml gui.port, 8080. If PTRACK_PORTS lists several ports
+// and --port is not set, returns a helpful error.
+func resolveDaemonURL(serverURL, cfgPath string, port int) (string, error) {
 	if serverURL != "" {
 		return serverURL, nil
 	}
-	if v := os.Getenv("PTRACK_PORT"); v != "" {
-		port, err := strconv.Atoi(v)
-		if err != nil {
-			return "", fmt.Errorf("invalid PTRACK_PORT=%q: %w", v, err)
-		}
+	if port != 0 {
 		return fmt.Sprintf("http://127.0.0.1:%d", port), nil
 	}
-	port := 8080
+	if v := os.Getenv("PTRACK_PORTS"); v != "" {
+		parts := strings.Split(v, ",")
+		if len(parts) == 1 {
+			p, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+			if err != nil {
+				return "", fmt.Errorf("invalid PTRACK_PORTS=%q: %w", v, err)
+			}
+			return fmt.Sprintf("http://127.0.0.1:%d", p), nil
+		}
+		return "", fmt.Errorf("multiple ptrack daemons running (PTRACK_PORTS=%s); pass --port=<port>", v)
+	}
+	fallback := 8080
 	if cfgPath != "" {
 		if cfg, err := config.Load(cfgPath); err == nil && cfg.GUI.Port != 0 {
-			port = cfg.GUI.Port
+			fallback = cfg.GUI.Port
 		}
 	} else if path, ok := config.Default(); ok {
 		if cfg, err := config.Load(path); err == nil && cfg.GUI.Port != 0 {
-			port = cfg.GUI.Port
+			fallback = cfg.GUI.Port
 		}
 	}
-	return fmt.Sprintf("http://127.0.0.1:%d", port), nil
+	return fmt.Sprintf("http://127.0.0.1:%d", fallback), nil
 }
 
 // serveCmd starts the GUI web server.
@@ -362,7 +439,31 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 	defer stop()
 
 	srv := gui.New(cfg, cfgPath, registry)
-	return srv.Serve(ctx)
+	mux := http.NewServeMux()
+	srv.RegisterRoutes(mux)
+	mountPollHandler(mux, srv.Coord)
+
+	addr := fmt.Sprintf("%s:%d", cfg.GUI.BindAddr, cfg.GUI.Port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("gui: listen %s: %w", addr, err)
+	}
+	chosen := ln.Addr().(*net.TCPAddr).Port
+	if err := appendCurrentPort(chosen); err != nil {
+		_ = ln.Close()
+		return err
+	}
+
+	slog.Info("gui: server started", "addr", "http://"+addr)
+	if cfg.GUI.OpenBrowserOnStart {
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			_ = browser.OpenURL("http://" + addr)
+		}()
+	}
+
+	runHTTPServer(ctx, ln, mux)
+	return nil
 }
 
 func enabledPlatforms(cfg *config.Config) []string {

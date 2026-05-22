@@ -188,8 +188,8 @@ The challenge package is a single concrete pipeline:
   against one question.
 - `RunPoll(ctx, session, bank, typeLabel)` — pick eligible participants,
   assign questions, append `.jsonl` records, dispatch through the
-  `Messenger`, listen for answers, emit events. Called by the control
-  plane (HTTP `POST /meetings/{id}/polls`).
+  `Messenger`, listen for answers, emit events. Called by the daemon's
+  `POST /poll` HTTP endpoint.
 
 The `typeLabel` string is a free-form tag attached to every
 `challenge_issued` event for this poll round. The system never inspects
@@ -272,30 +272,34 @@ record the platform-provided name until the teacher renames them too.
 
 ### Listener port discovery
 
-The daemon publishes its loopback HTTP port to child processes via the
-`PTRACK_PORT` environment variable. `ptrack serve` uses the configured
-`gui.bind_addr` port (default 8080); `ptrack track` (headless) binds a
-random free loopback port. Either way, the chosen port is exported in
-the daemon's own process environment, so every child it spawns — the
-Python challenger, and any `ptrack poll` invocation re-entered from
-that child — inherits it automatically.
+Every running daemon appends its loopback HTTP port to the
+`PTRACK_PORTS` environment variable (comma-separated). `ptrack serve`
+uses the configured `gui.bind_addr` port (default 8080); `ptrack track`
+(headless) binds a random free loopback port. The exported list is
+inherited by every child the daemon spawns — the Python challenger,
+and any `ptrack poll` invocation re-entered from that child — so they
+find their way back without an on-disk descriptor.
 
-There is no on-disk descriptor and nothing to clean up on shutdown.
+Because the daemon supervises exactly one meeting at a time, running
+multiple `ptrack` processes in parallel is the supported way to track
+multiple meetings. `ptrack poll` then uses `--port=<port>` to pick the
+right daemon.
 
 ### `ptrack poll` CLI (thin client)
 
 ```
-ptrack poll [--type=<label>] [--meeting=<id>] [--wait] <path-to-bank.yaml>
+ptrack poll [--type=<label>] [--port=<port>] [--wait] <path-to-bank.yaml>
 ```
 
-`ptrack poll` contains no challenge logic — it reads `PTRACK_PORT` from
-its environment, POSTs to `http://127.0.0.1:$PTRACK_PORT/meetings/{id}/polls`
-(or `/meetings/active/polls`), and exits. Default `--type` is `custom`.
-See `@docs/CHALLENGES.md` for the endpoint body and the error codes.
+`ptrack poll` contains no challenge logic — it resolves the daemon URL,
+POSTs to `http://127.0.0.1:<port>/poll`, and exits. Default `--type` is
+`custom`. See `@docs/CHALLENGES.md` for the endpoint body and the
+error codes.
 
-When `PTRACK_PORT` is unset (the teacher launches `ptrack poll` in a
-fresh shell), the CLI falls back to the port from `config.yaml`, then
-to `8080`. The `--server=URL` flag overrides both.
+Port resolution priority: `--server=URL` flag, `--port=<port>` flag,
+single entry in `PTRACK_PORTS`, config.yaml `gui.port`, `8080`. If
+`PTRACK_PORTS` lists more than one port and `--port` is not set, the
+CLI errors and asks the user to disambiguate.
 
 ### Lifecycle endpoints
 

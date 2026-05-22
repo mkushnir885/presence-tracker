@@ -57,20 +57,18 @@ producer-agnostic bank format.
 ## The poll trigger: `ptrack poll`
 
 ```
-ptrack poll [--type=<label>] [--meeting=<id>] [--wait] <path-to-bank.yaml>
+ptrack poll [--type=<label>] [--port=<port>] [--wait] <path-to-bank.yaml>
 ```
 
 `ptrack poll` is a **thin client** to the running `ptrack` daemon. It
-contains no challenge logic of its own: it reads the daemon's listener
-port from the `PTRACK_PORT` environment variable, opens a localhost
-HTTP connection to `127.0.0.1:$PTRACK_PORT`, and posts the poll
-request.
+contains no challenge logic of its own: it resolves the daemon URL,
+opens a localhost HTTP connection, and posts the poll request.
 
 - `--type` defaults to `custom`. Any string is accepted; the conventions
   above are recommendations, not constraints.
-- `--meeting` defaults to the active session. If zero or more than one
-  session is active, the daemon responds with 409 and the CLI prints a
-  helpful message; specify `--meeting=<id>` to disambiguate.
+- `--port` selects a daemon when several `ptrack` processes are running
+  in parallel (one meeting per process). When exactly one daemon is
+  reachable via `PTRACK_PORTS`, `--port` is optional.
 - `--wait` keeps the CLI attached until the poll's `answer_window`
   elapses, then prints `delivered N, correct K, incorrect M, unanswered U`
   to stdout and uses the exit code accordingly. Without `--wait`, the
@@ -79,14 +77,13 @@ request.
   generator.
 
 The same code path serves the GUI's **Trigger poll** menu (see
-`@docs/GUI.md`). Both invocations end up calling
-`POST /meetings/{id}/polls` on the running daemon's HTTP API.
+`@docs/GUI.md`). Both invocations end up calling `POST /poll` on the
+running daemon's HTTP API.
 
 ### Listener port discovery
 
-On startup, `ptrack serve` and `ptrack track` export `PTRACK_PORT` into
-their own process environment with the port their HTTP control plane
-bound to:
+On startup, `ptrack serve` and `ptrack track` append the port they
+bound to onto the `PTRACK_PORTS` environment variable (comma-separated):
 
 - `ptrack serve` — the configured `gui.bind_addr` port (default 8080).
 - `ptrack track` (headless) — a random free loopback port.
@@ -97,15 +94,15 @@ find their way back to the same daemon — no on-disk descriptor, no
 cleanup on shutdown.
 
 When the teacher runs `ptrack poll` directly from a fresh shell
-(`PTRACK_PORT` not set), the CLI falls back to the port from
+(`PTRACK_PORTS` unset), the CLI falls back to the port from
 `config.yaml`, then to `8080`. The CLI's `--server=URL` flag overrides
-both.
+everything else. When `PTRACK_PORTS` lists more than one port and
+`--port` is not supplied, the CLI errors with a helpful message.
 
 ### Endpoint shape
 
 ```
-POST /meetings/{id}/polls            # explicit meeting
-POST /meetings/active/polls          # alias; 409 if 0 or >1 active sessions
+POST /poll
 ```
 
 Request body:
@@ -125,7 +122,7 @@ Error codes used by the poll endpoint:
 | Code | Meaning                                                       |
 |------|---------------------------------------------------------------|
 | 404  | `bank_path` does not exist or is unreadable                   |
-| 409  | No active session, or multiple active and `--meeting` missing |
+| 409  | No active session                                             |
 | 422  | YAML is invalid (response body lists errors with JSON pointers) |
 | 503  | Messenger is currently unavailable                            |
 

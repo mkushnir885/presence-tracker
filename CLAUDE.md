@@ -50,7 +50,6 @@ presence-tracker/
 │           ├── participants/       # cross-platform identity registry + pairing flow
 │           ├── eventstore/         # Arrow/Parquet read+write
 │           ├── session/            # meeting lifecycle, event dedup/normalization
-│           ├── controlplane/       # HTTP API shared by GUI and ptrack poll CLI; PTRACK_PORT env
 │           ├── config/             # YAML loading, schema validation, live reload
 │           ├── gui/                # templ templates + net/http handlers
 │           └── reporter/           # invokes ptrack_py binary for CSV output
@@ -165,7 +164,7 @@ the Parquet log. The pipeline does not care where the YAML came from.
 Sending a poll always goes through the single CLI subcommand
 
 ```
-ptrack poll [--type=<label>] [--meeting=<id>] [--wait] <path-to-bank.yaml>
+ptrack poll [--type=<label>] [--port=<port>] [--wait] <path-to-bank.yaml>
 ```
 
 which is a thin HTTP client to the running `ptrack serve` / `ptrack track`
@@ -356,10 +355,11 @@ audio capture, and the BBB/Zoom polling rewrite are still pending.
   messenger, single `internal/challenges/` pipeline (load, score,
   per-session `Pipeline` with `RunPoll`/`HandleAnswer`), BoltDB
   participant registry, Arrow/Parquet event store, session coordinator,
-  `internal/controlplane/` package exposing
-  `POST /meetings/{id|active}/polls` and `PublishPort` for
-  `PTRACK_PORT`, `ptrack track` / `ptrack serve` / `ptrack poll` /
-  `ptrack report` CLI commands, `internal/reporter/` package.
+  `POST /poll` HTTP endpoint mounted by both `ptrack track` and
+  `ptrack serve` (handler lives in `cmd/ptrack/main.go`), `PTRACK_PORTS`
+  env var that lists every running daemon's port, `ptrack track` /
+  `ptrack serve` / `ptrack poll` / `ptrack report` CLI commands,
+  `internal/reporter/` package.
   Note: the Telegram messenger and participant registry still implement
   the old pairing-code flow and need to be updated to the display-name
   flow described above.
@@ -374,9 +374,10 @@ audio capture, and the BBB/Zoom polling rewrite are still pending.
   editor), CSS in `views/assets/`, English/Ukrainian i18n via
   `gui/locales/*.json` and a cookie-based locale selector. Parquet
   reader (`eventstore.ReadAll`) and display-name rewrite
-  (`eventstore.UpdateDisplayName`) also implemented. The GUI mounts the
-  shared controlplane handler — there is one implementation of the poll
-  endpoint, not two.
+  (`eventstore.UpdateDisplayName`) also implemented. `cmd/ptrack`
+  builds the mux and mounts the shared `POST /poll` handler alongside
+  GUI routes — there is one implementation of the poll endpoint,
+  shared between `ptrack serve` and `ptrack track`.
 
 **Pending against the current design (not yet in code):**
 
