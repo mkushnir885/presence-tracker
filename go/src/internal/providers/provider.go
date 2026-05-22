@@ -28,11 +28,9 @@ type Event struct {
 // Provider abstracts a video-conferencing platform.
 //
 // Subscribe closes the returned channel when the meeting ends or ctx is
-// cancelled. FetchPostMeeting is idempotent and may be called after the
-// channel is closed to collect any events the webhook missed.
+// cancelled.
 type Provider interface {
 	Name() string
 	Authenticate(ctx context.Context) error
 	Subscribe(ctx context.Context, meetingID string) (<-chan Event, error)
-	FetchPostMeeting(ctx context.Context, meetingID string) ([]Event, error)
 }

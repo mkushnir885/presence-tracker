@@ -88,7 +88,6 @@ type Provider interface {
     Authenticate(ctx context.Context) error
     Subscribe(ctx context.Context, meetingID string) (<-chan Event, error)
     FetchPresence(ctx context.Context, meetingID string) ([]Participant, error)
-    FetchPostMeeting(ctx context.Context, meetingID string) ([]Event, error)
 }
 ```
 
@@ -101,8 +100,6 @@ query. The challenge pipeline invokes it immediately before fanning
 out a poll round so dispatch decisions are made on a fresh snapshot
 rather than on the (potentially stale) state accumulated from the
 background `Subscribe` stream — see "Why polling, not webhook" below.
-
-`FetchPostMeeting` is idempotent.
 
 #### Operating mode per platform
 

@@ -95,11 +95,6 @@ func (a *Adapter) Subscribe(ctx context.Context, meetingID string) (<-chan provi
 	return a.events, nil
 }
 
-// FetchPostMeeting is not implemented for Meet.
-func (a *Adapter) FetchPostMeeting(_ context.Context, _ string) ([]providers.Event, error) {
-	return nil, nil
-}
-
 // resolveSpace turns a meeting code or space alias into a canonical space name.
 func (a *Adapter) resolveSpace(ctx context.Context, meetingID string) (string, error) {
 	if strings.HasPrefix(meetingID, "spaces/") {

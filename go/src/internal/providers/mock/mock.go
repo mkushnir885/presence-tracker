@@ -91,6 +91,3 @@ func (p *Provider) Subscribe(ctx context.Context, meetingID string) (<-chan prov
 	return ch, nil
 }
 
-func (p *Provider) FetchPostMeeting(_ context.Context, _ string) ([]providers.Event, error) {
-	return nil, nil
-}

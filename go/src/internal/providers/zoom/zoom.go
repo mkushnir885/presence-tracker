@@ -71,11 +71,6 @@ func (a *Adapter) Subscribe(ctx context.Context, meetingID string) (<-chan provi
 	return a.events, nil
 }
 
-// FetchPostMeeting is not implemented for Zoom in v1.
-func (a *Adapter) FetchPostMeeting(_ context.Context, _ string) ([]providers.Event, error) {
-	return nil, nil
-}
-
 type zoomParticipant struct {
 	id    string // participantUUID
 	name  string

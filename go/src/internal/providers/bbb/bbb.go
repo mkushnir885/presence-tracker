@@ -72,12 +72,6 @@ func (a *Adapter) Subscribe(ctx context.Context, meetingID string) (<-chan provi
 	return a.events, nil
 }
 
-// FetchPostMeeting is not implemented; BBB recordings/events APIs aren't
-// consumed in v1.
-func (a *Adapter) FetchPostMeeting(_ context.Context, _ string) ([]providers.Event, error) {
-	return nil, nil
-}
-
 type bbbMeetingInfoResponse struct {
 	ReturnCode string `xml:"returncode"`
 	Running    string `xml:"running"`
