@@ -12,8 +12,9 @@ Config file resolved in this order (first existing wins):
 1. `--config <path>` command-line flag.
 2. **Linux:** `$XDG_CONFIG_HOME/ptrack/config.json`
    (default `~/.config/ptrack/config.json`)
-3. **Windows:** `%APPDATA%\ptrack\config.json`
-4. `./config.json` in the current directory.
+3. **macOS:** `~/Library/Application Support/ptrack/config.json`
+4. **Windows:** `%APPDATA%\ptrack\config.json`
+5. `./config.json` in the current directory.
 
 When no file exists anywhere, `ptrack serve` boots with built-in
 defaults and binds the Config object to the canonical default path
@@ -33,17 +34,18 @@ Secrets (OAuth client IDs/secrets, bot tokens, BBB shared secret) live
 file is written with mode `0600` on Unix; on Windows the user is
 responsible for ACLs.
 
-Each save also writes a sibling `config.schema.json` in the same
-directory, and the saved `config.json` carries a `"$schema":
-"./config.schema.json"` reference as its first key — so editors
-(VSCode, JetBrains) auto-load the schema and provide validation +
-autocomplete for hand edits.
+The runtime never writes a schema file next to `config.json` — the
+canonical `config.schema.json` is published on GitHub (built by
+`go run ./src/cmd/schemagen`) and the user adds a `"$schema"` reference
+to that URL by hand when they want editor (VSCode, JetBrains) support.
+Any `"$schema"` value the user puts in the file is preserved verbatim
+across saves; the system never injects or strips it.
 
 ## Example
 
 ```json
 {
-  "$schema": "./config.schema.json",
+  "$schema": "https://raw.githubusercontent.com/<owner>/presence-tracker/main/config.schema.json",
   "providers": {
     "bbb": {
       "enabled": true,
@@ -90,9 +92,27 @@ The four `writeOnly` fields:
 ## OAuth tokens
 
 OAuth access/refresh tokens (for Meet, Zoom) are stored separately
-from `config.json` in `<data_dir>/meet_oauth.json` and
-`<data_dir>/zoom_oauth.json`. Only the long-lived `client_id` /
+from `config.json` under the internal data dir
+(`config.DataDir()` — see `@docs/ARCHITECTURE.md#storage-layout` for
+the platform-specific location). Only the long-lived `client_id` /
 `client_secret` for the OAuth app live in `config.json`.
+
+## Internal directories
+
+The app's internal storage paths (data dir, cache dir) and the config
+dir itself are not user-settable. They follow platform conventions
+(XDG on Linux, `~/Library/Application Support` / `~/Library/Caches`
+on macOS, `%LOCALAPPDATA%` / `%APPDATA%` on Windows). A user who wants
+to relocate one of these — for example, to put model weights on a fast
+SSD — should symlink the platform-default path. Keeping these fixed
+avoids a class of footguns (silently empty participant registry after a
+path change, half-completed cross-device moves).
+
+The settable directories — `meetings_dir`, `questions_dir`,
+`reports_dir` — are user-facing content paths. Defaults sit under
+`~/Documents/ptrack/{meetings,questions,reports}`. Paths support `~`
+and forward-slash separators on Windows; the loader normalises both
+into OS-native absolute paths.
 
 ## Save and reload
 
@@ -111,9 +131,6 @@ The runtime holds the resolved values behind
 Both go through one shared `commit(v Values)` pipeline:
 validate → prune → atomic write → store. Reads (`Get()`) are lock-free
 and always return the most recently published snapshot.
-
-Every save also rewrites the sibling `config.schema.json`, so the
-schema artifact stays in sync with the binary's schema definition.
 
 ## Live reload behaviour
 

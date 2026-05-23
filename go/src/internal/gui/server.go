@@ -588,7 +588,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		MeetingsDir:                s.cfg.Get().MeetingsDir,
 		QuestionsDir:               s.cfg.Get().QuestionsDir,
 		ReportsDir:                 s.cfg.Get().ReportsDir,
-		DataDir:                    s.cfg.Get().DataDir,
+		DataDir:                    config.DataDir(),
 		RetentionDays:              s.cfg.Get().RetentionDays,
 		GUIBindAddr:                s.cfg.Get().GUI.BindAddr,
 		GUIPort:                    s.cfg.Get().GUI.Port,

@@ -1,19 +1,16 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"reflect"
-	"strings"
 	"sync"
 	"sync/atomic"
 
 	"github.com/google/jsonschema-go/jsonschema"
-
-	"presence-tracker/src/internal/paths"
 )
 
 // Values is the full resolved configuration tree handed to runtime code.
@@ -23,8 +20,6 @@ type Values struct {
 	MeetingsDir   string           `json:"meetings_dir,omitempty"`
 	QuestionsDir  string           `json:"questions_dir,omitempty"`
 	ReportsDir    string           `json:"reports_dir,omitempty"`
-	DataDir       string           `json:"data_dir,omitempty"`
-	CacheDir      string           `json:"cache_dir,omitempty"`
 	RetentionDays int              `json:"retention_days,omitempty"`
 	Providers     ProvidersConfig  `json:"providers,omitzero"`
 	Messengers    MessengersConfig `json:"messengers,omitzero"`
@@ -110,11 +105,9 @@ type LoggingConfig struct {
 // callers must not mutate the returned struct.
 func defaults() Values {
 	return Values{
-		MeetingsDir:   filepath.Join(paths.DataDir(), "meetings"),
-		QuestionsDir:  filepath.Join(paths.DataDir(), "questions"),
-		ReportsDir:    filepath.Join(paths.DataDir(), "reports"),
-		DataDir:       paths.DataDir(),
-		CacheDir:      paths.CacheDir(),
+		MeetingsDir:   expandPath("~/Documents/ptrack/meetings"),
+		QuestionsDir:  expandPath("~/Documents/ptrack/questions"),
+		ReportsDir:    expandPath("~/Documents/ptrack/reports"),
 		RetentionDays: 180,
 		Providers: ProvidersConfig{
 			BBB:  BBBConfig{PollIntervalSeconds: 10},
@@ -139,10 +132,11 @@ func Defaults() Values { return defaults() }
 // via Get are lock-free (atomic.Pointer); writes (Apply, Reload) take a
 // mutex so concurrent saves do not interleave file I/O.
 type Config struct {
-	mu       sync.Mutex
-	path     string
-	defaults Values
-	current  atomic.Pointer[Values]
+	mu        sync.Mutex
+	path      string
+	defaults  Values
+	schemaRef json.RawMessage
+	current   atomic.Pointer[Values]
 }
 
 // Get returns a snapshot of the current resolved Values. Callers that
@@ -179,9 +173,13 @@ func (c *Config) Apply(mutator func(*Values)) error {
 }
 
 // readFromFile reads c.path and overlays it onto defaults. An absent
-// file yields the defaults unchanged.
+// file yields the defaults unchanged. A top-level "$schema" key, if
+// present, is captured into c.schemaRef so it round-trips on the next
+// write; the rest of the file is decoded strictly (unknown fields are
+// rejected).
 func (c *Config) readFromFile() (Values, error) {
 	v := c.defaults
+	c.schemaRef = nil
 	data, err := os.ReadFile(c.path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -189,7 +187,19 @@ func (c *Config) readFromFile() (Values, error) {
 		}
 		return v, fmt.Errorf("config: read %s: %w", c.path, err)
 	}
-	dec := json.NewDecoder(strings.NewReader(string(data)))
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return v, fmt.Errorf("config: parse %s: %w", c.path, err)
+	}
+	if s, ok := raw["$schema"]; ok {
+		c.schemaRef = s
+		delete(raw, "$schema")
+	}
+	rest, err := json.Marshal(raw)
+	if err != nil {
+		return v, fmt.Errorf("config: re-marshal %s: %w", c.path, err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(rest))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&v); err != nil {
 		return v, fmt.Errorf("config: parse %s: %w", c.path, err)
@@ -198,15 +208,16 @@ func (c *Config) readFromFile() (Values, error) {
 }
 
 // commit is the shared end of every entry point: validate the minimal
-// overrides derived from v, write canonical JSON to disk (with $schema +
-// sibling schema file), and store v as the new current snapshot.
+// overrides derived from v, write canonical JSON to disk, and store v
+// as the new current snapshot.
 func (c *Config) commit(v Values) error {
-	if err := expandHomeDirs(&v); err != nil {
-		return err
-	}
+	normalisePaths(&v)
 	overrides := diffToMap(v, c.defaults)
 	if err := validateOverrides(overrides); err != nil {
 		return err
+	}
+	if len(c.schemaRef) > 0 {
+		overrides["$schema"] = c.schemaRef
 	}
 	if err := writeConfigFile(c.path, overrides); err != nil {
 		return err
@@ -263,24 +274,13 @@ func diffToMap(v, base any) map[string]any {
 	return out
 }
 
-// expandHomeDirs replaces leading ~ in path fields with the user home dir.
-func expandHomeDirs(v *Values) error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("config: resolve home dir: %w", err)
-	}
-	expand := func(p string) string {
-		if strings.HasPrefix(p, "~/") {
-			return filepath.Join(home, p[2:])
-		}
-		return p
-	}
-	v.MeetingsDir = expand(v.MeetingsDir)
-	v.QuestionsDir = expand(v.QuestionsDir)
-	v.ReportsDir = expand(v.ReportsDir)
-	v.DataDir = expand(v.DataDir)
-	v.CacheDir = expand(v.CacheDir)
-	return nil
+// normalisePaths resolves "~" and forward-slash separators in every
+// user-settable path field so the resolved Values always carries
+// OS-native absolute paths, regardless of how the JSON was authored.
+func normalisePaths(v *Values) {
+	v.MeetingsDir = expandPath(v.MeetingsDir)
+	v.QuestionsDir = expandPath(v.QuestionsDir)
+	v.ReportsDir = expandPath(v.ReportsDir)
 }
 
 // applyConstraints declares value-range, length, and enum restrictions
@@ -291,8 +291,6 @@ func applyConstraints(root *jsonschema.Schema) {
 	at(root, "meetings_dir").MinLength = new(1)
 	at(root, "questions_dir").MinLength = new(1)
 	at(root, "reports_dir").MinLength = new(1)
-	at(root, "data_dir").MinLength = new(1)
-	at(root, "cache_dir").MinLength = new(1)
 	at(root, "retention_days").Minimum = new(0.0)
 
 	at(root, "providers", "bbb", "poll_interval_seconds").Minimum = new(1.0)

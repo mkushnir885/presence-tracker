@@ -3,14 +3,12 @@ package config
 import (
 	"os"
 	"path/filepath"
-
-	"presence-tracker/src/internal/paths"
 )
 
 // Load constructs a Config bound to path. When path is empty, the loader
 // searches the OS config dir and the current working directory for
 // config.json; if none exists, the Config is bound to the canonical
-// default location (paths.ConfigDir()/config.json) and the file will be
+// default location (configDir()/config.json) and the file will be
 // created on the first save.
 //
 // Load runs the same commit pipeline as Reload: any existing file is
@@ -51,12 +49,12 @@ func resolvePath(path string) string {
 			return p
 		}
 	}
-	return filepath.Join(paths.ConfigDir(), "config.json")
+	return filepath.Join(configDir(), "config.json")
 }
 
 func defaultCandidates() []string {
 	return []string{
-		filepath.Join(paths.ConfigDir(), "config.json"),
+		filepath.Join(configDir(), "config.json"),
 		"config.json",
 	}
 }

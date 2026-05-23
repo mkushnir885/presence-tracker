@@ -409,61 +409,60 @@ Breaking changes require updating all three and bumping `schema_version`.
 
 ## Storage layout
 
-All paths are resolved by the `config` package using platform conventions.
-The config key `data_dir` and `meetings_dir` (etc.) override defaults.
+Internal directories (config, app data, cache) are fixed at platform
+defaults — not user-settable. Users who want them elsewhere create a
+symlink to the default location. The user-facing directories
+(`meetings_dir`, `questions_dir`, `reports_dir`) are settable from
+`config.json`.
 
 ### Linux
 
 ```
-~/.config/ptrack/
-├── config.yaml
-└── secrets.yaml            # 0600; credentials only
+~/.config/ptrack/                       # configDir() — fixed
+├── config.json                         # 0600; secrets inline
+└── config.schema.json                  # 0644; written on every save
 
-~/.local/share/ptrack/
-└── participants.db          # registry (BoltDB)
+~/.local/share/ptrack/                  # config.DataDir() — fixed
+├── participants.db                     # registry (BoltDB)
+├── meet_oauth.json                     # OAuth tokens
+└── zoom_oauth.json
 
-/tmp/ptrack/                  # pending auto-generated YAML banks
+/tmp/ptrack/                            # pending auto-generated YAML banks
 └── auto-2026-04-21T10-15.yaml
 
-~/Documents/ptrack/          # teacher-visible data
-├── meetings/
+~/Documents/ptrack/                     # user-facing — settable
+├── meetings/                           # meetings_dir
 │   ├── 2026-04-21-algebra.parquet
 │   └── 2026-04-23-algebra.parquet
-├── question-banks/             # teacher-prepared YAML banks (read-only to ptrack)
-│   └── algebra-week1.yaml
-├── questions/
-│   ├── 2026-04-21-algebra.jsonl    # question records for that meeting
+├── questions/                          # questions_dir
+│   ├── 2026-04-21-algebra.jsonl
 │   └── 2026-04-23-algebra.jsonl
-└── reports/
-    └── 2026-04-21-algebra.csv
+└── 2026-04-21-algebra.csv              # reports_dir (root of ~/Documents/ptrack)
 
-~/.cache/ptrack/
-└── models/                  # ASR + LLM model weights
+~/.cache/ptrack/                        # config.CacheDir() — fixed
+└── models/                             # ASR + LLM model weights
 ```
 
 ### Windows
 
 ```
-%APPDATA%\ptrack\
-├── config.yaml
-└── secrets.yaml             # DPAPI-encrypted at rest
+%APPDATA%\ptrack\                       # configDir() — fixed
+├── config.json
+└── config.schema.json
 
-%LOCALAPPDATA%\ptrack\
-└── participants.db
+%LOCALAPPDATA%\ptrack\                  # config.DataDir() — fixed
+├── participants.db
+├── meet_oauth.json
+└── zoom_oauth.json
 
-%TEMP%\ptrack\                # pending auto-generated YAML banks
+%TEMP%\ptrack\                          # pending auto-generated YAML banks
 
-%USERPROFILE%\Documents\ptrack\
+%USERPROFILE%\Documents\ptrack\         # user-facing — settable
 ├── meetings\
-│   └── 2026-04-21-algebra.parquet
-├── question-banks\           # teacher-prepared YAML banks
-│   └── algebra-week1.yaml
 ├── questions\
-│   └── 2026-04-21-algebra.jsonl
-└── reports\
-    └── 2026-04-21-algebra.csv
+└── 2026-04-21-algebra.csv
 
-%LOCALAPPDATA%\ptrack\cache\
+%LOCALAPPDATA%\ptrack\cache\            # config.CacheDir() — fixed
 └── models\
 ```
 

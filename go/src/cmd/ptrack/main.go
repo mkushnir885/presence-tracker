@@ -222,7 +222,7 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 		return fmt.Errorf("provider authenticate: %w", err)
 	}
 
-	registry, err := participants.OpenBolt(v.DataDir)
+	registry, err := participants.OpenBolt(config.DataDir())
 	if err != nil {
 		return fmt.Errorf("open participant registry: %w", err)
 	}
@@ -490,7 +490,7 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 	v := cfg.Get()
 	setupLogging(v.Logging)
 
-	registry, err := participants.OpenBolt(v.DataDir)
+	registry, err := participants.OpenBolt(config.DataDir())
 	if err != nil {
 		return fmt.Errorf("open registry: %w", err)
 	}
@@ -563,9 +563,9 @@ func buildProvider(name, fixture string, cfg *config.Config) (providers.Provider
 	case "bbb":
 		return bbbprovider.New(cfg), nil
 	case "meet":
-		return meetprovider.New(cfg, cfg.Get().DataDir), nil
+		return meetprovider.New(cfg), nil
 	case "zoom":
-		return zoomprovider.New(cfg, cfg.Get().DataDir), nil
+		return zoomprovider.New(cfg), nil
 	default:
 		return nil, fmt.Errorf("unknown provider %q; supported: bbb, meet, zoom", name)
 	}

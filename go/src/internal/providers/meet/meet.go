@@ -28,18 +28,17 @@ var meetScopes = []string{
 
 // Adapter is the Google Meet provider.
 type Adapter struct {
-	cfg     *config.Config
-	dataDir string
-	client  *http.Client
-	events  chan providers.Event
+	cfg    *config.Config
+	client *http.Client
+	events chan providers.Event
 }
 
-// New creates a Meet adapter. dataDir is used for OAuth token persistence.
-func New(cfg *config.Config, dataDir string) *Adapter {
+// New creates a Meet adapter. OAuth tokens are persisted under
+// config.DataDir().
+func New(cfg *config.Config) *Adapter {
 	return &Adapter{
-		cfg:     cfg,
-		dataDir: dataDir,
-		events:  make(chan providers.Event, 64),
+		cfg:    cfg,
+		events: make(chan providers.Event, 64),
 	}
 }
 
@@ -56,7 +55,7 @@ func (a *Adapter) Authenticate(ctx context.Context) error {
 		TokenURL:     tokenURL,
 		Scopes:       meetScopes,
 		RedirectPort: meet.OAuth.RedirectPort,
-		TokenFile:    filepath.Join(a.dataDir, "meet_oauth.json"),
+		TokenFile:    filepath.Join(config.DataDir(), "meet_oauth.json"),
 	}
 	client, err := providersoauth.AuthorizedClient(ctx, oauthCfg)
 	if err != nil {

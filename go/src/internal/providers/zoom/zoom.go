@@ -26,19 +26,17 @@ var zoomScopes = []string{"meeting:read:meeting", "dashboard_meetings:read:admin
 
 // Adapter polls the Zoom Dashboard API for live participant state.
 type Adapter struct {
-	cfg     *config.Config
-	dataDir string
-	client  *http.Client
-	events  chan providers.Event
+	cfg    *config.Config
+	client *http.Client
+	events chan providers.Event
 }
 
-// New creates a Zoom poll adapter. dataDir is used for OAuth token
-// persistence (zoom_oauth.json).
-func New(cfg *config.Config, dataDir string) *Adapter {
+// New creates a Zoom poll adapter. OAuth tokens are persisted under
+// config.DataDir().
+func New(cfg *config.Config) *Adapter {
 	return &Adapter{
-		cfg:     cfg,
-		dataDir: dataDir,
-		events:  make(chan providers.Event, 64),
+		cfg:    cfg,
+		events: make(chan providers.Event, 64),
 	}
 }
 
@@ -55,7 +53,7 @@ func (a *Adapter) Authenticate(ctx context.Context) error {
 		TokenURL:     zoomTokenURL,
 		Scopes:       zoomScopes,
 		RedirectPort: zoom.OAuth.RedirectPort,
-		TokenFile:    filepath.Join(a.dataDir, "zoom_oauth.json"),
+		TokenFile:    filepath.Join(config.DataDir(), "zoom_oauth.json"),
 	}
 	client, err := providersoauth.AuthorizedClient(ctx, oauthCfg)
 	if err != nil {
