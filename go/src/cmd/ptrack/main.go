@@ -53,6 +53,7 @@ func rootCmd() *cobra.Command {
 	}
 	root.AddCommand(trackCmd())
 	root.AddCommand(pollCmd())
+	root.AddCommand(reloadCmd())
 	root.AddCommand(reportCmd())
 	root.AddCommand(serveCmd())
 	return root
@@ -109,6 +110,48 @@ func pollCmd() *cobra.Command {
 	return cmd
 }
 
+// reloadCmd asks a running daemon to re-read its config from disk.
+func reloadCmd() *cobra.Command {
+	var (
+		cfgPath   string
+		port      int
+		serverURL string
+	)
+	cmd := &cobra.Command{
+		Use:   "reload",
+		Short: "Ask the running ptrack daemon to re-read its config from disk",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runReload(cmd.Context(), cfgPath, serverURL, port)
+		},
+	}
+	cmd.Flags().StringVar(&cfgPath, "config", "", "path to config.json (used only to discover the daemon port when PTRACK_PORTS is unset)")
+	cmd.Flags().IntVar(&port, "port", 0, "daemon port; required when several ptrack processes are running")
+	cmd.Flags().StringVar(&serverURL, "server", "", "override the daemon URL (e.g. http://127.0.0.1:8080)")
+	return cmd
+}
+
+func runReload(ctx context.Context, cfgPath, serverURL string, port int) error {
+	base, err := resolveDaemonURL(serverURL, cfgPath, port)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/config/reload", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("contact ptrack daemon at %s: %w\n(is ptrack track or ptrack serve running?)", base, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("reload rejected (HTTP %d): %s", resp.StatusCode, bytes.TrimSpace(body))
+	}
+	_, _ = fmt.Fprintln(os.Stdout, "config reloaded")
+	return nil
+}
+
 // reportCmd generates a CSV report from one or more meeting Parquet files.
 func reportCmd() *cobra.Command {
 	var (
@@ -156,7 +199,8 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 		return err
 	}
 
-	setupLogging(cfg.Logging)
+	v := cfg.Get()
+	setupLogging(v.Logging)
 
 	if fixture != "" {
 		if meetingID == "" {
@@ -178,7 +222,7 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 		return fmt.Errorf("provider authenticate: %w", err)
 	}
 
-	registry, err := participants.OpenBolt(cfg.DataDir)
+	registry, err := participants.OpenBolt(v.DataDir)
 	if err != nil {
 		return fmt.Errorf("open participant registry: %w", err)
 	}
@@ -199,7 +243,7 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 	internalMeetingID := uuid.Must(uuid.NewV7()).String()
 	startTime := time.Now()
 
-	store, err := eventstore.NewWriter(cfg.MeetingsDir, startTime, cfg.EventStore.Compression, cfg.EventStore.RowGroupSize)
+	store, err := eventstore.NewWriter(v.MeetingsDir, startTime, v.EventStore.Compression, v.EventStore.RowGroupSize)
 	if err != nil {
 		return fmt.Errorf("init event store: %w", err)
 	}
@@ -207,20 +251,21 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 	sessCfg := session.Config{
 		MeetingID:                   internalMeetingID,
 		PlatformMeetingID:           meetingID,
-		MeetingsDir:                 cfg.MeetingsDir,
-		QuestionsDir:                cfg.QuestionsDir,
+		MeetingsDir:                 v.MeetingsDir,
+		QuestionsDir:                v.QuestionsDir,
 		ProviderName:                prov.Name(),
 		MessengerName:               msgr.Name(),
-		AnswerWindowSecs:            cfg.Challenges.Defaults.AnswerWindowSeconds,
-		MinGapBetweenChallengesSecs: cfg.Challenges.Defaults.MinGapBetweenChallengesSecs,
-		EventStoreCompression:       cfg.EventStore.Compression,
-		RowGroupSize:                cfg.EventStore.RowGroupSize,
+		AnswerWindowSecs:            v.Challenges.Defaults.AnswerWindowSeconds,
+		MinGapBetweenChallengesSecs: v.Challenges.Defaults.MinGapBetweenChallengesSecs,
+		EventStoreCompression:       v.EventStore.Compression,
+		RowGroupSize:                v.EventStore.RowGroupSize,
 	}
 
 	coord := session.New(sessCfg, prov, msgr, registry, store)
 
 	mux := http.NewServeMux()
 	mountPollHandler(mux, func() *session.Coordinator { return coord })
+	mountReloadHandler(mux, cfg)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -321,6 +366,19 @@ func writePollError(w http.ResponseWriter, status int, msg string) {
 	writePollJSON(w, status, pollErrorResponse{Error: msg})
 }
 
+// mountReloadHandler registers POST /config/reload on mux. The handler
+// calls cfg.Reload(); on success it returns 204, on validation/IO error
+// it returns 422 with the error message.
+func mountReloadHandler(mux *http.ServeMux, cfg *config.Config) {
+	mux.HandleFunc("POST /config/reload", func(w http.ResponseWriter, _ *http.Request) {
+		if err := cfg.Reload(); err != nil {
+			writePollError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+}
+
 // appendCurrentPort appends port to the PTRACK_PORTS environment variable
 // (comma-separated). Child processes the daemon spawns inherit the list,
 // which is how ptrack poll finds its way back to the daemon.
@@ -390,12 +448,12 @@ func resolveDaemonURL(serverURL, cfgPath string, port int) (string, error) {
 	}
 	fallback := 8080
 	if cfgPath != "" {
-		if cfg, err := config.Load(cfgPath); err == nil && cfg.GUI.Port != 0 {
-			fallback = cfg.GUI.Port
+		if cfg, err := config.Load(cfgPath); err == nil && cfg.Get().GUI.Port != 0 {
+			fallback = cfg.Get().GUI.Port
 		}
 	} else if path, ok := config.Default(); ok {
-		if cfg, err := config.Load(path); err == nil && cfg.GUI.Port != 0 {
-			fallback = cfg.GUI.Port
+		if cfg, err := config.Load(path); err == nil && cfg.Get().GUI.Port != 0 {
+			fallback = cfg.Get().GUI.Port
 		}
 	}
 	return fmt.Sprintf("http://127.0.0.1:%d", fallback), nil
@@ -420,16 +478,19 @@ func serveCmd() *cobra.Command {
 }
 
 func runServe(ctx context.Context, cfgPath string, portOverride int) error {
-	cfg, err := loadConfig(cfgPath)
+	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return err
 	}
-	setupLogging(cfg.Logging)
 	if portOverride != 0 {
-		cfg.GUI.Port = portOverride
+		if err := cfg.Apply(func(v *config.Values) { v.GUI.Port = portOverride }); err != nil {
+			return fmt.Errorf("apply --port override: %w", err)
+		}
 	}
+	v := cfg.Get()
+	setupLogging(v.Logging)
 
-	registry, err := participants.OpenBolt(cfg.DataDir)
+	registry, err := participants.OpenBolt(v.DataDir)
 	if err != nil {
 		return fmt.Errorf("open registry: %w", err)
 	}
@@ -438,12 +499,13 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	srv := gui.New(cfg, cfgPath, registry)
+	srv := gui.New(cfg, registry)
 	mux := http.NewServeMux()
 	srv.RegisterRoutes(mux)
 	mountPollHandler(mux, srv.Coord)
+	mountReloadHandler(mux, cfg)
 
-	addr := fmt.Sprintf("%s:%d", cfg.GUI.BindAddr, cfg.GUI.Port)
+	addr := fmt.Sprintf("%s:%d", v.GUI.BindAddr, v.GUI.Port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("gui: listen %s: %w", addr, err)
@@ -455,7 +517,7 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 	}
 
 	slog.Info("gui: server started", "addr", "http://"+addr)
-	if cfg.GUI.OpenBrowserOnStart {
+	if v.GUI.OpenBrowserOnStart {
 		go func() {
 			time.Sleep(200 * time.Millisecond)
 			_ = browser.OpenURL("http://" + addr)
@@ -467,28 +529,30 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 }
 
 func enabledPlatforms(cfg *config.Config) []string {
+	v := cfg.Get()
 	var out []string
-	if cfg.Providers.BBB.Enabled {
+	if v.Providers.BBB.Enabled {
 		out = append(out, "bbb")
 	}
-	if cfg.Providers.Meet.Enabled {
+	if v.Providers.Meet.Enabled {
 		out = append(out, "meet")
 	}
-	if cfg.Providers.Zoom.Enabled {
+	if v.Providers.Zoom.Enabled {
 		out = append(out, "zoom")
 	}
 	return out
 }
 
 func buildMessenger(cfg *config.Config, registry participants.Registry) (messengers.Messenger, error) {
-	if !cfg.Messengers.Telegram.Enabled {
+	tg := cfg.Get().Messengers.Telegram
+	if !tg.Enabled {
 		return mockmessenger.New(), nil
 	}
-	tg, err := telegram.New(cfg.Messengers.Telegram.BotToken, registry, enabledPlatforms(cfg))
+	m, err := telegram.New(tg.BotToken, registry, enabledPlatforms(cfg))
 	if err != nil {
 		return nil, fmt.Errorf("init telegram: %w", err)
 	}
-	return tg, nil
+	return m, nil
 }
 
 func buildProvider(name, fixture string, cfg *config.Config) (providers.Provider, error) {
@@ -497,23 +561,30 @@ func buildProvider(name, fixture string, cfg *config.Config) (providers.Provider
 	}
 	switch name {
 	case "bbb":
-		return bbbprovider.New(&cfg.Providers.BBB), nil
+		return bbbprovider.New(cfg), nil
 	case "meet":
-		return meetprovider.New(&cfg.Providers.Meet, cfg.DataDir), nil
+		return meetprovider.New(cfg, cfg.Get().DataDir), nil
 	case "zoom":
-		return zoomprovider.New(&cfg.Providers.Zoom, cfg.DataDir), nil
+		return zoomprovider.New(cfg, cfg.Get().DataDir), nil
 	default:
 		return nil, fmt.Errorf("unknown provider %q; supported: bbb, meet, zoom", name)
 	}
 }
 
+// loadConfig loads the named config file. Unlike config.Load (which
+// happily uses defaults when no file exists — desired by ptrack serve),
+// loadConfig fails when the file is missing. Use it for commands that
+// require credentials (ptrack track).
 func loadConfig(path string) (*config.Config, error) {
 	if path == "" {
 		var ok bool
 		path, ok = config.Default()
 		if !ok {
-			return nil, errors.New("no config file found; create config.yaml in the OS config directory or pass --config")
+			return nil, errors.New("no config file found; create config.json in the OS config directory or pass --config")
 		}
+	}
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("config: %s not found: %w", path, err)
 	}
 	return config.Load(path)
 }

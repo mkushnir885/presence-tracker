@@ -28,14 +28,14 @@ var meetScopes = []string{
 
 // Adapter is the Google Meet provider.
 type Adapter struct {
-	cfg     *config.MeetConfig
+	cfg     *config.Config
 	dataDir string
 	client  *http.Client
 	events  chan providers.Event
 }
 
 // New creates a Meet adapter. dataDir is used for OAuth token persistence.
-func New(cfg *config.MeetConfig, dataDir string) *Adapter {
+func New(cfg *config.Config, dataDir string) *Adapter {
 	return &Adapter{
 		cfg:     cfg,
 		dataDir: dataDir,
@@ -48,13 +48,14 @@ func (a *Adapter) Name() string { return "meet" }
 // Authenticate runs the PKCE OAuth flow if no valid token is stored, then
 // verifies API access by listing spaces.
 func (a *Adapter) Authenticate(ctx context.Context) error {
+	meet := a.cfg.Get().Providers.Meet
 	oauthCfg := providersoauth.Config{
-		ClientID:     a.cfg.OAuth.ClientID,
-		ClientSecret: a.cfg.OAuth.ClientSecret,
+		ClientID:     meet.OAuth.ClientID,
+		ClientSecret: meet.OAuth.ClientSecret,
 		AuthURL:      authURL,
 		TokenURL:     tokenURL,
 		Scopes:       meetScopes,
-		RedirectPort: a.cfg.OAuth.RedirectPort,
+		RedirectPort: meet.OAuth.RedirectPort,
 		TokenFile:    filepath.Join(a.dataDir, "meet_oauth.json"),
 	}
 	client, err := providersoauth.AuthorizedClient(ctx, oauthCfg)
@@ -129,7 +130,7 @@ func (a *Adapter) resolveSpace(ctx context.Context, meetingID string) (string, e
 func (a *Adapter) pollLoop(ctx context.Context, spaceName string) {
 	defer close(a.events)
 
-	interval := time.Duration(a.cfg.PollIntervalSeconds) * time.Second
+	interval := time.Duration(a.cfg.Get().Providers.Meet.PollIntervalSeconds) * time.Second
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 

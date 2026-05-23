@@ -26,7 +26,7 @@ var zoomScopes = []string{"meeting:read:meeting", "dashboard_meetings:read:admin
 
 // Adapter polls the Zoom Dashboard API for live participant state.
 type Adapter struct {
-	cfg     *config.ZoomConfig
+	cfg     *config.Config
 	dataDir string
 	client  *http.Client
 	events  chan providers.Event
@@ -34,7 +34,7 @@ type Adapter struct {
 
 // New creates a Zoom poll adapter. dataDir is used for OAuth token
 // persistence (zoom_oauth.json).
-func New(cfg *config.ZoomConfig, dataDir string) *Adapter {
+func New(cfg *config.Config, dataDir string) *Adapter {
 	return &Adapter{
 		cfg:     cfg,
 		dataDir: dataDir,
@@ -48,12 +48,13 @@ func (a *Adapter) Name() string { return "zoom" }
 // dashboard_meetings:read:admin scope. The authorising account must be a
 // Zoom account admin.
 func (a *Adapter) Authenticate(ctx context.Context) error {
+	zoom := a.cfg.Get().Providers.Zoom
 	oauthCfg := providersoauth.Config{
-		ClientID:     a.cfg.OAuth.ClientID,
+		ClientID:     zoom.OAuth.ClientID,
 		AuthURL:      zoomAuthURL,
 		TokenURL:     zoomTokenURL,
 		Scopes:       zoomScopes,
-		RedirectPort: a.cfg.OAuth.RedirectPort,
+		RedirectPort: zoom.OAuth.RedirectPort,
 		TokenFile:    filepath.Join(a.dataDir, "zoom_oauth.json"),
 	}
 	client, err := providersoauth.AuthorizedClient(ctx, oauthCfg)
@@ -80,7 +81,7 @@ type zoomParticipant struct {
 func (a *Adapter) pollLoop(ctx context.Context, meetingID string) {
 	defer close(a.events)
 
-	interval := time.Duration(a.cfg.PollIntervalSeconds) * time.Second
+	interval := time.Duration(a.cfg.Get().Providers.Zoom.PollIntervalSeconds) * time.Second
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 

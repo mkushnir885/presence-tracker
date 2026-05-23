@@ -19,22 +19,22 @@ import (
 
 // Adapter polls the BBB getMeetingInfo API for live participant state.
 type Adapter struct {
-	cfg    *config.BBBConfig
+	cfg    *config.Config
 	client *http.Client
 	events chan providers.Event
 }
 
 // New creates a BBB poll adapter.
-func New(cfg *config.BBBConfig) *Adapter {
+func New(cfg *config.Config) *Adapter {
 	return &Adapter{
 		cfg:    cfg,
-		client: newHTTPClient(cfg),
+		client: newHTTPClient(cfg.Get().Providers.BBB.TLSSkipVerify),
 		events: make(chan providers.Event, 64),
 	}
 }
 
-func newHTTPClient(cfg *config.BBBConfig) *http.Client {
-	if cfg.TLSSkipVerify {
+func newHTTPClient(insecure bool) *http.Client {
+	if insecure {
 		return &http.Client{
 			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // self-signed cert in dev; controlled by explicit config flag
@@ -49,7 +49,8 @@ func (a *Adapter) Name() string { return "bbb" }
 // Authenticate verifies that the BBB server is reachable and the shared
 // secret is accepted by calling the getMeetings API endpoint.
 func (a *Adapter) Authenticate(ctx context.Context) error {
-	apiURL := bbbAPIURL(a.cfg.BaseURL, a.cfg.SharedSecret, "getMeetings", "")
+	bbb := a.cfg.Get().Providers.BBB
+	apiURL := bbbAPIURL(bbb.BaseURL, bbb.SharedSecret, "getMeetings", "")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return fmt.Errorf("bbb: authenticate: %w", err)
@@ -88,7 +89,7 @@ type bbbMeetingInfoResponse struct {
 func (a *Adapter) pollLoop(ctx context.Context, meetingID string) {
 	defer close(a.events)
 
-	interval := time.Duration(a.cfg.PollIntervalSeconds) * time.Second
+	interval := time.Duration(a.cfg.Get().Providers.BBB.PollIntervalSeconds) * time.Second
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -177,8 +178,9 @@ func (a *Adapter) tick(ctx context.Context, meetingID string, active map[string]
 }
 
 func (a *Adapter) fetchMeetingInfo(ctx context.Context, meetingID string) (bbbMeetingInfoResponse, error) {
+	bbb := a.cfg.Get().Providers.BBB
 	params := "meetingID=" + url.QueryEscape(meetingID)
-	apiURL := bbbAPIURL(a.cfg.BaseURL, a.cfg.SharedSecret, "getMeetingInfo", params)
+	apiURL := bbbAPIURL(bbb.BaseURL, bbb.SharedSecret, "getMeetingInfo", params)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {

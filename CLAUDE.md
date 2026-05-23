@@ -27,8 +27,9 @@ choices matter as much as shipping features.
   Supports dark/light/system color themes and English/Ukrainian UI
   languages (easily extended by adding translation files). Opened in
   the system browser — no native desktop wrapper.
-- **YAML** — config file format, validated against a JSON Schema that
-  also drives the web-based config editor's form layout.
+- **JSON** — config file format (single `config.json`, secrets inline,
+  written with mode `0600`), validated against a JSON Schema that also
+  drives the web-based config editor's form layout. Banks stay YAML.
 - **Parquet** — canonical data exchange format between Go and Python.
   Events are schema-defined once in `@docs/EVENT_SCHEMA.md` and read
   from both sides.
@@ -50,7 +51,7 @@ presence-tracker/
 │           ├── participants/       # cross-platform identity registry + pairing flow
 │           ├── eventstore/         # Arrow/Parquet read+write
 │           ├── session/            # meeting lifecycle, event dedup/normalization
-│           ├── config/             # YAML loading, schema validation, live reload
+│           ├── config/             # JSON loading, schema validation, live reload
 │           ├── gui/                # templ templates + net/http handlers
 │           └── reporter/           # invokes ptrack_py binary for CSV output
 ├── py/src/
@@ -224,13 +225,23 @@ pipeline, the model warm-start lifecycle, and design rationale.
 
 ## Configuration
 
-Single YAML config file, validated against a JSON Schema. The schema is
-the source of truth for both runtime validation and the web-based config
-editor's form layout. All tunables live here: platform credentials,
-messenger credentials, ASR/LLM model choices, challenge schedules, answer
-windows, retention policy, GUI port.
+Single JSON config file (`config.json`), validated against a JSON
+Schema. The schema is the source of truth for both runtime validation
+and the web-based config editor's form layout. Secrets (bot tokens,
+OAuth credentials, BBB shared secret) live inline in the same file,
+which is written with mode `0600` on Unix. All other tunables live
+here too: platform credentials, ASR/LLM model choices, challenge
+schedules, answer windows, retention policy, GUI port.
 
-See `@docs/CONFIG.md` for the full schema, defaults, and example configs.
+The runtime holds an atomic snapshot of resolved values; readers call
+`cfg.Get()` per use (per poll tick, per meeting start) so a `ptrack
+reload` or GUI save takes effect on natural boundaries without
+restart. Saves prune default-equal fields and rewrite the file
+canonically with a `$schema` reference to a sibling
+`config.schema.json` that editors auto-discover.
+
+See `@docs/CONFIG.md` for the full schema, defaults, save/reload
+semantics, and example configs.
 
 ## GUI
 
@@ -338,6 +349,7 @@ For releases: PyInstaller single-file binary (`ptrack_py`).
 | Start GUI (connect via browser) | `./bin/ptrack serve --port=8080` — use the Connect form on the dashboard |
 | Trigger a poll (any producer)   | `./bin/ptrack poll --type=custom path/to/bank.yaml`                      |
 | Trigger a poll, wait for result | `./bin/ptrack poll --wait path/to/bank.yaml`                             |
+| Reload config in running daemon | `./bin/ptrack reload`                                                    |
 | Export CSV report for a meeting | `./bin/ptrack report --in meeting.parquet --out report.csv`              |
 | Export cross-meeting CSV report | `./bin/ptrack report --in 'meetings/*.parquet' --out semester.csv`       |
 | Ad-hoc analysis (Jupyter)       | `cd py && jupyter notebook` — import `ptrack_analytics`, call `load()`   |

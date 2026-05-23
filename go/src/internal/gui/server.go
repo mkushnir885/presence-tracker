@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,14 +28,11 @@ import (
 	bbbprovider "presence-tracker/src/internal/providers/bbb"
 	"presence-tracker/src/internal/reporter"
 	"presence-tracker/src/internal/session"
-
-	"gopkg.in/yaml.v3"
 )
 
 // Server is the GUI HTTP server for ptrack serve.
 type Server struct {
 	cfg      *config.Config
-	cfgPath  string
 	registry participants.Registry
 
 	mu     sync.RWMutex
@@ -55,8 +51,8 @@ type activeSession struct {
 }
 
 // New creates a Server.
-func New(cfg *config.Config, cfgPath string, registry participants.Registry) *Server {
-	return &Server{cfg: cfg, cfgPath: cfgPath, registry: registry}
+func New(cfg *config.Config, registry participants.Registry) *Server {
+	return &Server{cfg: cfg, registry: registry}
 }
 
 // RegisterRoutes attaches the GUI's HTML and htmx routes to mux. The HTTP
@@ -98,13 +94,13 @@ func (s *Server) Coord() *session.Coordinator {
 
 func (s *Server) enabledPlatforms() []string {
 	var out []string
-	if s.cfg.Providers.BBB.Enabled {
+	if s.cfg.Get().Providers.BBB.Enabled {
 		out = append(out, "bbb")
 	}
-	if s.cfg.Providers.Meet.Enabled {
+	if s.cfg.Get().Providers.Meet.Enabled {
 		out = append(out, "meet")
 	}
-	if s.cfg.Providers.Zoom.Enabled {
+	if s.cfg.Get().Providers.Zoom.Enabled {
 		out = append(out, "zoom")
 	}
 	return out
@@ -112,7 +108,7 @@ func (s *Server) enabledPlatforms() []string {
 
 // handleDashboard renders the main dashboard page.
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	entries, err := os.ReadDir(s.cfg.MeetingsDir)
+	entries, err := os.ReadDir(s.cfg.Get().MeetingsDir)
 	if err != nil && !os.IsNotExist(err) {
 		http.Error(w, "Failed to list meetings: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -190,8 +186,8 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var msgr messengers.Messenger
-	if s.cfg.Messengers.Telegram.Enabled {
-		tgAdapter, err := telegram.New(s.cfg.Messengers.Telegram.BotToken, s.registry, s.enabledPlatforms())
+	if s.cfg.Get().Messengers.Telegram.Enabled {
+		tgAdapter, err := telegram.New(s.cfg.Get().Messengers.Telegram.BotToken, s.registry, s.enabledPlatforms())
 		if err != nil {
 			http.Error(w, "telegram init error: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -204,7 +200,7 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 	internalMeetingID := uuid.Must(uuid.NewV7()).String()
 	startTime := time.Now()
 
-	store, err := eventstore.NewWriter(s.cfg.MeetingsDir, startTime, s.cfg.EventStore.Compression, s.cfg.EventStore.RowGroupSize)
+	store, err := eventstore.NewWriter(s.cfg.Get().MeetingsDir, startTime, s.cfg.Get().EventStore.Compression, s.cfg.Get().EventStore.RowGroupSize)
 	if err != nil {
 		http.Error(w, "event store error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -213,14 +209,14 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 	sessCfg := session.Config{
 		MeetingID:                   internalMeetingID,
 		PlatformMeetingID:           meetingID,
-		MeetingsDir:                 s.cfg.MeetingsDir,
-		QuestionsDir:                s.cfg.QuestionsDir,
+		MeetingsDir:                 s.cfg.Get().MeetingsDir,
+		QuestionsDir:                s.cfg.Get().QuestionsDir,
 		ProviderName:                prov.Name(),
 		MessengerName:               msgr.Name(),
-		AnswerWindowSecs:            s.cfg.Challenges.Defaults.AnswerWindowSeconds,
-		MinGapBetweenChallengesSecs: s.cfg.Challenges.Defaults.MinGapBetweenChallengesSecs,
-		EventStoreCompression:       s.cfg.EventStore.Compression,
-		RowGroupSize:                s.cfg.EventStore.RowGroupSize,
+		AnswerWindowSecs:            s.cfg.Get().Challenges.Defaults.AnswerWindowSeconds,
+		MinGapBetweenChallengesSecs: s.cfg.Get().Challenges.Defaults.MinGapBetweenChallengesSecs,
+		EventStoreCompression:       s.cfg.Get().EventStore.Compression,
+		RowGroupSize:                s.cfg.Get().EventStore.RowGroupSize,
 	}
 
 	coord := session.New(sessCfg, prov, msgr, s.registry, store)
@@ -340,7 +336,7 @@ func (s *Server) handleUnregisteredFragment(w http.ResponseWriter, r *http.Reque
 // handleMeeting renders the meeting analysis page.
 func (s *Server) handleMeeting(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	parquetPath := filepath.Join(s.cfg.MeetingsDir, id+".parquet")
+	parquetPath := filepath.Join(s.cfg.Get().MeetingsDir, id+".parquet")
 
 	records, err := eventstore.ReadAll(r.Context(), parquetPath)
 	if err != nil {
@@ -372,7 +368,7 @@ func (s *Server) handleMeeting(w http.ResponseWriter, r *http.Request) {
 // handleMeetingCSV serves the CSV report for a meeting as a download.
 func (s *Server) handleMeetingCSV(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	parquetPath := filepath.Join(s.cfg.MeetingsDir, id+".parquet")
+	parquetPath := filepath.Join(s.cfg.Get().MeetingsDir, id+".parquet")
 
 	csvStr, err := reporter.Generate(r.Context(), parquetPath)
 	if err != nil {
@@ -389,7 +385,7 @@ func (s *Server) handleMeetingCSV(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRenameParticipant(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	pid := r.PathValue("p")
-	parquetPath := filepath.Join(s.cfg.MeetingsDir, id+".parquet")
+	parquetPath := filepath.Join(s.cfg.Get().MeetingsDir, id+".parquet")
 
 	var newName string
 
@@ -432,7 +428,7 @@ func (s *Server) handleRenameParticipant(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleParticipant(w http.ResponseWriter, r *http.Request) {
 	pid := r.PathValue("p")
 
-	pattern := filepath.Join(s.cfg.MeetingsDir, "*.parquet")
+	pattern := filepath.Join(s.cfg.Get().MeetingsDir, "*.parquet")
 	files, err := filepath.Glob(pattern)
 	if err != nil {
 		http.Error(w, "glob error: "+err.Error(), http.StatusInternalServerError)
@@ -499,7 +495,7 @@ func (s *Server) handleParticipant(w http.ResponseWriter, r *http.Request) {
 // handleParticipantCSV serves CSV for all meetings of one participant.
 func (s *Server) handleParticipantCSV(w http.ResponseWriter, r *http.Request) {
 	pid := r.PathValue("p")
-	pattern := filepath.Join(s.cfg.MeetingsDir, "*.parquet")
+	pattern := filepath.Join(s.cfg.Get().MeetingsDir, "*.parquet")
 
 	csvStr, err := reporter.Generate(r.Context(), pattern)
 	if err != nil {
@@ -525,7 +521,7 @@ func (s *Server) handleParticipantCSV(w http.ResponseWriter, r *http.Request) {
 
 // handleAllParticipantsCSV serves an aggregate CSV for all participants.
 func (s *Server) handleAllParticipantsCSV(w http.ResponseWriter, r *http.Request) {
-	pattern := filepath.Join(s.cfg.MeetingsDir, "*.parquet")
+	pattern := filepath.Join(s.cfg.Get().MeetingsDir, "*.parquet")
 
 	csvStr, err := reporter.Generate(r.Context(), pattern)
 	if err != nil {
@@ -572,7 +568,7 @@ func (s *Server) handleClearRegistry(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleQuestion(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	q, err := eventstore.ReadQuestion(s.cfg.QuestionsDir, id)
+	q, err := eventstore.ReadQuestion(s.cfg.Get().QuestionsDir, id)
 	if err != nil {
 		http.Error(w, "read question failed: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -589,111 +585,42 @@ func (s *Server) handleQuestion(w http.ResponseWriter, r *http.Request) {
 // handleConfig renders the config editor.
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	data := views.ConfigData{
-		MeetingsDir:                s.cfg.MeetingsDir,
-		QuestionsDir:               s.cfg.QuestionsDir,
-		ReportsDir:                 s.cfg.ReportsDir,
-		DataDir:                    s.cfg.DataDir,
-		RetentionDays:              s.cfg.RetentionDays,
-		GUIBindAddr:                s.cfg.GUI.BindAddr,
-		GUIPort:                    s.cfg.GUI.Port,
-		GUIOpenBrowserOnStart:      s.cfg.GUI.OpenBrowserOnStart,
-		LogLevel:                   s.cfg.Logging.Level,
-		LogFormat:                  s.cfg.Logging.Format,
-		BBBEnabled:                 s.cfg.Providers.BBB.Enabled,
-		BBBBaseURL:                 s.cfg.Providers.BBB.BaseURL,
-		TelegramEnabled:            s.cfg.Messengers.Telegram.Enabled,
-		TelegramBotToken:           s.cfg.Messengers.Telegram.BotToken,
-		AnswerWindowSeconds:        s.cfg.Challenges.Defaults.AnswerWindowSeconds,
-		MinGapBetweenChallengesSec: s.cfg.Challenges.Defaults.MinGapBetweenChallengesSecs,
-		EventStoreCompression:      s.cfg.EventStore.Compression,
-		EventStoreRowGroupSize:     s.cfg.EventStore.RowGroupSize,
+		MeetingsDir:                s.cfg.Get().MeetingsDir,
+		QuestionsDir:               s.cfg.Get().QuestionsDir,
+		ReportsDir:                 s.cfg.Get().ReportsDir,
+		DataDir:                    s.cfg.Get().DataDir,
+		RetentionDays:              s.cfg.Get().RetentionDays,
+		GUIBindAddr:                s.cfg.Get().GUI.BindAddr,
+		GUIPort:                    s.cfg.Get().GUI.Port,
+		GUIOpenBrowserOnStart:      s.cfg.Get().GUI.OpenBrowserOnStart,
+		LogLevel:                   s.cfg.Get().Logging.Level,
+		LogFormat:                  s.cfg.Get().Logging.Format,
+		BBBEnabled:                 s.cfg.Get().Providers.BBB.Enabled,
+		BBBBaseURL:                 s.cfg.Get().Providers.BBB.BaseURL,
+		TelegramEnabled:            s.cfg.Get().Messengers.Telegram.Enabled,
+		TelegramBotToken:           s.cfg.Get().Messengers.Telegram.BotToken,
+		AnswerWindowSeconds:        s.cfg.Get().Challenges.Defaults.AnswerWindowSeconds,
+		MinGapBetweenChallengesSec: s.cfg.Get().Challenges.Defaults.MinGapBetweenChallengesSecs,
+		EventStoreCompression:      s.cfg.Get().EventStore.Compression,
+		EventStoreRowGroupSize:     s.cfg.Get().EventStore.RowGroupSize,
 	}
 
 	locale := localeFromRequest(r)
 	_ = views.ConfigEditor(data, locale).Render(r.Context(), w)
 }
 
-// handleSaveConfig parses the config form and writes config.yaml.
-func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form data", http.StatusBadRequest)
-		return
-	}
-
-	s.cfg.MeetingsDir = r.FormValue("meetings_dir")
-	s.cfg.QuestionsDir = r.FormValue("questions_dir")
-	s.cfg.ReportsDir = r.FormValue("reports_dir")
-	s.cfg.DataDir = r.FormValue("data_dir")
-	if v, err := strconv.Atoi(r.FormValue("retention_days")); err == nil {
-		s.cfg.RetentionDays = v
-	}
-
-	s.cfg.GUI.BindAddr = r.FormValue("gui_bind_addr")
-	if v, err := strconv.Atoi(r.FormValue("gui_port")); err == nil {
-		s.cfg.GUI.Port = v
-	}
-	s.cfg.GUI.OpenBrowserOnStart = r.FormValue("gui_open_browser") == "true"
-
-	s.cfg.Logging.Level = r.FormValue("log_level")
-	s.cfg.Logging.Format = r.FormValue("log_format")
-
-	s.cfg.Providers.BBB.Enabled = r.FormValue("bbb_enabled") == "true"
-	s.cfg.Providers.BBB.BaseURL = r.FormValue("bbb_base_url")
-
-	s.cfg.Messengers.Telegram.Enabled = r.FormValue("tg_enabled") == "true"
-	s.cfg.Messengers.Telegram.BotToken = r.FormValue("tg_bot_token")
-
-	if v, err := strconv.Atoi(r.FormValue("answer_window")); err == nil {
-		s.cfg.Challenges.Defaults.AnswerWindowSeconds = v
-	}
-	if v, err := strconv.Atoi(r.FormValue("min_gap")); err == nil {
-		s.cfg.Challenges.Defaults.MinGapBetweenChallengesSecs = v
-	}
-
-	s.cfg.EventStore.Compression = r.FormValue("compression")
-	if v, err := strconv.Atoi(r.FormValue("row_group_size")); err == nil {
-		s.cfg.EventStore.RowGroupSize = v
-	}
-
-	if s.cfgPath != "" {
-		data, err := marshalConfig(s.cfg, s.cfgPath)
-		if err != nil {
-			http.Error(w, "marshal config: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if err := os.WriteFile(s.cfgPath, data, 0o644); err != nil {
-			http.Error(w, "write config: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-	}
-
-	http.Redirect(w, r, "/config", http.StatusSeeOther)
-}
-
-// marshalConfig serializes cfg in the format implied by path's extension.
-// JSON output for .json; YAML otherwise. Field names come from the json
-// tags on Config — yaml output is produced by round-tripping through a
-// generic map so the same naming is preserved.
-func marshalConfig(cfg *config.Config, path string) ([]byte, error) {
-	jsonBytes, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	if strings.EqualFold(filepath.Ext(path), ".json") {
-		return append(jsonBytes, '\n'), nil
-	}
-	var v any
-	if err := yaml.Unmarshal(jsonBytes, &v); err != nil {
-		return nil, err
-	}
-	return yaml.Marshal(v)
+// handleSaveConfig is a stub pending the GUI rewrite around the new
+// config.Config API (Apply with writeOnly handling, etc.). Returns 501
+// so the existing form does not silently no-op.
+func (s *Server) handleSaveConfig(w http.ResponseWriter, _ *http.Request) {
+	http.Error(w, "config save not yet wired to the new config API", http.StatusNotImplemented)
 }
 
 // buildServeProvider creates a provider for the serve context (no fixture support).
 func buildServeProvider(name string, cfg *config.Config) (providers.Provider, error) {
 	switch name {
 	case "bbb":
-		return bbbprovider.New(&cfg.Providers.BBB), nil
+		return bbbprovider.New(cfg), nil
 	default:
 		return nil, fmt.Errorf("unknown provider %q; supported: bbb", name)
 	}

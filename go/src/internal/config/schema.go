@@ -11,17 +11,14 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-// Schema returns a fresh JSON Schema describing Config. It is built by
-// reflecting over the struct (via jsonschema.For), then applying defaults
-// from Defaults() and the static constraints declared in
-// applyConstraints (see config.go). Callers that need to validate use
-// ResolvedSchema, which caches a resolved copy.
+// Schema returns a fresh JSON Schema describing Values. Built by
+// reflecting over the struct (jsonschema.For), then annotated with the
+// values from defaults() and the constraints in applyConstraints.
 //
 // Home-directory prefixes in path defaults are rewritten to "~/..." so
-// the emitted schema is identical across user accounts — purely
-// annotation, with no effect on validation.
+// the emitted schema is identical across user accounts.
 func Schema() (*jsonschema.Schema, error) {
-	schema, err := jsonschema.For[Config](nil)
+	schema, err := jsonschema.For[Values](nil)
 	if err != nil {
 		return nil, fmt.Errorf("config: build schema: %w", err)
 	}
@@ -30,15 +27,15 @@ func Schema() (*jsonschema.Schema, error) {
 	schema.Description = "Generated from go/src/internal/config — do not edit by hand."
 
 	home, _ := os.UserHomeDir()
-	if err := injectDefaults(schema, reflect.ValueOf(Defaults()), home); err != nil {
+	if err := injectDefaults(schema, reflect.ValueOf(defaults()), home); err != nil {
 		return nil, fmt.Errorf("config: inject defaults: %w", err)
 	}
 	applyConstraints(schema)
 	return schema, nil
 }
 
-// ResolvedSchema returns a cached *jsonschema.Resolved for Config; the
-// same Resolved is safe for concurrent use by multiple Load calls.
+// ResolvedSchema returns a cached *jsonschema.Resolved; safe for
+// concurrent use by validators.
 func ResolvedSchema() (*jsonschema.Resolved, error) {
 	resolvedSchemaOnce.Do(func() {
 		s, err := Schema()
@@ -60,11 +57,10 @@ var (
 	resolvedSchemaErr  error
 )
 
-// injectDefaults walks schema and v in lockstep, setting Default on every
-// leaf property to the corresponding field's value. Nested structs
-// recurse; slices/maps are left without a default. Any string default
-// starting with home is rewritten to "~/..." so the emitted schema is
-// reproducible across machines.
+// injectDefaults walks schema and v in lockstep, setting Default on
+// every leaf property. Nested structs recurse; slices/maps are left
+// without a default. Any string default starting with home is rewritten
+// to "~/..." so the emitted schema is reproducible across machines.
 func injectDefaults(schema *jsonschema.Schema, v reflect.Value, home string) error {
 	if v.Kind() != reflect.Struct {
 		return nil
