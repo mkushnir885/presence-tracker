@@ -167,11 +167,13 @@ type Messenger interface {
 `Handle` is the messenger-specific persistent ID (for Telegram, the
 `chat_id`). Three event kinds flow out of the channel:
 
-- `RegistrationEvent` — a student sent `/register <platform> <name>`.
-  The messenger adapter validates the command syntax and calls
-  `Registry.Register`; the result determines the bot's reply. This is
-  handled inside the adapter so registration works even when no meeting
-  is active.
+- `RegistrationEvent` — a student sent `/register <name>`. The
+  messenger adapter validates the command syntax and calls
+  `Registry.Register`; the result determines the bot's reply. The
+  adapter also handles `/unregister <name>` (drops one entry) and
+  `/names` (lists the caller's registrations, up to
+  `participants.MaxNamesPerHandle = 5`). Registration is handled inside
+  the adapter so it works even when no meeting is active.
 - `JoinConfirmationEvent` — a student tapped **Yes** or **No** on a
   join-confirmation message. The session coordinator uses this to emit
   `participant_verified` or `participant_verification_denied`.
@@ -202,22 +204,32 @@ that is the control plane's concern. See "Control plane" below.
 ### Participant registry (`go/src/internal/participants/`)
 
 ```go
-type Registry interface {
-    // Resolve looks up a participant by (platform, displayName).
-    // Matching is case-insensitive with whitespace trimming.
-    Resolve(platform string, displayName string) (ParticipantID, bool)
+const MaxNamesPerHandle = 5
 
-    // Register stores a (platform, displayName) → handle binding.
-    // Returns ErrNameTaken if that (platform, displayName) is already
-    // claimed by a different handle. A handle may overwrite its own
-    // previous entry for the same (platform, displayName).
-    Register(messengerName string, handle Handle, platform, displayName string) (ParticipantID, error)
+type Registry interface {
+    // Resolve looks up a participant by displayName.
+    // Matching is case-insensitive with whitespace trimming.
+    Resolve(displayName string) (ParticipantID, bool)
+
+    // Register stores a displayName → handle binding.
+    // Returns ErrNameTaken if the name is already claimed by a different
+    // handle. Returns ErrTooManyNames if the handle has reached
+    // MaxNamesPerHandle. Re-registering the same (handle, name) is
+    // idempotent: it refreshes the label and canonical casing.
+    Register(messengerName string, handle Handle, messengerLabel, displayName string) (ParticipantID, error)
 
     // Unregister removes the registry entry for a participant.
     Unregister(id ParticipantID) error
 
+    // UnregisterByName removes the entry for (messengerName, handle,
+    // displayName). Returns the deleted ID and true if found.
+    UnregisterByName(messengerName string, handle Handle, displayName string) (ParticipantID, bool, error)
+
     // Handle returns the messenger handle for a participant.
     Handle(p ParticipantID, messengerName string) (Handle, bool)
+
+    // ListByHandle returns all entries owned by one messenger account.
+    ListByHandle(messengerName string, handle Handle) ([]RegistryEntry, error)
 
     // List returns all entries, for display on the registry GUI page.
     List() ([]RegistryEntry, error)
@@ -229,7 +241,6 @@ type Registry interface {
 
 type RegistryEntry struct {
     ID             ParticipantID
-    Platform       string
     DisplayName    string   // canonical casing as registered
     MessengerName  string
     Handle         Handle
@@ -238,9 +249,12 @@ type RegistryEntry struct {
 }
 ```
 
-Backed by BoltDB. Persists across meetings. The messenger adapter calls
-`Register` directly when it receives a `/register` command — registration
-works even when no meeting is active.
+Backed by BoltDB. Persists across meetings. Display names are
+platform-agnostic — a single registration matches the participant on
+any provider. One messenger account may hold up to `MaxNamesPerHandle`
+registrations (each its own `ParticipantID`). The messenger adapter
+calls `Register` directly when it receives a `/register` command —
+registration works even when no meeting is active.
 
 ### Per-file display name rewrite (`eventstore`)
 

@@ -90,22 +90,27 @@ See `@docs/ARCHITECTURE.md` for interface signatures and rationale.
 
 A student's display name on the video-conferencing platform is the
 pairing key. `go/src/internal/participants/` owns a persistent registry
-that maps `(platform, display_name)` to a stable internal `ParticipantID`
-and Telegram handle.
+that maps `display_name` to a stable internal `ParticipantID` and
+Telegram handle. Display names are platform-agnostic — the same
+registration matches the participant on any provider.
 
 **Registration flow — display-name pairing:**
 
 1. Student sends `/start` to the Telegram bot; the bot explains how to
-   register and lists the supported platforms.
-2. Student sends `/register <platform> <display name>` (e.g.
-   `/register zoom John Smith`), or `/register all <display name>` to
-   register for all platforms simultaneously.
-3. The registry stores the `(platform, display_name)` → Telegram handle
-   binding persistently. If that `(platform, display_name)` is already
-   claimed by a different Telegram account, the bot rejects the request:
-   "Name already registered — ask your teacher to remove the existing
-   entry via the registry page, then try again." The same student may
-   re-send `/register` to overwrite their own previous entry.
+   register.
+2. Student sends `/register <display name>` (e.g. `/register John Smith`).
+   A single Telegram account may register **up to 5 distinct display
+   names** — useful when a student appears under different names across
+   platforms or sessions. `/names` lists current registrations;
+   `/unregister <display name>` removes one.
+3. The registry stores the `display_name → Telegram handle` binding
+   persistently. If that name is already claimed by a different Telegram
+   account, the bot rejects the request: "Name already registered — ask
+   your teacher to remove the existing entry via the registry page, then
+   try again." If the same account is already at the 5-name cap, the
+   bot asks the student to `/unregister` an existing name first. The
+   same student may re-send `/register` for one of their own names to
+   refresh the canonical casing.
 4. When a participant with a matching display name joins a meeting, the
    bot sends them a private message: "Did you just join [meeting title]
    on [platform]?" with **Yes / No** inline buttons.
@@ -113,14 +118,15 @@ and Telegram handle.
    challenges will be sent. Tapping **No** (or never responding) leaves
    them unverified and challenges are skipped for that session.
 
-Registration is persistent across meetings. The per-meeting **Yes/No**
-tap is the only action required during a meeting; it is comparable in
-effort to answering a challenge.
+Each `/register` creates its own `ParticipantID`, so multiple names from
+one Telegram account are distinct identities in the event log and the
+registry GUI. Registration is persistent across meetings. The
+per-meeting **Yes/No** tap is the only action required during a
+meeting; it is comparable in effort to answering a challenge.
 
 Display name matching is case-insensitive and ignores leading/trailing
-whitespace. A student can update their registration by sending `/register`
-again; a teacher can remove any entry individually or clear the whole
-registry from the registry page in the GUI.
+whitespace. A teacher can remove any entry individually or clear the
+whole registry from the registry page in the GUI.
 
 If the Messenger is not initialized (no challenges configured), the bot
 is never started and no registration prompts are sent.

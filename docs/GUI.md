@@ -414,25 +414,26 @@ ptrack_py aggregate --in 'meetings/*.parquet' --format csv --out semester.csv
 ## Registry page
 
 `GET /registry` shows every display-name entry currently stored in the
-participant registry — one row per `(platform, display_name)` pair.
+participant registry — one row per registered display name. A single
+messenger account may own up to 5 rows (see `MaxNamesPerHandle`).
 
 ### Page layout
 
 ```
 Registry — Registered Participants          [Clear all]
 
-Platform   Display name       Messenger        Registered
-────────   ────────────────   ──────────────   ──────────────────
-Zoom       Alice Smith        Telegram @alice  2026-04-15 09:12   [Delete]
-Meet       Alice Smith        Telegram @alice  2026-04-15 09:12   [Delete]
-BBB        Ivan Kovalenko     Telegram @ivan   2026-03-01 14:30   [Delete]
-Zoom       Ivan Kovalenko     Telegram @ivan   2026-03-01 14:30   [Delete]
+Display name       Messenger        Registered
+────────────────   ──────────────   ──────────────────
+Alice Smith        Telegram @alice  2026-04-15 09:12   [Delete]
+A. Smith           Telegram @alice  2026-04-15 09:13   [Delete]
+Ivan Kovalenko     Telegram @ivan   2026-03-01 14:30   [Delete]
 ```
 
-The table is sorted by display name (case-insensitive), then platform.
-The **Messenger** column shows the messenger name and the human-readable
+The table is sorted by display name (case-insensitive). The
+**Messenger** column shows the messenger name and the human-readable
 label stored at registration time (Telegram @username if available, or
-first name).
+first name) — multiple rows with the same messenger label belong to the
+same student.
 
 **[Delete]** calls `DELETE /registry/{id}` for that entry. A brief
 inline confirmation is shown before the request is sent (htmx confirm).
@@ -442,8 +443,8 @@ The row disappears on success without a full page reload.
 shown first. Parquet files are not affected.
 
 When the registry is empty the page shows a short explanation of how
-students register (send `/register <platform> <display name>` to the
-bot).
+students register (send `/register <display name>` to the bot, up to 5
+names per account).
 
 A link to the registry page is placed in the top navigation bar (visible
 at all times, not just during a meeting).

@@ -83,7 +83,7 @@ confirmation tap.
 participant simply stays unverified for the session.)
 
 `participant_unregistered` is emitted when a participant joins and no
-registry entry matches their `(platform, display_name)`.
+registry entry matches their `display_name`.
 
 ### Challenge lifecycle
 

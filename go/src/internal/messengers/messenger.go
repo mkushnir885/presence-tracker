@@ -25,11 +25,10 @@ const (
 // Event is a normalised event produced by a Messenger adapter.
 type Event struct {
 	Kind      EventKind
-	Handle    string    // messenger-specific contact identifier
+	Handle    string // messenger-specific contact identifier
 	Timestamp time.Time
 
 	// EventKindRegistration
-	Platform    string
 	DisplayName string
 
 	// EventKindJoinConfirmation

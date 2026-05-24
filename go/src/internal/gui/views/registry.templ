@@ -1,8 +1,6 @@
 package views
 
-import (
-	"presence-tracker/src/internal/participants"
-)
+import "presence-tracker/src/internal/participants"
 
 templ Registry(entries []participants.RegistryEntry, locale Locale) {
 	@Layout("Registry", locale) {
@@ -10,11 +8,13 @@ templ Registry(entries []participants.RegistryEntry, locale Locale) {
 			<h1 style="margin:0;">{ locale.T("registry.title") }</h1>
 			<span style="flex:1"></span>
 			if len(entries) > 0 {
-				<button class="btn btn-danger"
+				<button
+					class="btn btn-danger"
 					hx-delete="/registry"
 					hx-confirm={ locale.T("registry.clear_confirm") }
 					hx-target="body"
-					hx-push-url="/registry">{ locale.T("registry.clear_all") }</button>
+					hx-push-url="/registry"
+				>{ locale.T("registry.clear_all") }</button>
 			}
 		</div>
 		if len(entries) == 0 {
@@ -27,7 +27,6 @@ templ Registry(entries []participants.RegistryEntry, locale Locale) {
 				<table style="width:100%;border-collapse:collapse;">
 					<thead>
 						<tr>
-							<th style="text-align:left;padding:0.5rem;">{ locale.T("registry.col_platform") }</th>
 							<th style="text-align:left;padding:0.5rem;">{ locale.T("registry.col_display_name") }</th>
 							<th style="text-align:left;padding:0.5rem;">{ locale.T("registry.col_messenger") }</th>
 							<th style="text-align:left;padding:0.5rem;">{ locale.T("registry.col_registered") }</th>
@@ -37,16 +36,17 @@ templ Registry(entries []participants.RegistryEntry, locale Locale) {
 					<tbody>
 						for _, e := range entries {
 							<tr id={ "entry-" + string(e.ID) } style="border-top:1px solid var(--border);">
-								<td style="padding:0.5rem;">{ e.Platform }</td>
 								<td style="padding:0.5rem;">{ e.DisplayName }</td>
 								<td style="padding:0.5rem;">{ e.MessengerName } { e.MessengerLabel }</td>
 								<td style="padding:0.5rem;" class="text-muted">{ e.RegisteredAt.Format("2006-01-02 15:04") }</td>
 								<td style="padding:0.5rem;">
-									<button class="btn btn-sm btn-danger"
+									<button
+										class="btn btn-sm btn-danger"
 										hx-delete={ "/registry/" + string(e.ID) }
 										hx-confirm={ locale.T("registry.delete_confirm") }
 										hx-target={ "#entry-" + string(e.ID) }
-										hx-swap="outerHTML">{ locale.T("registry.delete") }</button>
+										hx-swap="outerHTML"
+									>{ locale.T("registry.delete") }</button>
 								</td>
 							</tr>
 						}

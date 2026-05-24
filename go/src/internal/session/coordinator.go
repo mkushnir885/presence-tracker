@@ -190,7 +190,7 @@ func (c *Coordinator) onJoin(ctx context.Context, evt providers.Event) {
 		Metadata:       evt.Extra,
 	}
 
-	pid, known := c.registry.Resolve(c.provider.Name(), evt.DisplayName)
+	pid, known := c.registry.Resolve(evt.DisplayName)
 	if known {
 		rec.ParticipantID = string(pid)
 		handle, hasHandle := c.registry.Handle(pid, c.messenger.Name())
@@ -376,10 +376,6 @@ func (c *Coordinator) onJoinConfirmation(ctx context.Context, evt messengers.Eve
 // registered participant is already present in the meeting as unregistered,
 // a verification DM is sent immediately.
 func (c *Coordinator) onRegistration(ctx context.Context, evt messengers.Event) {
-	if evt.Platform != c.provider.Name() {
-		return // registered for a different platform; irrelevant to this session
-	}
-
 	c.mu.Lock()
 	var unregInfo *unregisteredInfo
 	for _, info := range c.unregistered {
@@ -395,7 +391,7 @@ func (c *Coordinator) onRegistration(ctx context.Context, evt messengers.Event) 
 		return // not currently in the meeting
 	}
 
-	pid, known := c.registry.Resolve(c.provider.Name(), evt.DisplayName)
+	pid, known := c.registry.Resolve(evt.DisplayName)
 	if !known {
 		return // shouldn't happen right after a successful /register
 	}

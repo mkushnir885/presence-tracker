@@ -528,27 +528,12 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 	return nil
 }
 
-func enabledPlatforms(cfg *config.Config) []string {
-	v := cfg.Get()
-	var out []string
-	if v.Providers.BBB.Enabled {
-		out = append(out, "bbb")
-	}
-	if v.Providers.Meet.Enabled {
-		out = append(out, "meet")
-	}
-	if v.Providers.Zoom.Enabled {
-		out = append(out, "zoom")
-	}
-	return out
-}
-
 func buildMessenger(cfg *config.Config, registry participants.Registry) (messengers.Messenger, error) {
 	tg := cfg.Get().Messengers.Telegram
 	if !tg.Enabled {
 		return mockmessenger.New(), nil
 	}
-	m, err := telegram.New(tg.BotToken, registry, enabledPlatforms(cfg))
+	m, err := telegram.New(tg.BotToken, registry)
 	if err != nil {
 		return nil, fmt.Errorf("init telegram: %w", err)
 	}

@@ -57,12 +57,11 @@
   "participant.absent": "відсутній",
 
   "registry.title": "Реєстр учасників",
-  "registry.col_platform": "Платформа",
   "registry.col_display_name": "Відображуване ім'я",
   "registry.col_messenger": "Месенджер",
   "registry.col_registered": "Зареєстровано",
   "registry.empty": "Учасників ще не зареєстровано.",
-  "registry.empty_hint": "Студенти реєструються, надсилаючи /register <платформа> <ім'я> боту Telegram.",
+  "registry.empty_hint": "Слухачі реєструються, надсилаючи /register <ім'я> боту Telegram (до 5 імен на акаунт).",
   "registry.delete": "Видалити",
   "registry.delete_confirm": "Видалити реєстрацію цього учасника?",
   "registry.clear_all": "Очистити все",

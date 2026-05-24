@@ -92,20 +92,6 @@ func (s *Server) Coord() *session.Coordinator {
 	return s.active.coord
 }
 
-func (s *Server) enabledPlatforms() []string {
-	var out []string
-	if s.cfg.Get().Providers.BBB.Enabled {
-		out = append(out, "bbb")
-	}
-	if s.cfg.Get().Providers.Meet.Enabled {
-		out = append(out, "meet")
-	}
-	if s.cfg.Get().Providers.Zoom.Enabled {
-		out = append(out, "zoom")
-	}
-	return out
-}
-
 // handleDashboard renders the main dashboard page.
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	entries, err := os.ReadDir(s.cfg.Get().MeetingsDir)
@@ -187,7 +173,7 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 
 	var msgr messengers.Messenger
 	if s.cfg.Get().Messengers.Telegram.Enabled {
-		tgAdapter, err := telegram.New(s.cfg.Get().Messengers.Telegram.BotToken, s.registry, s.enabledPlatforms())
+		tgAdapter, err := telegram.New(s.cfg.Get().Messengers.Telegram.BotToken, s.registry)
 		if err != nil {
 			http.Error(w, "telegram init error: "+err.Error(), http.StatusInternalServerError)
 			return

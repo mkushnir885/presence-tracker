@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,10 +25,9 @@ type pendingKey struct {
 
 // Adapter implements messengers.Messenger using the Telegram Bot API.
 type Adapter struct {
-	bot       *tgbotapi.BotAPI
-	registry  participants.Registry
-	platforms []string // enabled platform names for /register help text
-	events    chan messengers.Event
+	bot      *tgbotapi.BotAPI
+	registry participants.Registry
+	events   chan messengers.Event
 
 	mu         sync.Mutex
 	pending    map[pendingKey]string // {chatID, questionMsgID} → challengeID
@@ -38,8 +36,7 @@ type Adapter struct {
 
 // New creates a Telegram adapter.
 // registry is called directly by /register command handlers.
-// platforms lists enabled platform names shown in the help message.
-func New(token string, registry participants.Registry, platforms []string) (*Adapter, error) {
+func New(token string, registry participants.Registry) (*Adapter, error) {
 	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, fmt.Errorf("telegram: init bot: %w", err)
@@ -47,7 +44,6 @@ func New(token string, registry participants.Registry, platforms []string) (*Ada
 	return &Adapter{
 		bot:        bot,
 		registry:   registry,
-		platforms:  platforms,
 		events:     make(chan messengers.Event, 64),
 		pending:    make(map[pendingKey]string),
 		pendingInv: make(map[string]pendingKey),
@@ -94,6 +90,10 @@ func (a *Adapter) handleUpdate(ctx context.Context, upd tgbotapi.Update) {
 		a.handleStart(upd.Message)
 	case upd.Message != nil && upd.Message.IsCommand() && upd.Message.Command() == "register":
 		a.handleRegister(ctx, upd.Message)
+	case upd.Message != nil && upd.Message.IsCommand() && upd.Message.Command() == "unregister":
+		a.handleUnregister(ctx, upd.Message)
+	case upd.Message != nil && upd.Message.IsCommand() && upd.Message.Command() == "names":
+		a.handleNames(upd.Message.Chat.ID)
 	case upd.Message != nil && upd.Message.Text != "":
 		a.handleTextMessage(upd.Message)
 	case upd.CallbackQuery != nil:
@@ -106,11 +106,11 @@ func (a *Adapter) handleStart(msg *tgbotapi.Message) {
 	// TODO: use the configured UI language for this message
 	text := fmt.Sprintf(
 		"Welcome to Presence Tracker!\n\nTo receive attendance challenges, register your display name:\n\n"+
-			"/register <platform> <your display name>\n\n"+
-			"Example: /register zoom John Smith\n\n"+
-			"Platforms: %s, all\n\n"+
-			"Use /register all <name> to register for all platforms at once.",
-		strings.Join(a.platforms, ", "),
+			"/register <your display name>\n\n"+
+			"Example: /register John Smith\n\n"+
+			"You may register up to %d different display names (one per /register).\n"+
+			"Use /names to list your registrations, /unregister <name> to remove one.",
+		participants.MaxNamesPerHandle,
 	)
 	reply := tgbotapi.NewMessage(chatID, text)
 	_, _ = a.bot.Send(reply)
@@ -121,74 +121,87 @@ func (a *Adapter) handleRegister(ctx context.Context, msg *tgbotapi.Message) {
 	handle := strconv.FormatInt(chatID, 10)
 	label := userLabel(msg.From)
 
-	args := strings.TrimSpace(msg.CommandArguments())
-	if args == "" {
-		// TODO: use configured UI language
-		text := fmt.Sprintf(
-			"Usage: /register <platform> <your display name>\n\nExample: /register zoom John Smith\n\nPlatforms: %s, all",
-			strings.Join(a.platforms, ", "),
-		)
-		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, text))
+	displayName := strings.TrimSpace(msg.CommandArguments())
+	if displayName == "" {
+		a.handleNames(chatID)
 		return
 	}
 
-	parts := strings.SplitN(args, " ", 2)
-	if len(parts) < 2 || strings.TrimSpace(parts[1]) == "" {
-		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, "Please provide both a platform and your display name.\n\nUsage: /register <platform> <display name>"))
+	// TODO: use configured UI language for replies below
+	_, err := a.registry.Register(ctx, "telegram", participants.Handle(handle), label, displayName)
+	switch {
+	case errors.Is(err, participants.ErrNameTaken):
+		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf(
+			"⚠ The name %q is already registered by another account. Ask your teacher to remove the existing entry from the registry page, then try again.",
+			displayName,
+		)))
+		return
+	case errors.Is(err, participants.ErrTooManyNames):
+		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf(
+			"⚠ You already have %d display names registered (the maximum). Use /unregister <name> to free a slot first.",
+			participants.MaxNamesPerHandle,
+		)))
+		return
+	case err != nil:
+		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, "Registration failed: "+err.Error()))
 		return
 	}
 
-	platform := strings.ToLower(parts[0])
-	displayName := strings.TrimSpace(parts[1])
+	_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf(
+		"✓ Registered %q. When you join a meeting under this name, you'll receive a confirmation message.",
+		displayName,
+	)))
 
-	var platformsToRegister []string
-	if platform == "all" {
-		platformsToRegister = a.platforms
-	} else {
-		valid := slices.Contains(a.platforms, platform)
-		if !valid {
-			_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf(
-				"Unknown platform %q. Available: %s, all",
-				platform, strings.Join(a.platforms, ", "),
-			)))
-			return
-		}
-		platformsToRegister = []string{platform}
+	a.events <- messengers.Event{
+		Kind:        messengers.EventKindRegistration,
+		Handle:      handle,
+		DisplayName: displayName,
+		Timestamp:   time.Now().UTC(),
+	}
+}
+
+func (a *Adapter) handleUnregister(ctx context.Context, msg *tgbotapi.Message) {
+	chatID := msg.Chat.ID
+	handle := strconv.FormatInt(chatID, 10)
+
+	displayName := strings.TrimSpace(msg.CommandArguments())
+	if displayName == "" {
+		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, "Usage: /unregister <display name>"))
+		return
 	}
 
-	var successes, failures []string
-	for _, p := range platformsToRegister {
-		_, err := a.registry.Register(ctx, "telegram", participants.Handle(handle), label, p, displayName)
-		if errors.Is(err, participants.ErrNameTaken) {
-			failures = append(failures, fmt.Sprintf("%s: name already registered by another account — ask your teacher to remove it via the registry page", p))
-		} else if err != nil {
-			failures = append(failures, fmt.Sprintf("%s: %s", p, err.Error()))
-		} else {
-			successes = append(successes, p)
-		}
+	_, found, err := a.registry.UnregisterByName(ctx, "telegram", participants.Handle(handle), displayName)
+	switch {
+	case err != nil:
+		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, "Could not remove registration: "+err.Error()))
+	case !found:
+		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("You have no registration for %q.", displayName)))
+	default:
+		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("✓ Removed registration for %q.", displayName)))
 	}
+}
 
-	var lines []string
-	if len(successes) > 0 {
-		// TODO: use configured UI language
-		lines = append(lines, fmt.Sprintf("✓ Registered \"%s\" on: %s\n\nWhen you join a meeting, you'll receive a confirmation message.", displayName, strings.Join(successes, ", ")))
+func (a *Adapter) handleNames(chatID int64) {
+	handle := strconv.FormatInt(chatID, 10)
+	entries, err := a.registry.ListByHandle("telegram", participants.Handle(handle))
+	if err != nil {
+		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, "Could not list registrations: "+err.Error()))
+		return
 	}
-	if len(failures) > 0 {
-		lines = append(lines, "⚠ Could not register:\n"+strings.Join(failures, "\n"))
+	if len(entries) == 0 {
+		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf(
+			"You have no display names registered yet.\n\nUse /register <display name> to add one (up to %d).",
+			participants.MaxNamesPerHandle,
+		)))
+		return
 	}
-
-	reply := tgbotapi.NewMessage(chatID, strings.Join(lines, "\n\n"))
-	_, _ = a.bot.Send(reply)
-
-	for _, p := range successes {
-		a.events <- messengers.Event{
-			Kind:        messengers.EventKindRegistration,
-			Handle:      handle,
-			Platform:    p,
-			DisplayName: displayName,
-			Timestamp:   time.Now().UTC(),
-		}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Your registered display names (%d/%d):\n", len(entries), participants.MaxNamesPerHandle)
+	for _, e := range entries {
+		fmt.Fprintf(&b, "• %s\n", e.DisplayName)
 	}
+	b.WriteString("\nUse /register <name> to add another, /unregister <name> to remove one.")
+	_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, b.String()))
 }
 
 func (a *Adapter) handleTextMessage(msg *tgbotapi.Message) {
