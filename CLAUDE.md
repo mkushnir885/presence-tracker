@@ -113,9 +113,10 @@ handle. Registrations are platform-agnostic.
    is written to Parquet yet** — the `participant_joined` event is
    buffered in memory.
 5. Tapping **Yes** flushes the buffered `participant_joined` with its
-   original timestamp and emits `participant_verified`. Tapping **No**
-   (or leaving the meeting before answering) discards the buffer
-   silently — there is no Parquet trace of unverified joins.
+   original timestamp. Tapping **No** (or leaving the meeting before
+   answering) discards the buffer silently — there is no Parquet trace
+   of unverified joins. `participant_joined` is therefore implicitly
+   "verified": the event log only ever contains verified participants.
 
 **Collision handling.** If a second participant with the same display
 name joins while the first is still pre-verification, the name is

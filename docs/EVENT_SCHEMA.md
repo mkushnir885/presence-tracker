@@ -51,16 +51,13 @@ encoding, and predicate pushdown.
 |-----------------------|----------------|--------------------------------------|
 | `participant_joined`  | set            | `join_method` (web/app/phone)        |
 | `participant_left`    | set            | `reason` (left/disconnected/removed) |
-| `participant_verified`| set            | `messenger`, `platform`, `latency_ms`|
 
 `participant_joined` is written only after the verification DM is
-confirmed (Yes). The original join timestamp is preserved. If the
-participant denies verification or leaves before answering, no
-`participant_joined` row is written.
-
-`participant_verified` is appended immediately after the (delayed)
-`participant_joined`. `latency_ms` is the time between the actual join
-and the confirmation tap.
+confirmed (Yes), with the original join timestamp preserved. Since the
+event log only contains verified participants, `participant_joined`
+itself implies verification — there is no separate `participant_verified`
+event. If the participant denies verification or leaves before answering,
+no `participant_joined` row is written.
 
 Note: **mic, camera, screen-share, and chat activity are not tracked.**
 Chat is not monitored. Participant pairing is handled entirely via the

@@ -177,9 +177,9 @@ type Messenger interface {
   adapter so it works even when no meeting is active.
 - `JoinConfirmationEvent` — a student tapped **Yes** or **No** on a
   join-confirmation message. On **Yes** the session coordinator flushes
-  the buffered `participant_joined` event and emits
-  `participant_verified`. On **No** the buffer is discarded; no events
-  are written.
+  the buffered `participant_joined` event (the event log only contains
+  verified participants, so the joined row is itself the verification
+  record). On **No** the buffer is discarded; no events are written.
 - `AnswerEvent` — a student answered a challenge question.
 
 ### Challenge pipeline (`go/src/internal/challenges/`)
