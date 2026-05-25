@@ -22,23 +22,19 @@ arrives.
 
 | Column         | Type                 | Nullable | Description                                                                                          |
 |----------------|----------------------|----------|------------------------------------------------------------------------------------------------------|
-| `event_id`     | `string` (UUIDv7)    | no       | Unique per event. UUIDv7 sorts by time.                                                              |
 | `meeting_id`   | `string`             | no       | Stable ID for this meeting session.                                                                  |
 | `timestamp`    | `int64`              | no       | For `meeting_started`: absolute Unix timestamp in ms. For all other events: ms elapsed since `meeting_started`. |
-| `source`       | `string`             | no       | Origin of the event. See "Sources" below.                                                            |
 | `event_type`   | `string`             | no       | Event kind. See "Event types" below.                                                                 |
 | `display_name` | `string`             | yes      | Canonical registered name; null for meeting-scoped events.                                           |
+| `challenge_id` | `string`             | yes      | Join key threading the lifecycle of one participant's challenge; null for non-challenge events.      |
+| `question_id`  | `string` (UUIDv4)    | yes      | References a record in the meeting's `<meeting_id>.jsonl` file; set on `challenge_issued`.           |
 | `metadata`     | `map<string,string>` | yes      | Free-form key-value bag for event-type-specific fields.                                              |
 
 The narrow schema (6 real columns + metadata map) makes multi-meeting
-concatenation trivial — all event files share the same shape.
-
-## Sources
-
-- `provider:zoom` / `provider:meet` / `provider:bbb` / `provider:mock`
-- `messenger:telegram` / `messenger:mock`
-- `scheduler` — challenge scheduler lifecycle events
-- `system` — the tool itself (start/stop, config reload)
+concatenation trivial — all event files share the same shape. The join
+keys (`challenge_id`, `question_id`) are first-class columns so that
+analytics joins benefit from Parquet column pruning, dictionary
+encoding, and predicate pushdown.
 
 ## Event types
 
@@ -74,14 +70,18 @@ are never written to Parquet.
 
 ### Challenge lifecycle
 
-| Event type                     | `display_name` | Key metadata fields                                                |
-|--------------------------------|----------------|--------------------------------------------------------------------|
-| `challenge_issued`             | set            | `challenge_id`, `challenge_type`, `question_id`, `answer_window_s` |
-| `challenge_answered_correct`   | null           | `challenge_id`, `latency_ms`                                       |
-| `challenge_answered_incorrect` | null           | `challenge_id`, `latency_ms`, `submitted_hash`                     |
-| `challenge_unanswered`         | null           | `challenge_id`                                                     |
-| `challenge_skipped_offline`    | set            | `challenge_id`, `challenge_type`, `delivery_error`                 |
-| `challenge_generator_failed`   | null           | `challenge_type`, `error_class`                                    |
+`challenge_id` and `question_id` are first-class columns on challenge
+events (see the column table above). The table below lists only the
+event-type-specific metadata.
+
+| Event type                     | `display_name` | `challenge_id` | `question_id` | Key metadata fields              |
+|--------------------------------|----------------|----------------|---------------|----------------------------------|
+| `challenge_issued`             | set            | set            | set           | `challenge_type`, `answer_window_s` |
+| `challenge_answered_correct`   | null           | set            | null          | `latency_ms`                     |
+| `challenge_answered_incorrect` | null           | set            | null          | `latency_ms`, `submitted_hash`   |
+| `challenge_unanswered`         | null           | set            | null          | —                                |
+| `challenge_skipped_offline`    | set            | set            | null          | `challenge_type`, `delivery_error` |
+| `challenge_generator_failed`   | null           | null           | null          | `challenge_type`, `error_class`  |
 
 `challenge_id` threads the lifecycle events for one participant's
 challenge together. Result events (`_correct`, `_incorrect`,

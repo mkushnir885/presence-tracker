@@ -66,9 +66,8 @@ def challenge_results(events: pl.LazyFrame) -> pl.LazyFrame:
         pl.col("display_name"),
         pl.col("meeting_id"),
         pl.col("timestamp").alias("issued_ms"),
-        # Extract from JSON metadata
-        pl.col("metadata").str.json_path_match("$.challenge_id").alias("challenge_id"),
-        pl.col("metadata").str.json_path_match("$.question_id").alias("question_id"),
+        pl.col("challenge_id"),
+        pl.col("question_id"),
         pl.col("metadata")
         .str.json_path_match("$.challenge_type")
         .alias("challenge_type"),
@@ -83,7 +82,7 @@ def challenge_results(events: pl.LazyFrame) -> pl.LazyFrame:
             ]
         )
     ).select(
-        pl.col("metadata").str.json_path_match("$.challenge_id").alias("challenge_id"),
+        pl.col("challenge_id"),
         pl.col("event_type").alias("state"),
         pl.col("metadata")
         .str.json_path_match("$.latency_ms")

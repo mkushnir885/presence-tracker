@@ -8,8 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
-
 	"presence-tracker/src/internal/challenges"
 	"presence-tracker/src/internal/eventstore"
 	"presence-tracker/src/internal/messengers"
@@ -137,7 +135,6 @@ func (c *Coordinator) Run(ctx context.Context) error {
 		bg := context.Background()
 		c.writeEvent(bg, eventstore.Record{
 			EventType: "meeting_ended",
-			Source:    "system",
 		})
 		if err := c.store.Close(bg); err != nil {
 			slog.Error("session: close eventstore", "err", err)
@@ -184,7 +181,6 @@ func (c *Coordinator) onMeetingStarted(ctx context.Context, evt providers.Event)
 	c.writeEvent(ctx, eventstore.Record{
 		Timestamp: evt.Timestamp,
 		EventType: "meeting_started",
-		Source:    "provider:" + c.provider.Name(),
 		Metadata:  map[string]string{"platform": c.provider.Name()},
 	})
 }
@@ -339,7 +335,6 @@ func (c *Coordinator) onLeave(ctx context.Context, evt providers.Event) {
 	if verifiedLeft {
 		c.writeEvent(ctx, eventstore.Record{
 			EventType:   "participant_left",
-			Source:      "provider:" + c.provider.Name(),
 			DisplayName: leftDisplayName,
 		})
 	}
@@ -431,14 +426,12 @@ func (c *Coordinator) onJoinConfirmation(ctx context.Context, evt messengers.Eve
 	c.writeEvent(ctx, eventstore.Record{
 		Timestamp:   pending.joinedAt,
 		EventType:   "participant_joined",
-		Source:      "provider:" + c.provider.Name(),
 		DisplayName: canonicalName,
 		Metadata:    pending.metadata,
 	})
 	c.writeEvent(ctx, eventstore.Record{
 		Timestamp:   evt.Timestamp,
 		EventType:   "participant_verified",
-		Source:      "messenger:" + c.messenger.Name(),
 		DisplayName: canonicalName,
 		Metadata: map[string]string{
 			"messenger":  c.messenger.Name(),
@@ -531,7 +524,6 @@ func (c *Coordinator) eligibleParticipants() []challenges.EligibleParticipant {
 }
 
 func (c *Coordinator) writeEvent(_ context.Context, r eventstore.Record) {
-	r.EventID = uuid.Must(uuid.NewV7()).String()
 	r.MeetingID = c.cfg.MeetingID
 	if r.Timestamp.IsZero() {
 		r.Timestamp = time.Now().UTC()
@@ -549,12 +541,11 @@ func (c *Coordinator) RecordChallengeIssued(ctx context.Context, issued challeng
 
 	c.writeEvent(ctx, eventstore.Record{
 		EventType:   "challenge_issued",
-		Source:      "scheduler",
 		DisplayName: issued.DisplayName,
+		ChallengeID: issued.ChallengeID,
+		QuestionID:  issued.Question.QuestionID,
 		Metadata: map[string]string{
-			"challenge_id":    issued.ChallengeID,
 			"challenge_type":  issued.TypeLabel,
-			"question_id":     issued.Question.QuestionID,
 			"answer_window_s": fmt.Sprintf("%d", c.cfg.AnswerWindowSecs),
 		},
 	})
@@ -568,11 +559,10 @@ func (c *Coordinator) RecordChallengeResult(ctx context.Context, challengeID str
 		evtType = "challenge_answered_incorrect"
 	}
 	c.writeEvent(ctx, eventstore.Record{
-		EventType: evtType,
-		Source:    "messenger:" + c.messenger.Name(),
+		EventType:   evtType,
+		ChallengeID: challengeID,
 		Metadata: map[string]string{
-			"challenge_id": challengeID,
-			"latency_ms":   fmt.Sprintf("%d", latencyMS),
+			"latency_ms": fmt.Sprintf("%d", latencyMS),
 		},
 	})
 	return nil
@@ -581,9 +571,8 @@ func (c *Coordinator) RecordChallengeResult(ctx context.Context, challengeID str
 // RecordChallengeUnanswered implements challenges.EventSink.
 func (c *Coordinator) RecordChallengeUnanswered(ctx context.Context, challengeID string) error {
 	c.writeEvent(ctx, eventstore.Record{
-		EventType: "challenge_unanswered",
-		Source:    "scheduler",
-		Metadata:  map[string]string{"challenge_id": challengeID},
+		EventType:   "challenge_unanswered",
+		ChallengeID: challengeID,
 	})
 	return nil
 }
@@ -596,7 +585,6 @@ func (c *Coordinator) RecordChallengeSkipped(ctx context.Context, displayName, r
 	}
 	c.writeEvent(ctx, eventstore.Record{
 		EventType:   "challenge_skipped_offline",
-		Source:      "scheduler",
 		DisplayName: displayName,
 	})
 	return nil

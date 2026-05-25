@@ -36,17 +36,26 @@ func ReadAll(ctx context.Context, path string) ([]Record, error) {
 	records := make([]Record, 0, n)
 
 	// Column indices match schema.go:
-	// 0=event_id, 1=meeting_id, 2=timestamp, 3=source, 4=event_type,
-	// 5=display_name, 6=metadata
-	const numCols = 7
+	// 0=meeting_id, 1=timestamp, 2=event_type, 3=display_name,
+	// 4=challenge_id, 5=question_id, 6=metadata
+	const (
+		colMeetingID    = 0
+		colTimestamp    = 1
+		colEventType    = 2
+		colDisplayName  = 3
+		colChallengeID  = 4
+		colQuestionID   = 5
+		colMetadata     = 6
+		numCols         = 7
+	)
 	strCols := make([]*strReader, numCols)
 	for i := range numCols {
-		if i == 2 {
-			continue // timestamp column handled separately
+		if i == colTimestamp {
+			continue
 		}
 		strCols[i] = newStrReader(table.Column(i))
 	}
-	tsCol := newInt64Reader(table.Column(2))
+	tsCol := newInt64Reader(table.Column(colTimestamp))
 
 	// Collect raw timestamp values (absolute Unix ms for meeting_started,
 	// ms offset from meeting start for all others).
@@ -59,7 +68,7 @@ func ReadAll(ctx context.Context, path string) ([]Record, error) {
 	// all offsets can be reconstructed into absolute wall-clock times.
 	var meetingStart time.Time
 	for i := range n {
-		if strCols[4].get(i) == "meeting_started" {
+		if strCols[colEventType].get(i) == "meeting_started" {
 			meetingStart = time.UnixMilli(rawTS[i]).UTC()
 			break
 		}
@@ -67,24 +76,28 @@ func ReadAll(ctx context.Context, path string) ([]Record, error) {
 
 	for i := range n {
 		var ts time.Time
-		if strCols[4].get(i) == "meeting_started" || meetingStart.IsZero() {
+		if strCols[colEventType].get(i) == "meeting_started" || meetingStart.IsZero() {
 			ts = time.UnixMilli(rawTS[i]).UTC()
 		} else {
 			ts = meetingStart.Add(time.Duration(rawTS[i]) * time.Millisecond)
 		}
 
 		r := Record{
-			EventID:   strCols[0].get(i),
-			MeetingID: strCols[1].get(i),
+			MeetingID: strCols[colMeetingID].get(i),
 			Timestamp: ts,
-			Source:    strCols[3].get(i),
-			EventType: strCols[4].get(i),
+			EventType: strCols[colEventType].get(i),
 		}
-		if !strCols[5].isNull(i) {
-			r.DisplayName = strCols[5].get(i)
+		if !strCols[colDisplayName].isNull(i) {
+			r.DisplayName = strCols[colDisplayName].get(i)
 		}
-		if !strCols[6].isNull(i) {
-			raw := strCols[6].get(i)
+		if !strCols[colChallengeID].isNull(i) {
+			r.ChallengeID = strCols[colChallengeID].get(i)
+		}
+		if !strCols[colQuestionID].isNull(i) {
+			r.QuestionID = strCols[colQuestionID].get(i)
+		}
+		if !strCols[colMetadata].isNull(i) {
+			raw := strCols[colMetadata].get(i)
 			if raw != "" {
 				var m map[string]string
 				if jsonErr := json.Unmarshal([]byte(raw), &m); jsonErr == nil {

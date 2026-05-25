@@ -20,13 +20,14 @@ import (
 
 // Record is one row of the event log. DisplayName is the canonical
 // registered name and is the participant identity used end-to-end.
+// ChallengeID and QuestionID are first-class join keys; empty → null.
 type Record struct {
-	EventID     string
 	MeetingID   string
 	Timestamp   time.Time
-	Source      string
 	EventType   string
 	DisplayName string            // empty → null
+	ChallengeID string            // empty → null
+	QuestionID  string            // empty → null
 	Metadata    map[string]string // nil → null
 }
 
@@ -166,12 +167,12 @@ func (w *Writer) writeRowGroup(rows []Record, startTime time.Time) error {
 func buildRecord(rows []Record, startTime time.Time) arrow.Record {
 	pool := memory.NewGoAllocator()
 
-	eventID := array.NewStringBuilder(pool)
 	meetingID := array.NewStringBuilder(pool)
 	ts := array.NewInt64Builder(pool)
-	source := array.NewStringBuilder(pool)
 	eventType := array.NewStringBuilder(pool)
 	displayName := array.NewStringBuilder(pool)
+	challengeID := array.NewStringBuilder(pool)
+	questionID := array.NewStringBuilder(pool)
 	metadata := array.NewStringBuilder(pool)
 
 	appendNullable := func(b *array.StringBuilder, v string) {
@@ -184,16 +185,16 @@ func buildRecord(rows []Record, startTime time.Time) arrow.Record {
 
 	for i := range rows {
 		r := &rows[i]
-		eventID.Append(r.EventID)
 		meetingID.Append(r.MeetingID)
 		if r.EventType == "meeting_started" || startTime.IsZero() {
 			ts.Append(r.Timestamp.UnixMilli())
 		} else {
 			ts.Append(r.Timestamp.Sub(startTime).Milliseconds())
 		}
-		source.Append(r.Source)
 		eventType.Append(r.EventType)
 		appendNullable(displayName, r.DisplayName)
+		appendNullable(challengeID, r.ChallengeID)
+		appendNullable(questionID, r.QuestionID)
 		if r.Metadata == nil {
 			metadata.AppendNull()
 		} else {
@@ -203,12 +204,12 @@ func buildRecord(rows []Record, startTime time.Time) arrow.Record {
 	}
 
 	cols := []arrow.Array{
-		eventID.NewArray(),
 		meetingID.NewArray(),
 		ts.NewArray(),
-		source.NewArray(),
 		eventType.NewArray(),
 		displayName.NewArray(),
+		challengeID.NewArray(),
+		questionID.NewArray(),
 		metadata.NewArray(),
 	}
 	return array.NewRecord(Schema, cols, int64(len(rows)))
