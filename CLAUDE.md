@@ -55,8 +55,8 @@ presence-tracker/
 │           ├── gui/                # templ templates + net/http handlers
 │           └── reporter/           # invokes ptrack_py binary for CSV output
 ├── py/src/
-│   ├── ptrack_analytics/           # library: Polars analysis + CSV report generation
-│   │   └── (Jupyter-compatible; also the PyInstaller entry point)
+│   ├── ptrack_analytics/           # Jupyter library: load + Polars frames (presence, challenges, questions)
+│   ├── ptrack_py/                  # binary-only: CLI entry, CSV reports, GUI stats JSON
 │   ├── challenger/                 # question generation from meeting context (v1 stretch)
 │   └── perception/                 # (v2) ASR (Whisper), OCR
 ├── test/fixtures/                  # recorded event streams for replay
@@ -286,12 +286,14 @@ See `@docs/GUI.md` for chart spec, marker encoding, and route map.
 
 ## Ad-hoc queries
 
-The `ptrack_analytics` library (in `py/src/ptrack_analytics/`) provides
-the full analysis and CSV report API. Advanced users import it in a
-**Jupyter Notebook** for arbitrary exploration:
+The `ptrack_analytics` library (in `py/src/ptrack_analytics/`) is the
+Jupyter-facing surface. It exposes file loading and the pre-derived
+Polars lazy frames (`presence`, `challenges`, `questions`) — and nothing
+else; CSV reports and the GUI stats JSON live in `ptrack_py/` and are
+not part of the library's public API.
 
 ```python
-from ptrack_analytics import load, presence, challenges, generate_csv
+from ptrack_analytics import load, presence, challenges
 
 load("~/Documents/ptrack/meetings/spring-2026-*.parquet")
 presence.group_by("display_name").agg(pl.col("presence_seconds").mean())
@@ -389,10 +391,11 @@ audio capture, and the BBB/Zoom polling rewrite are still pending.
   display-name flow (`/register`, `/unregister`, `/whoami`); the session
   coordinator buffers joins until verification, applies the collision
   rule, and writes only verified participants to Parquet.
-- Python: `ptrack_analytics` library with schema, `load()`, derived
-  frames (`presence`, `challenge_results`), CSV report generation
-  (`generate_csv`, `generate_aggregate_csv` in `reports.py`), and
-  `ptrack_py report` / `ptrack_py aggregate` CLI commands.
+- Python: `ptrack_analytics` library with schema, `load()`, and the
+  derived lazy frames (`presence`, `challenge_results`). The binary-only
+  `ptrack_py` package holds the typer CLI plus the formats Go shells out
+  for: CSV reports (`reports.py`) and the GUI stats JSON (`stats.py`),
+  exposed as `ptrack_py report` / `ptrack_py aggregate` / `ptrack_py stats`.
 - GUI (`ptrack serve`) and `internal/gui/` package: HTTP server with
   all routes from the older `docs/GUI.md`, in-process session
   management, templ + htmx templates (dashboard, live status, meeting

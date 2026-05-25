@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import polars as pl
 
-from .frames import challenge_results as _challenge_frame
-from .frames import presence as _presence_frame
+from ptrack_analytics.frames import challenge_results as _challenge_frame
+from ptrack_analytics.frames import presence as _presence_frame
 
 
 def generate_csv(events: pl.LazyFrame) -> str:
@@ -51,8 +51,12 @@ def generate_csv(events: pl.LazyFrame) -> str:
         )
         .sort(pl.col("display_name").str.to_lowercase())
         .select(
-            ["display_name", "presence_ratio",
-             "challenges_issued", "challenges_correct"]
+            [
+                "display_name",
+                "presence_ratio",
+                "challenges_issued",
+                "challenges_correct",
+            ]
         )
         .collect()
     )
@@ -104,8 +108,13 @@ def generate_aggregate_csv(events: pl.LazyFrame) -> str:
         )
         .sort([pl.col("display_name").str.to_lowercase(), pl.col("started_at")])
         .select(
-            ["display_name", "meeting", "presence_ratio",
-             "challenges_issued", "challenges_correct"]
+            [
+                "display_name",
+                "meeting",
+                "presence_ratio",
+                "challenges_issued",
+                "challenges_correct",
+            ]
         )
         .collect()
     )

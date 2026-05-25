@@ -1,9 +1,14 @@
 # Analytics library
 
-`ptrack_analytics` is a regular Python library (`py/src/ptrack_analytics/`)
-that provides meeting analysis and CSV report generation. It is the same
-code whether called from the Go CLI, used internally by the GUI server, or
-used interactively in a Jupyter Notebook.
+`ptrack_analytics` (`py/src/ptrack_analytics/`) is the Jupyter-facing
+analytics library. It loads meeting Parquet (and the matching question
+JSONL) and exposes a small set of pre-derived Polars lazy frames; from
+there everything is a Polars expression.
+
+CSV reports and the GUI stats JSON are *not* part of this library —
+they live in the binary-only `ptrack_py/` package (`reports.py`,
+`stats.py`) so the library surface stays small and notebook-relevant.
+Both consumers build on top of the same lazy frames documented below.
 
 ## Using in Jupyter
 
@@ -73,38 +78,30 @@ challenges.group_by("meeting_id") \
 )
 ```
 
-### CSV generation from a notebook
+### CSV reports from a notebook
 
-```python
-from ptrack_analytics import generate_csv, generate_aggregate_csv
+There is no notebook helper for CSV generation; for ad-hoc tables call
+`pl.DataFrame.write_csv` on whatever lazy frame you collect. If you
+want the exact CSV the GUI offers, shell out to the binary instead:
 
-# Single meeting CSV
-generate_csv("meetings/2026-04-21.parquet", "reports/2026-04-21.csv")
-
-# Cross-meeting CSV for all meetings matching a glob
-generate_aggregate_csv("meetings/spring-2026-*.parquet", "reports/semester.csv")
+```bash
+ptrack_py report    --in meetings/2026-04-21.parquet     --out reports/2026-04-21.csv
+ptrack_py aggregate --in 'meetings/spring-2026-*.parquet' --out reports/semester.csv
 ```
 
-`generate_csv` produces one row per participant with columns:
-`display_name`, `presence_ratio`, `challenges_issued`, `challenges_correct`.
-
-`generate_aggregate_csv` produces one row per (participant, meeting) with
-the same statistics columns plus `meeting` (ISO datetime of start), sorted
-by `display_name` then `meeting`.
-
-Both functions return the DataFrame before writing so the result can be
-inspected or piped further in a notebook cell.
+(`ptrack_py` lives in the sibling `ptrack_py/` package; see
+"Relationship to the GUI" below.)
 
 ## Relationship to the GUI
 
 The GUI's single stats view (`GET /stats?file=<a>&file=<b>…` — see
-`@docs/GUI.md`) is backed by this library. Go shells out to
-`ptrack_py stats --in <a> [--in <b> …]`, which uses the same `presence`
-/ `challenges` / `questions` lazy frames documented above to build a
-JSON document for the requested files, and prints it to stdout. With
-one input the JSON describes a per-meeting timeband list; with more
-than one it describes the cross-meeting dataset for every participant
-in those files.
+`@docs/GUI.md`) is backed by the `ptrack_py stats` subcommand
+(implemented in `py/src/ptrack_py/stats.py`). That code builds on top
+of this library's `presence` / `challenges` / `questions` lazy frames,
+collects them into a JSON document for the requested files, and prints
+it to stdout. With one input the JSON describes a per-meeting timeband
+list; with more than one it describes the cross-meeting dataset for
+every participant in those files.
 
 Go caches the JSON on disk between requests and invalidates an entry
 when any of the input files' mtime advances. The expected callers of
@@ -123,7 +120,8 @@ the cross-language contract in `@CLAUDE.md` describes.
 
 When you add a new derived frame:
 
-1. Add its construction to `py/src/ptrack_analytics/analysis.py` as a
+1. Add its construction to `py/src/ptrack_analytics/frames.py` as a
    pure function `derive_<n>(data: pl.LazyFrame) -> pl.LazyFrame`.
-2. Export it from `py/src/ptrack_analytics/__init__.py`.
+2. Wire it up in `py/src/ptrack_analytics/__init__.py` so `load()`
+   populates it and add it to `__all__`.
 3. Document it in the "Using in Jupyter" section above.

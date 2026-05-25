@@ -9,14 +9,14 @@ dependencies = [
 ]
 
 [project.scripts]
-ptrack_py = "ptrack_analytics.__main__:app"
+ptrack_py = "ptrack_py.__main__:app"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ptrack_analytics"]
+packages = ["src/ptrack_analytics", "src/ptrack_py"]
 
 [tool.mypy]
 strict = true

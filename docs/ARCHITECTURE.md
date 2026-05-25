@@ -28,10 +28,10 @@ it.
          ▼                            ▼                       │ (thin client)
 ┌─────────────────────────────┐    ┌─────────────────────────────────────┐
 │ ptrack_py challenger        │    │ ptrack_py (PyInstaller)             │
-│  (long-running, AI-gen)     │    │  ptrack_analytics subcommand        │
-│  faster-whisper + LLM       │    │  (one-shot: report / aggregate)     │
-│  writes YAML to pending dir │    │  Polars (CSV generation)            │
-│  optional: exec ptrack poll │    │                                     │
+│  (long-running, AI-gen)     │    │  (one-shot: report / aggregate /    │
+│  faster-whisper + LLM       │    │   stats)                            │
+│  writes YAML to pending dir │    │  Polars (CSV + GUI JSON)            │
+│  optional: exec ptrack poll │    │  builds on ptrack_analytics frames  │
 └─────────────────────────────┘    └─────────────────────────────────────┘
 ```
 
@@ -343,20 +343,24 @@ same session at the same `http://127.0.0.1:<port>` address.
 
 ## Cross-process model
 
-### Go ↔ Python: ptrack_analytics (one-shot subprocess)
+### Go ↔ Python: ptrack_py (one-shot subprocess)
 
-The analytics binary runs when a CSV report is requested or when the
-GUI needs statistics for a meeting page:
+The `ptrack_py` binary runs when Go needs CSV reports or GUI stats:
 
 ```
-ptrack_py report    --in <parquet> --format csv --out <csv-or->
-ptrack_py aggregate --in '<glob>'  --format csv --out <csv-or->
+ptrack_py report    --in <parquet>               --out <csv-or->
+ptrack_py aggregate --in '<glob>'                --out <csv-or->
+ptrack_py stats     --in <parquet> [--in <p2> …] --out <json-or->
 ```
 
-Passing `--out -` writes the CSV to stdout, which Go reads directly to
-populate GUI stats columns without a temporary file. Exit code + stderr
-is the contract. The same library code is importable in Jupyter Notebooks
-(`from ptrack_analytics import load, presence, challenges`).
+`--out -` writes to stdout, which Go reads directly. Exit code +
+stderr is the contract.
+
+The CSV / JSON producers (`reports.py`, `stats.py`) live in
+`py/src/ptrack_py/` — the binary-only package — and build on top of
+`py/src/ptrack_analytics/`, the Jupyter-facing library
+(`from ptrack_analytics import load, presence, challenges`). Notebook
+users depend on `ptrack_analytics` directly and never on `ptrack_py`.
 
 ### Go ↔ Python: challenger (long-running, optional)
 
