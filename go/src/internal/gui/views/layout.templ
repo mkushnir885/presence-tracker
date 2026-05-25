@@ -2,16 +2,18 @@ package views
 
 templ Layout(title string, locale Locale) {
 	<!DOCTYPE html>
-	<html lang={ locale.Lang }>
+	<html lang={ htmlLang(locale.Lang) }>
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			<title>{ title } — Presence Tracker</title>
 			<link rel="stylesheet" href="/assets/style.css"/>
 			<script>
-				(function(){
-					var t = localStorage.getItem('ptrack-theme');
-					if (t) document.documentElement.dataset.theme = t;
+				(function() {
+					var t = localStorage.getItem('ptrack-theme') || 'system';
+					if (t === 'light' || t === 'dark') {
+						document.documentElement.dataset.theme = t;
+					}
 				})();
 			</script>
 		</head>
@@ -19,32 +21,53 @@ templ Layout(title string, locale Locale) {
 			<nav>
 				<a class="brand" href="/">Presence Tracker</a>
 				<a href="/">{ locale.T("nav.dashboard") }</a>
-				<a href="/registry">{ locale.T("nav.registry") }</a>
-				<a href="/config">{ locale.T("nav.config") }</a>
 				<div class="spacer"></div>
-				<div class="lang-selector">
-					<button
-						class={ "btn btn-sm" + langActive(locale.Lang, "en") }
-						onclick="setLang('en')">EN</button>
-					<button
-						class={ "btn btn-sm" + langActive(locale.Lang, "uk") }
-						onclick="setLang('uk')">UK</button>
-				</div>
-				<button class="btn btn-sm" onclick="toggleTheme()">{ locale.T("nav.theme") }</button>
+				@themeMenu(locale)
+				@langMenu(locale)
+				<a class="icon-btn" href="/registry" data-tooltip={ locale.T("nav.registry") } aria-label={ locale.T("nav.registry") }>
+					@iconUsers()
+				</a>
+				<a class="icon-btn" href="/config" data-tooltip={ locale.T("nav.config_aria") } aria-label={ locale.T("nav.config_aria") }>
+					@iconGear()
+				</a>
 			</nav>
 			<main>
 				{ children... }
 			</main>
 			<script src="https://unpkg.com/htmx.org@2.0.4" crossorigin="anonymous"></script>
 			<script>
-				function toggleTheme() {
-					var root = document.documentElement;
-					var cur = root.dataset.theme || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-					var next = cur === 'dark' ? 'light' : 'dark';
-					root.dataset.theme = next;
-					localStorage.setItem('ptrack-theme', next);
+				function ptrackCloseMenus(except) {
+					document.querySelectorAll('details.menu').forEach(function(d) {
+						if (d !== except) d.open = false;
+					});
+				}
+				document.addEventListener('click', function(ev) {
+					if (!ev.target.closest('details.menu')) ptrackCloseMenus(null);
+				});
+				document.querySelectorAll('details.menu > summary').forEach(function(s) {
+					s.addEventListener('click', function() {
+						ptrackCloseMenus(s.parentElement);
+					});
+				});
+				(function() {
+					var t = localStorage.getItem('ptrack-theme') || 'system';
+					var btn = document.querySelector('[data-theme-menu] [data-theme-opt="' + t + '"]');
+					if (btn) btn.classList.add('active');
+				})();
+				function setTheme(t) {
+					var cur = localStorage.getItem('ptrack-theme') || 'system';
+					if (cur === t) { ptrackCloseMenus(null); return; }
+					localStorage.setItem('ptrack-theme', t);
+					if (t === 'system') {
+						delete document.documentElement.dataset.theme;
+					} else {
+						document.documentElement.dataset.theme = t;
+					}
+					location.reload();
 				}
 				function setLang(lang) {
+					var cur = (document.cookie.match(/(?:^|;\s*)ptrack-lang=([^;]+)/) || [])[1] || 'us';
+					if (cur === lang) { ptrackCloseMenus(null); return; }
 					document.cookie = 'ptrack-lang=' + lang + ';path=/;max-age=31536000';
 					localStorage.setItem('ptrack-lang', lang);
 					location.reload();
@@ -54,9 +77,131 @@ templ Layout(title string, locale Locale) {
 	</html>
 }
 
+templ themeMenu(locale Locale) {
+	<details class="menu" data-theme-menu>
+		<summary class="icon-btn" data-tooltip={ locale.T("nav.theme_aria") } aria-label={ locale.T("nav.theme_aria") }>
+			@iconThemeCurrent()
+		</summary>
+		<ul class="menu-list">
+			<li>
+				<button type="button" data-theme-opt="light" onclick="setTheme('light')">
+					@iconSun()
+					<span>{ locale.T("nav.theme_light") }</span>
+				</button>
+			</li>
+			<li>
+				<button type="button" data-theme-opt="dark" onclick="setTheme('dark')">
+					@iconMoon()
+					<span>{ locale.T("nav.theme_dark") }</span>
+				</button>
+			</li>
+			<li>
+				<button type="button" data-theme-opt="system" onclick="setTheme('system')">
+					@iconMonitor()
+					<span>{ locale.T("nav.theme_system") }</span>
+				</button>
+			</li>
+		</ul>
+	</details>
+}
+
+templ langMenu(locale Locale) {
+	<details class="menu" data-lang-menu>
+		<summary class="icon-btn lang-btn" data-tooltip={ locale.T("nav.lang_aria") } aria-label={ locale.T("nav.lang_aria") }>
+			<span class="lang-code">{ langDisplay(locale.Lang) }</span>
+		</summary>
+		<ul class="menu-list lang-list">
+			<li>
+				<button type="button" onclick="setLang('us')" class={ langActive(locale.Lang, "us") }>
+					<span class="lang-code">US</span>
+				</button>
+			</li>
+			<li>
+				<button type="button" onclick="setLang('ua')" class={ langActive(locale.Lang, "ua") }>
+					<span class="lang-code">UA</span>
+				</button>
+			</li>
+		</ul>
+	</details>
+}
+
+// iconThemeCurrent picks the icon that matches the persisted theme. The
+// inline script in <head> applies data-theme before paint, but the
+// stored preference is what we render here so the icon matches even when
+// theme=system inherits from the OS.
+templ iconThemeCurrent() {
+	@iconSun()
+	@iconMoon()
+	@iconMonitor()
+	<script>
+		(function() {
+			var t = localStorage.getItem('ptrack-theme') || 'system';
+			var s = document.currentScript.parentElement;
+			var icons = s.querySelectorAll('svg');
+			icons.forEach(function(i){ i.style.display = 'none'; });
+			var idx = t === 'light' ? 0 : t === 'dark' ? 1 : 2;
+			if (icons[idx]) icons[idx].style.display = '';
+		})();
+	</script>
+}
+
+templ iconGear() {
+	<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+		<circle cx="12" cy="12" r="3"></circle>
+		<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+	</svg>
+}
+
+templ iconUsers() {
+	<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+		<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+		<circle cx="9" cy="7" r="4"></circle>
+		<path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+		<path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+	</svg>
+}
+
+templ iconSun() {
+	<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+		<circle cx="12" cy="12" r="4"></circle>
+		<path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
+	</svg>
+}
+
+templ iconMoon() {
+	<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+		<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+	</svg>
+}
+
+templ iconMonitor() {
+	<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+		<rect x="2" y="4" width="20" height="13" rx="2"></rect>
+		<path d="M8 21h8M12 17v4"></path>
+	</svg>
+}
+
 func langActive(current, target string) string {
 	if current == target {
-		return " btn-active"
+		return "active"
 	}
 	return ""
+}
+
+func langDisplay(lang string) string {
+	if lang == "ua" {
+		return "UA"
+	}
+	return "US"
+}
+
+// htmlLang maps internal locale codes to BCP 47 language tags for the
+// <html lang> attribute. Our internal codes use country-style "us"/"ua"
+// to keep the GUI flag-like; the document still needs the actual
+// language tag.
+func htmlLang(lang string) string {
+	if lang == "ua" {
+		return "uk"
+	}
+	return "en"
 }

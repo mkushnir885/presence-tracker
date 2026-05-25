@@ -54,16 +54,19 @@ templ participantRow(meetingID string, idx int, row ParticipantRow, t func(strin
 	<div style="display:flex;align-items:center;margin-bottom:0.4rem;">
 		<div style="width:180px;font-size:0.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title={ row.DisplayName }>
 			{ row.DisplayName }
-			<span> </span>
-			<a href="#" style="font-size:0.75rem;color:var(--accent);"
+			<span></span>
+			<a
+				href="#"
+				style="font-size:0.75rem;color:var(--accent);"
 				hx-patch={ "/meetings/" + meetingID + "/participants/" + url.PathEscape(row.DisplayName) + "/display-name" }
 				hx-prompt={ t("meeting.rename_prompt") }
 				hx-target="this"
-				hx-swap="outerHTML">✏</a>
+				hx-swap="outerHTML"
+			>✏</a>
 		</div>
 		<div style="flex:1;position:relative;height:24px;">
 			<svg width="100%" height="24" style="overflow:visible;">
-				<rect x="0" y="8" width="100%" height="8" fill="var(--border)" rx="2"/>
+				<rect x="0" y="8" width="100%" height="8" fill="var(--border)" rx="2"></rect>
 				for _, seg := range row.Segments {
 					if seg.Present {
 						<rect
@@ -73,7 +76,7 @@ templ participantRow(meetingID string, idx int, row ParticipantRow, t func(strin
 							height="8"
 							fill="var(--accent)"
 							rx="2"
-						/>
+						></rect>
 					}
 				}
 				for _, m := range row.Markers {

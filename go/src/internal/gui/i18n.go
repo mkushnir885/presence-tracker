@@ -8,26 +8,26 @@ import (
 	"presence-tracker/src/internal/gui/views"
 )
 
-//go:embed locales/en.json
-var enJSON []byte
+//go:embed locales/us.json
+var usJSON []byte
 
-//go:embed locales/uk.json
-var ukJSON []byte
+//go:embed locales/ua.json
+var uaJSON []byte
 
 func localeFromRequest(r *http.Request) views.Locale {
-	lang := "en"
-	if c, err := r.Cookie("ptrack-lang"); err == nil && c.Value == "uk" {
-		lang = "uk"
+	lang := "us"
+	if c, err := r.Cookie("ptrack-lang"); err == nil && c.Value == "ua" {
+		lang = "ua"
 	}
 	return buildLocale(lang)
 }
 
 func buildLocale(lang string) views.Locale {
-	data := enJSON
-	if lang == "uk" {
-		data = ukJSON
+	data := usJSON
+	if lang == "ua" {
+		data = uaJSON
 	} else {
-		lang = "en"
+		lang = "us"
 	}
 	var t map[string]string
 	if err := json.Unmarshal(data, &t); err != nil {

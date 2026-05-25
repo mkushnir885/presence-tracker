@@ -85,9 +85,9 @@ type Coordinator struct {
 	pipeline  *challenges.Pipeline
 
 	mu            sync.Mutex
-	names         map[string]*nameState     // normName → state
-	platformIndex map[string]string         // platformID → normName (for fast onLeave)
-	pendingHandle map[string]string         // messenger handle → normName (only while pending)
+	names         map[string]*nameState      // normName → state
+	platformIndex map[string]string          // platformID → normName (for fast onLeave)
+	pendingHandle map[string]string          // messenger handle → normName (only while pending)
 	unregistered  map[string]providers.Event // platformID → original join event (live GUI only)
 }
 

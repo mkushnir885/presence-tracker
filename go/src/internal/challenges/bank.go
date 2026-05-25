@@ -1,11 +1,11 @@
 package challenges
 
 import (
-	"slices"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"

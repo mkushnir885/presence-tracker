@@ -20,10 +20,10 @@ type SentChallenge struct {
 
 // Messenger is a no-op messenger suitable for automated tests.
 type Messenger struct {
-	mu           sync.Mutex
-	events       chan messengers.Event
-	challenges   []*SentChallenge
-	refIdx       int
+	mu            sync.Mutex
+	events        chan messengers.Event
+	challenges    []*SentChallenge
+	refIdx        int
 	confirmations []SentConfirmation
 }
 

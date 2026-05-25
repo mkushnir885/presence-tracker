@@ -12,11 +12,14 @@ templ Dashboard(data DashboardData, locale Locale) {
 					<a class="btn" href="/status">{ locale.T("dashboard.active.view_status") }</a>
 					<form method="POST" action="/session" style="display:inline">
 						<input type="hidden" name="_method" value="DELETE"/>
-						<button type="submit" class="btn btn-danger"
+						<button
+							type="submit"
+							class="btn btn-danger"
 							hx-delete="/session"
 							hx-confirm={ locale.T("nav.stop_confirm") }
 							hx-target="body"
-							hx-push-url="/">{ locale.T("dashboard.active.stop") }</button>
+							hx-push-url="/"
+						>{ locale.T("dashboard.active.stop") }</button>
 					</form>
 				</div>
 			</div>

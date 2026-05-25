@@ -71,4 +71,3 @@ func Default() (string, bool) {
 	}
 	return "", false
 }
-

@@ -51,7 +51,7 @@ templ ParticipantView(data ParticipantData, locale Locale) {
 								<td style="min-width:160px;">
 									if !m.Absent && m.MeetingDuration > 0 {
 										<svg width="140" height="12">
-											<rect x="0" y="2" width="140" height="8" fill="var(--border)" rx="2"/>
+											<rect x="0" y="2" width="140" height="8" fill="var(--border)" rx="2"></rect>
 											for _, seg := range m.Segments {
 												if seg.Present {
 													<rect
@@ -61,7 +61,7 @@ templ ParticipantView(data ParticipantData, locale Locale) {
 														height="8"
 														fill="var(--accent)"
 														rx="2"
-													/>
+													></rect>
 												}
 											}
 										</svg>

@@ -1,8 +1,12 @@
 package views
 
 import (
+	"strconv"
 	"time"
 
+	"github.com/google/jsonschema-go/jsonschema"
+
+	"presence-tracker/src/internal/config"
 	"presence-tracker/src/internal/session"
 )
 
@@ -107,24 +111,79 @@ type ParticipantMeetingRow struct {
 	MeetingDuration   time.Duration
 }
 
-// ConfigData is the data model for the config editor page.
+// ConfigData is the data model for the config editor page. It carries the
+// current resolved Values plus the JSON Schema, so the template can read
+// enum lists, min/max, and writeOnly markers straight from the schema
+// instead of duplicating them.
 type ConfigData struct {
-	MeetingsDir                string
-	QuestionsDir               string
-	ReportsDir                 string
-	DataDir                    string
-	RetentionDays              int
-	GUIBindAddr                string
-	GUIPort                    int
-	GUIOpenBrowserOnStart      bool
-	LogLevel                   string
-	LogFormat                  string
-	BBBEnabled                 bool
-	BBBBaseURL                 string
-	TelegramEnabled            bool
-	TelegramBotToken           string
-	AnswerWindowSeconds        int
-	MinGapBetweenChallengesSec int
-	EventStoreCompression      string
-	EventStoreRowGroupSize     int
+	V          config.Values
+	Schema     *jsonschema.Schema
+	DataDir    string
+	CacheDir   string
+	ConfigPath string
+}
+
+// at walks Schema.Properties along path and returns the leaf schema, or
+// nil if any segment is missing. Used by the field-rendering helpers.
+func (d ConfigData) at(path ...string) *jsonschema.Schema {
+	cur := d.Schema
+	for _, p := range path {
+		if cur == nil {
+			return nil
+		}
+		next, ok := cur.Properties[p]
+		if !ok {
+			return nil
+		}
+		cur = next
+	}
+	return cur
+}
+
+// WriteOnly reports whether the field at path is marked writeOnly in the
+// schema (i.e. a secret that must not be echoed back to the form).
+func (d ConfigData) WriteOnly(path ...string) bool {
+	s := d.at(path...)
+	return s != nil && s.WriteOnly
+}
+
+// Enum returns the string enum values declared for the field at path.
+func (d ConfigData) Enum(path ...string) []string {
+	s := d.at(path...)
+	if s == nil {
+		return nil
+	}
+	out := make([]string, 0, len(s.Enum))
+	for _, v := range s.Enum {
+		if str, ok := v.(string); ok {
+			out = append(out, str)
+		}
+	}
+	return out
+}
+
+// MinAttr returns the field's minimum as a string suitable for an HTML
+// input's min= attribute, or "" if unset.
+func (d ConfigData) MinAttr(path ...string) string {
+	s := d.at(path...)
+	if s == nil || s.Minimum == nil {
+		return ""
+	}
+	return formatNum(*s.Minimum)
+}
+
+// MaxAttr returns the field's maximum, formatted like MinAttr.
+func (d ConfigData) MaxAttr(path ...string) string {
+	s := d.at(path...)
+	if s == nil || s.Maximum == nil {
+		return ""
+	}
+	return formatNum(*s.Maximum)
+}
+
+func formatNum(f float64) string {
+	if f == float64(int64(f)) {
+		return strconv.FormatInt(int64(f), 10)
+	}
+	return strconv.FormatFloat(f, 'f', -1, 64)
 }

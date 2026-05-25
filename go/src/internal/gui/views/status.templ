@@ -18,11 +18,14 @@ templ Status(data StatusData, locale Locale) {
 			</div>
 			<div style="flex:1"></div>
 			<form>
-				<button type="button" class="btn btn-danger"
+				<button
+					type="button"
+					class="btn btn-danger"
 					hx-delete="/session"
 					hx-confirm={ locale.T("nav.stop_confirm") }
 					hx-target="body"
-					hx-push-url="/">{ locale.T("status.stop") }</button>
+					hx-push-url="/"
+				>{ locale.T("status.stop") }</button>
 			</form>
 		</div>
 		<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
@@ -46,10 +49,13 @@ templ Status(data StatusData, locale Locale) {
 					}
 				</div>
 				if len(data.Unregistered) > 0 {
-					<button class="btn" style="margin-top:0.5rem;font-size:0.8rem;"
+					<button
+						class="btn"
+						style="margin-top:0.5rem;font-size:0.8rem;"
 						hx-get="/status/unregistered"
 						hx-target="#unregistered-detail"
-						hx-swap="innerHTML">{ locale.T("status.unregistered.refresh") }</button>
+						hx-swap="innerHTML"
+					>{ locale.T("status.unregistered.refresh") }</button>
 				}
 			</div>
 		</div>

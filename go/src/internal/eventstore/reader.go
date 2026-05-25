@@ -39,14 +39,14 @@ func ReadAll(ctx context.Context, path string) ([]Record, error) {
 	// 0=meeting_id, 1=timestamp, 2=event_type, 3=display_name,
 	// 4=challenge_id, 5=question_id, 6=metadata
 	const (
-		colMeetingID    = 0
-		colTimestamp    = 1
-		colEventType    = 2
-		colDisplayName  = 3
-		colChallengeID  = 4
-		colQuestionID   = 5
-		colMetadata     = 6
-		numCols         = 7
+		colMeetingID   = 0
+		colTimestamp   = 1
+		colEventType   = 2
+		colDisplayName = 3
+		colChallengeID = 4
+		colQuestionID  = 5
+		colMetadata    = 6
+		numCols        = 7
 	)
 	strCols := make([]*strReader, numCols)
 	for i := range numCols {

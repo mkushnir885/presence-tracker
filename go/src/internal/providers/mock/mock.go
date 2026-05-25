@@ -90,4 +90,3 @@ func (p *Provider) Subscribe(ctx context.Context, meetingID string) (<-chan prov
 
 	return ch, nil
 }
-

@@ -8,9 +8,11 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -550,36 +552,107 @@ func (s *Server) handleQuestion(w http.ResponseWriter, r *http.Request) {
 
 // handleConfig renders the config editor.
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	schema, err := config.Schema()
+	if err != nil {
+		http.Error(w, "config schema: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	data := views.ConfigData{
-		MeetingsDir:                s.cfg.Get().MeetingsDir,
-		QuestionsDir:               s.cfg.Get().QuestionsDir,
-		ReportsDir:                 s.cfg.Get().ReportsDir,
-		DataDir:                    config.DataDir(),
-		RetentionDays:              s.cfg.Get().RetentionDays,
-		GUIBindAddr:                s.cfg.Get().GUI.BindAddr,
-		GUIPort:                    s.cfg.Get().GUI.Port,
-		GUIOpenBrowserOnStart:      s.cfg.Get().GUI.OpenBrowserOnStart,
-		LogLevel:                   s.cfg.Get().Logging.Level,
-		LogFormat:                  s.cfg.Get().Logging.Format,
-		BBBEnabled:                 s.cfg.Get().Providers.BBB.Enabled,
-		BBBBaseURL:                 s.cfg.Get().Providers.BBB.BaseURL,
-		TelegramEnabled:            s.cfg.Get().Messengers.Telegram.Enabled,
-		TelegramBotToken:           s.cfg.Get().Messengers.Telegram.BotToken,
-		AnswerWindowSeconds:        s.cfg.Get().Challenges.Defaults.AnswerWindowSeconds,
-		MinGapBetweenChallengesSec: s.cfg.Get().Challenges.Defaults.MinGapBetweenChallengesSecs,
-		EventStoreCompression:      s.cfg.Get().EventStore.Compression,
-		EventStoreRowGroupSize:     s.cfg.Get().EventStore.RowGroupSize,
+		V:          s.cfg.Get(),
+		Schema:     schema,
+		DataDir:    config.DataDir(),
+		CacheDir:   config.CacheDir(),
+		ConfigPath: s.cfg.Path(),
 	}
 
 	locale := localeFromRequest(r)
 	_ = views.ConfigEditor(data, locale).Render(r.Context(), w)
 }
 
-// handleSaveConfig is a stub pending the GUI rewrite around the new
-// config.Config API (Apply with writeOnly handling, etc.). Returns 501
-// so the existing form does not silently no-op.
-func (s *Server) handleSaveConfig(w http.ResponseWriter, _ *http.Request) {
-	http.Error(w, "config save not yet wired to the new config API", http.StatusNotImplemented)
+// handleSaveConfig applies the posted form to the current Values via
+// cfg.Apply, which runs the shared validate → prune → write pipeline.
+// Secrets marked writeOnly in the schema keep their existing value when
+// the corresponding form field is empty (the form never echoes them).
+func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form data", http.StatusBadRequest)
+		return
+	}
+	form := r.PostForm
+	err := s.cfg.Apply(func(v *config.Values) {
+		v.MeetingsDir = form.Get("meetings_dir")
+		v.QuestionsDir = form.Get("questions_dir")
+		v.ReportsDir = form.Get("reports_dir")
+		v.RetentionDays = formInt(form, "retention_days", v.RetentionDays)
+
+		v.Providers.BBB.Enabled = formBool(form, "providers.bbb.enabled")
+		v.Providers.BBB.BaseURL = form.Get("providers.bbb.base_url")
+		v.Providers.BBB.SharedSecret = formSecret(form, "providers.bbb.shared_secret", v.Providers.BBB.SharedSecret)
+		v.Providers.BBB.TLSSkipVerify = formBool(form, "providers.bbb.tls_skip_verify")
+		v.Providers.BBB.PollIntervalSeconds = formInt(form, "providers.bbb.poll_interval_seconds", v.Providers.BBB.PollIntervalSeconds)
+
+		v.Providers.Meet.Enabled = formBool(form, "providers.meet.enabled")
+		v.Providers.Meet.OAuth.ClientID = form.Get("providers.meet.oauth.client_id")
+		v.Providers.Meet.OAuth.ClientSecret = formSecret(form, "providers.meet.oauth.client_secret", v.Providers.Meet.OAuth.ClientSecret)
+		v.Providers.Meet.OAuth.RedirectPort = formInt(form, "providers.meet.oauth.redirect_port", v.Providers.Meet.OAuth.RedirectPort)
+		v.Providers.Meet.PollIntervalSeconds = formInt(form, "providers.meet.poll_interval_seconds", v.Providers.Meet.PollIntervalSeconds)
+
+		v.Providers.Zoom.Enabled = formBool(form, "providers.zoom.enabled")
+		v.Providers.Zoom.OAuth.ClientID = form.Get("providers.zoom.oauth.client_id")
+		v.Providers.Zoom.OAuth.ClientSecret = formSecret(form, "providers.zoom.oauth.client_secret", v.Providers.Zoom.OAuth.ClientSecret)
+		v.Providers.Zoom.OAuth.RedirectPort = formInt(form, "providers.zoom.oauth.redirect_port", v.Providers.Zoom.OAuth.RedirectPort)
+		v.Providers.Zoom.PollIntervalSeconds = formInt(form, "providers.zoom.poll_interval_seconds", v.Providers.Zoom.PollIntervalSeconds)
+
+		v.Messengers.Telegram.Enabled = formBool(form, "messengers.telegram.enabled")
+		v.Messengers.Telegram.BotToken = formSecret(form, "messengers.telegram.bot_token", v.Messengers.Telegram.BotToken)
+
+		v.Challenges.Defaults.AnswerWindowSeconds = formInt(form, "challenges.defaults.answer_window_seconds", v.Challenges.Defaults.AnswerWindowSeconds)
+		v.Challenges.Defaults.MinGapBetweenChallengesSecs = formInt(form, "challenges.defaults.min_gap_between_challenges_seconds", v.Challenges.Defaults.MinGapBetweenChallengesSecs)
+		v.Challenges.Poll.MaxDeliverySkewMS = formInt(form, "challenges.poll.max_delivery_skew_ms", v.Challenges.Poll.MaxDeliverySkewMS)
+
+		v.EventStore.Compression = form.Get("eventstore.compression")
+		v.EventStore.RowGroupSize = formInt(form, "eventstore.row_group_size", v.EventStore.RowGroupSize)
+
+		v.GUI.BindAddr = form.Get("gui.bind_addr")
+		v.GUI.Port = formInt(form, "gui.port", v.GUI.Port)
+		v.GUI.OpenBrowserOnStart = formBool(form, "gui.open_browser_on_start")
+
+		v.Logging.Level = form.Get("logging.level")
+		v.Logging.Format = form.Get("logging.format")
+		v.Logging.File = form.Get("logging.file")
+	})
+	if err != nil {
+		http.Error(w, "save failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	http.Redirect(w, r, "/config", http.StatusSeeOther)
+}
+
+func formInt(form url.Values, key string, fallback int) int {
+	s := strings.TrimSpace(form.Get(key))
+	if s == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return fallback
+	}
+	return n
+}
+
+func formBool(form url.Values, key string) bool {
+	return form.Get(key) != ""
+}
+
+// formSecret returns the submitted value when non-empty, otherwise the
+// existing one. The form intentionally never round-trips writeOnly
+// secrets, so a blank field means "keep what's on disk".
+func formSecret(form url.Values, key string, current string) string {
+	v := form.Get(key)
+	if v == "" {
+		return current
+	}
+	return v
 }
 
 // buildServeProvider creates a provider for the serve context (no fixture support).
