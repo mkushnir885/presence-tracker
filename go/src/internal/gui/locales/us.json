@@ -9,6 +9,8 @@
   "dashboard.connect.provider": "Provider",
   "dashboard.connect.meeting_id": "Meeting ID",
   "dashboard.connect.btn": "Connect",
+  "dashboard.connect.no_providers": "No providers are enabled.",
+  "dashboard.connect.no_providers_link": "Enable and configure at least one provider",
   "dashboard.active.tracking": "Currently tracking:",
   "dashboard.active.view_status": "View Status",
   "dashboard.active.stop": "Stop Tracking",

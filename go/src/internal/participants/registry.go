@@ -120,4 +120,3 @@ type Registry interface {
 	// Close releases resources held by the registry.
 	Close() error
 }
-

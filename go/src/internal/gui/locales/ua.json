@@ -9,6 +9,8 @@
   "dashboard.connect.provider": "Провайдер",
   "dashboard.connect.meeting_id": "ID зустрічі",
   "dashboard.connect.btn": "Підключитись",
+  "dashboard.connect.no_providers": "Жоден провайдер не увімкнено.",
+  "dashboard.connect.no_providers_link": "Увімкніть та налаштуйте принаймні одного провайдера",
   "dashboard.active.tracking": "Зараз відстежується:",
   "dashboard.active.view_status": "Переглянути статус",
   "dashboard.active.stop": "Зупинити",

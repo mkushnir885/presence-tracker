@@ -26,6 +26,8 @@ import (
 	"presence-tracker/src/internal/participants"
 	"presence-tracker/src/internal/providers"
 	bbbprovider "presence-tracker/src/internal/providers/bbb"
+	meetprovider "presence-tracker/src/internal/providers/meet"
+	zoomprovider "presence-tracker/src/internal/providers/zoom"
 	"presence-tracker/src/internal/reporter"
 	"presence-tracker/src/internal/session"
 )
@@ -129,7 +131,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	act := s.active
 	s.mu.RUnlock()
 
-	data := views.DashboardData{Meetings: meetings}
+	data := views.DashboardData{
+		Meetings:         meetings,
+		EnabledProviders: enabledProviderOptions(s.cfg.Get().Providers),
+	}
 	if act != nil {
 		data.ActiveSession = true
 		data.ActiveMeetingID = act.meetingID
@@ -711,7 +716,29 @@ func buildServeProvider(name string, cfg *config.Config) (providers.Provider, er
 	switch name {
 	case "bbb":
 		return bbbprovider.New(cfg), nil
+	case "meet":
+		return meetprovider.New(cfg), nil
+	case "zoom":
+		return zoomprovider.New(cfg), nil
 	default:
-		return nil, fmt.Errorf("unknown provider %q; supported: bbb", name)
+		return nil, fmt.Errorf("unknown provider %q; supported: bbb, meet, zoom", name)
 	}
+}
+
+// enabledProviderOptions returns the list of providers the teacher has
+// enabled in config, in a fixed display order. The Connect form on the
+// dashboard renders these as the provider dropdown; an empty result
+// triggers the "configure a provider first" hint instead.
+func enabledProviderOptions(p config.ProvidersConfig) []views.ProviderOption {
+	var out []views.ProviderOption
+	if p.BBB.Enabled {
+		out = append(out, views.ProviderOption{Name: "bbb", Label: "BigBlueButton"})
+	}
+	if p.Meet.Enabled {
+		out = append(out, views.ProviderOption{Name: "meet", Label: "Google Meet"})
+	}
+	if p.Zoom.Enabled {
+		out = append(out, views.ProviderOption{Name: "zoom", Label: "Zoom"})
+	}
+	return out
 }

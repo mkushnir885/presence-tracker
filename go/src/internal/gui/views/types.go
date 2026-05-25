@@ -93,9 +93,18 @@ type Locale struct {
 
 // DashboardData is the data model for the dashboard page.
 type DashboardData struct {
-	Meetings        []MeetingFile
-	ActiveSession   bool
-	ActiveMeetingID string
+	Meetings         []MeetingFile
+	EnabledProviders []ProviderOption
+	ActiveSession    bool
+	ActiveMeetingID  string
+}
+
+// ProviderOption is one option in the Connect form's provider dropdown.
+// Name is the value submitted to /session; Label is the human-readable
+// display name (e.g. "BigBlueButton").
+type ProviderOption struct {
+	Name  string
+	Label string
 }
 
 // MeetingFile represents one Parquet file in the meetings directory.
