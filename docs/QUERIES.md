@@ -95,38 +95,29 @@ by `display_name` then `meeting`.
 Both functions return the DataFrame before writing so the result can be
 inspected or piped further in a notebook cell.
 
-## Named analyses (GUI)
+## Relationship to the GUI
 
-The GUI's Statistics panel shows a fixed set of named analyses defined
-as functions in `ptrack_analytics.analyses`. Each function takes the
-pre-loaded frames and returns a Polars DataFrame or a matplotlib Figure.
-New analyses are added by writing a new function and registering it with
-the `@analysis` decorator — no YAML, no user-editable expressions.
+The GUI's single stats view (`GET /stats?file=<a>&file=<b>…` — see
+`@docs/GUI.md`) is backed by this library. Go shells out to
+`ptrack_py stats --in <a> [--in <b> …]`, which uses the same `presence`
+/ `challenges` / `questions` lazy frames documented above to build a
+JSON document for the requested files, and prints it to stdout. With
+one input the JSON describes a per-meeting timeband list; with more
+than one it describes the cross-meeting dataset for every participant
+in those files.
 
-The GUI fetches analysis results via `POST /analysis/{name}` and renders:
+Go caches the JSON on disk between requests and invalidates an entry
+when any of the input files' mtime advances. The expected callers of
+`ptrack_py stats` are therefore the GUI server and CLI / scripts;
+notebooks have no reason to invoke it, since they can call the lazy
+frames directly with full Polars expressiveness.
 
-- `pl.DataFrame` → HTML table with sticky header, CSV
-  download button.
-- `matplotlib.Figure` → inline PNG.
-- Scalar → formatted value, large.
-
-## Adding a new analysis
-
-1. Add a function in `py/src/ptrack_analytics/analyses.py`:
-
-```python
-@analysis(name="avg_presence", title="Average presence per student")
-def avg_presence(presence: pl.LazyFrame, **_) -> pl.DataFrame:
-    return (
-        presence.group_by("display_name")
-        .agg(pl.col("presence_seconds").mean().alias("avg_s"))
-        .sort("avg_s", descending=True)
-        .collect()
-    )
-```
-
-2. The function is automatically available in the GUI and importable
-   from the library.
+There is no "Statistics" panel and no `POST /analysis/...` endpoint —
+the GUI's stats surface is fixed. Anything beyond the per-meeting and
+cross-meeting timeband views — custom aggregations, ad-hoc charts,
+cross-cohort comparisons — happens in a Jupyter notebook against this
+library. The language boundary stays at Parquet + JSON/CSV exactly as
+the cross-language contract in `@CLAUDE.md` describes.
 
 ## Changing pre-loaded frames
 

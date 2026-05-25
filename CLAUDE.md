@@ -129,9 +129,9 @@ participant continues.
 
 Display name is the only participant identifier — there is no separate
 internal ID. The registry's bolt primary key is the normalized display
-name, and registry GUI URLs use the URL-encoded display name. This
-matches how every other per-participant URL in the GUI (meeting
-analysis, cross-meeting view) already works.
+name, and registry GUI URLs use the URL-encoded display name. The
+stats view's display-name rewrite PATCH uses the same URL-encoded form
+on its path segment.
 
 Display name matching is case-sensitive and ignores leading/trailing
 whitespace. The canonical name stored at registration is what gets
@@ -148,9 +148,10 @@ GUI status view so the teacher can ask them to register, but no Parquet
 events are written for them.
 
 Teachers can rename a participant after the fact by rewriting the
-`display_name` column in a Parquet file via the meeting analysis view
-(`PATCH /meetings/{id}/participants/{display_name}/display-name`). The
-rename is file-scoped and never propagates to future meetings.
+`display_name` column in one or more Parquet files via the stats view
+(`PATCH /participants/{display_name}/display-name?file=<a>[&file=<b>…]&new=<name>`).
+The rename is scoped to the files explicitly listed in the query and
+never propagates to future meetings.
 
 ## Challenge system
 
@@ -251,7 +252,7 @@ system browser. No native desktop wrapper required. Supports dark/light/
 system color themes and English/Ukrainian UI languages (extensible by
 adding a translation file).
 
-Three main views:
+Main views:
 
 1. **Live status view** — shown during an active meeting. Displays system
    information: warnings, errors, delivery diagnostics, scheduler events.
@@ -259,19 +260,27 @@ Three main views:
    menu (Custom / Auto-generated), the **Audio** card with the browser's
    microphone toggle and device picker, and the **Free models** and
    **Shut down** lifecycle buttons.
-2. **Meeting analysis view** — timeline chart per participant from a
-   saved meeting file. Time on X-axis, presence and challenge bands
-   horizontally. Hovering a challenge marker fetches and displays the
-   question text.
-3. **Config editor** — schema-driven form for the YAML config, with
+2. **Stats view** — a single page served at `GET /stats?file=<a>&file=<b>…`.
+   With one `file` query value it shows the per-meeting timeband list
+   (one row per participant in that file). With more than one it
+   switches to a cross-meeting container that shows one participant per
+   page, with prev/next paging and a search bar to jump to a participant
+   by display name. The Parquet → stats transformation is done in
+   Python (Polars) and emitted as JSON; Go reads the JSON, caches it on
+   disk, and renders templ.
+3. **Config editor** — schema-driven form for the JSON config, with
    validation and live reload.
+
+The stats view is the only statistics surface the GUI offers; there is
+no in-GUI custom-analysis panel. Anything beyond it — ad-hoc
+aggregations, charts, cross-cohort comparisons — happens in a Jupyter
+notebook against `ptrack_analytics` (see `@docs/QUERIES.md`). Pushing
+stats computation into Python keeps the Polars code as the single
+source of truth for both GUI and notebook work.
 
 Closing the browser tab does not stop the daemon — the **Shut down**
 button is the only graceful exit path. After it runs, the GUI replaces
 itself with a "ptrack has stopped — you can close this tab" screen.
-
-For advanced data analysis beyond the built-in charts, use Jupyter
-Notebooks with `ptrack_analytics` directly.
 
 See `@docs/GUI.md` for chart spec, marker encoding, and route map.
 
@@ -299,7 +308,11 @@ Go and Python never share a process. They communicate via:
 1. **Parquet files** for event data — schema in `@docs/EVENT_SCHEMA.md`.
 2. **One-shot subprocess invocation** for analytics — Go invokes
    `ptrack_py report ...` / `ptrack_py aggregate ...` to obtain CSV
-   output on stdout, no Python process kept alive.
+   output on stdout, and `ptrack_py stats --in <file> [--in <file> …]`
+   to obtain the GUI stats JSON. No Python process is kept alive in
+   either case. The stats JSON is cached by Go alongside the input
+   files; cache entries are invalidated when any input's mtime advances
+   (e.g. after the display-name rewrite PATCH).
 3. **Long-running subprocess + YAML files + CLI re-entry** for the
    optional auto-generated challenges. Go spawns `ptrack_py challenger
    run` once per session; the Python side writes generated YAML banks
@@ -403,7 +416,11 @@ audio capture, and the BBB/Zoom polling rewrite are still pending.
   `ptrack_py challenger run` subprocess and forward audio.
 - Auto-generation pipeline on the Python side: rolling transcript,
   YAML producer, optional `ptrack poll` re-entry.
-- Named GUI analyses (`py/src/ptrack_analytics/analyses.py`).
+- GUI stats backend rewrite — `ptrack_py stats` subcommand, on-disk
+  JSON cache, unified `/stats?file=…` route in Go, paged
+  one-participant-per-page cross-meeting container. Replaces the
+  current `internal/gui/timeline.go` Go-side computation and the
+  separate `/meetings/{id}` and `/participants/{display_name}` routes.
 
 When adding code, confirm the module layout in this file and
 `@docs/ARCHITECTURE.md` are still current, and prefer updating docs

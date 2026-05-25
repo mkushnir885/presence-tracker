@@ -277,11 +277,13 @@ single Parquet file:
 func UpdateDisplayName(parquetPath, oldName, newName string) error
 ```
 
-This is the backend for `PATCH /meetings/{id}/participants/{name}/display-name`,
-where `{name}` is the current (URL-encoded) display name. Renames are
-always scoped to one file and never create a persistent override —
-future meetings record the canonical name from whatever registration is
-active at the time.
+This is the backend for
+`PATCH /participants/{name}/display-name?file=<a>[&file=<b>…]&new=<new>`,
+where `{name}` is the current (URL-encoded) display name. The handler
+applies `UpdateDisplayName` to every file listed in the query. Renames
+are scoped to the files explicitly requested and never create a
+persistent override — future meetings record the canonical name from
+whatever registration is active at the time.
 
 ## Control plane
 

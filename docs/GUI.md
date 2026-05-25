@@ -29,12 +29,9 @@ Rendered server-side with templ; interactive bits use htmx.
 | `DELETE /session`                                    | Stop the active tracking session                                               |
 | `GET /status`                                        | Meeting status dashboard (active meeting only)                                 |
 | `GET /status/unregistered`                           | htmx fragment: list of unregistered participants                               |
-| `GET /meetings/{id}`                                 | Single meeting analysis view (from Parquet file)                               |
-| `GET /meetings/{id}/export.csv`                      | Download CSV report for one meeting                                            |
-| `PATCH /meetings/{id}/participants/{display_name}/display-name` | Rename a participant's display name in this meeting's Parquet file. `{display_name}` is URL-encoded. |
-| `GET /participants/{display_name}`                   | Cross-meeting aggregate view for one participant (URL-encoded display name)     |
-| `GET /participants/{display_name}/export.csv`        | Download cross-meeting CSV for one participant                                 |
-| `GET /participants/export.csv`                       | Download cross-meeting CSV for all participants                                |
+| `GET /stats?file=<a>&file=<b>…`                      | Unified stats view. One `file` value → per-meeting timeband list; more than one → paged cross-meeting container (one participant per page, search bar). `file` values are basenames in `meetings_dir`. |
+| `GET /stats.csv?file=<a>[&file=<b>…]`                | Download the CSV equivalent of the same stats request (single-file or cross-meeting, decided by the number of `file` values). |
+| `PATCH /participants/{display_name}/display-name?file=<a>[&file=<b>…]&new=<name>` | Rewrite `display_name` from the URL path to `new` in every `file` listed in the query. `{display_name}` is URL-encoded. |
 | `GET /registry`                                      | Participant registry page — list all registered display-name entries           |
 | `DELETE /registry/{display_name}`                    | Remove one registry entry (URL-encoded display name)                           |
 | `DELETE /registry`                                   | Clear all registry entries (pairing data only; Parquet files untouched)        |
@@ -214,14 +211,39 @@ new tab reconnects to the same session at the same
 `http://127.0.0.1:<port>` URL. The **Shut down** button is the only
 graceful exit path from the GUI.
 
-## Meeting analysis view
+## Stats view
 
-`GET /meetings/{id}` is the post-meeting per-file analysis page. It is
-driven by data from the Python-generated CSV (obtained via
-`ptrack_py report --in <file> --out -`); the timeline chart is rendered
-from the same Parquet file on the Go side.
+`GET /stats` is the single post-meeting analysis page. It accepts one
+or more `file` query values, each a basename in `meetings_dir`:
 
-### Page layout
+- **One `file` value** — per-meeting mode: one row per participant in
+  that file.
+- **More than one `file` value** — cross-meeting mode: one participant
+  shown at a time, with prev/next paging through all participants seen
+  across the requested files, plus a search bar to jump to a specific
+  participant by display name.
+
+### Data source
+
+Stats are computed by `ptrack_py stats --in <a.parquet> [--in <b.parquet> …]`,
+which returns a JSON document covering everything the templ template
+needs: meeting boundaries, per-participant presence ratio, segments,
+challenge counts, and challenge markers (with `question_id` for tooltip
+lookup). Go shells out, caches the JSON on disk next to the inputs,
+and serves it from cache on subsequent requests for the same file set.
+
+Cache invalidation rule: if any of the listed input files' mtime is
+newer than the cached JSON's mtime, the JSON is regenerated. The
+display-name PATCH (below) rewrites the relevant Parquet files in
+place, which naturally bumps their mtime and triggers regeneration on
+the next view.
+
+The same JSON powers both modes — the cross-meeting JSON simply
+includes the per-meeting block for every (participant, meeting) cell.
+Paging and search are done client-side over the loaded JSON; no extra
+subprocess is launched per page-flip.
+
+### Page layout — per-meeting mode (1 file)
 
 ```
 Meeting — 2026-05-01 23:44 – 2026-05-02 00:53    [↓ Export CSV]
@@ -232,43 +254,23 @@ Meeting — 2026-05-01 23:44 – 2026-05-02 00:53    [↓ Export CSV]
 ```
 
 Title shows meeting start and end timestamps (ISO local time, no
-seconds). The "↓ Export CSV" button downloads `GET /meetings/{id}/export.csv`.
+seconds). The "↓ Export CSV" button downloads
+`GET /stats.csv?file=<a.parquet>`.
 
 Each participant row contains:
 
-| Element             | Details                                                                                     |
-| ------------------- | -------------------------------------------------------------------------------------------------- |
-| **✏ Rename**        | Opens an inline edit field; saves via `PATCH /meetings/{id}/participants/{display_name}/display-name` |
-| **Display name**    | The canonical registered name as recorded in this Parquet file                                     |
-| **Presence ratio**  | `XX% present`, sourced from the CSV                                                                |
-| **Challenge stats** | `N/M ✓` (correctly answered / total issued), sourced from the CSV                                  |
-| **Presence band**   | Inline SVG timeline bar; click opens the presence legend popup                                     |
+| Element             | Details                                                                                                                 |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **✏ Rename**        | Opens an inline edit field; saves via `PATCH /participants/{display_name}/display-name?file=<a.parquet>&new=<new-name>` |
+| **Display name**    | The canonical registered name as recorded in this Parquet file                                                          |
+| **Presence ratio**  | `XX% present`                                                                                                           |
+| **Challenge stats** | `N/M ✓` (correctly answered / total issued)                                                                             |
+| **Presence band**   | Inline SVG timeline bar; click opens the presence legend popup                                                          |
 
-### Per-file rename
-
-The **✏ Rename** button on a meeting analysis row writes only to that
-Parquet file: it rewrites the `display_name` column for every event that
-currently shows the old name, replacing it with the new name. No other
-files are affected.
-
-Because the session coordinator always writes the canonical registered
-name (not the raw platform-side display name), one Parquet file
-normally contains exactly one variant per participant. Renames are
-useful when a teacher wants to change how a student appears in the
-analysis view after the fact, or to merge two histories that should
-have been one.
-
-Renames never create a persistent name override for future meetings.
-
-## Cross-meeting participant view
-
-`GET /participants/{p}` shows all meetings in which a participant
-appears, one row per meeting.
-
-### Page layout
+### Page layout — cross-meeting mode (>1 file)
 
 ```
-[🔍 Search participants…]  [↓ Export CSV (all)]
+[🔍 Search participants…]   ◀ 3 / 27 ▶   [↓ Export CSV (all)]
 
 [✏ Rename (all files)]  Alice Smith  [↓ Export CSV]
 
@@ -277,35 +279,54 @@ appears, one row per meeting.
 2026-04-25 09:00 – 10:30  ─── 75% present  1/2 ✓  [░░░░████████████   ...]
 ```
 
-The **🔍 Search** box filters and navigates to other participant pages.
-Typing opens a suggestions dropdown; selecting an entry performs a full
-page navigation to `GET /participants/{p}`.
+The cross-meeting page is a container around a single participant
+"card" (Alice Smith above). The container provides:
 
-**↓ Export CSV (all)** — placed next to the search box; downloads
-`GET /participants/export.csv`, a cross-meeting CSV covering every
-participant across all saved meeting files.
+- **Prev / Next** arrows and a "*N* of *M*" indicator, advancing
+  through participants in canonical display-name order
+  (case-insensitive). State (current participant index) lives in the
+  URL fragment (e.g. `#3`) so reloads land on the same participant.
+- **🔍 Search** box that filters the in-page participant list and
+  navigates to the matching entry on selection. No new HTTP request:
+  search runs over the JSON already in memory.
+- **↓ Export CSV (all)** — downloads
+  `GET /stats.csv?file=<a>&file=<b>…`, the full cross-meeting CSV for
+  the same file set.
 
-**↓ Export CSV** — placed next to the participant name; downloads
-`GET /participants/{p}/export.csv`, a cross-meeting CSV for this
-participant only.
+Each participant card contains:
 
-The **✏ Rename (all files)** button rewrites the `display_name` column
-for this participant in every Parquet file currently shown in the view
-(i.e. the files that produced the meeting rows on this page). Files not
-shown — including any future meetings — are never touched.
+- **✏ Rename (all files)** — opens an inline edit field; saves via
+  `PATCH /participants/{old}/display-name?file=<a>&file=<b>…&new=<new>`,
+  which rewrites every file in the query. Files outside the current
+  request — including future meetings — are never touched.
+- **↓ Export CSV** — currently a placeholder; the underlying per-
+  participant CSV slice is filtered client-side from the full export.
+- **Meeting rows** — sorted chronologically. For meetings where the
+  participant was absent the row shows "Was not present" and no band.
+  Presence bands are scaled proportionally to meeting duration so
+  longer meetings get longer bands.
 
-Meeting rows are sorted chronologically. For meetings where the
-participant was absent the row shows "Was not present" and no band.
+### Per-file rename semantics
 
-Presence bands on this page are scaled proportionally to meeting
-duration so longer meetings get longer bands, giving an accurate visual
-weight.
+The rename PATCH writes only to the Parquet files explicitly listed in
+its `file` query parameters: it rewrites the `display_name` column for
+every event that currently shows the old name, replacing it with the
+new name. Other files (and the participant registry) are never
+touched.
+
+Because the session coordinator always writes the canonical registered
+name, one Parquet file normally contains exactly one variant per
+participant. Renames are useful when a teacher wants to change how a
+student appears in stats after the fact, or to merge two histories
+that should have been one. Renames never create a persistent name
+override for future meetings.
 
 ## Timeline chart
 
-The core visual on both the meeting analysis view and the cross-meeting
-view. One row per participant (meeting analysis) or one row per meeting
-(cross-meeting). X-axis is meeting time.
+The core visual on the stats view in both modes. In per-meeting mode
+each row is a participant; in cross-meeting mode each row is one of
+the requested meetings for the participant currently on screen.
+X-axis is meeting time.
 
 ```
 time ──►  0:00         0:10         0:20         0:30 ...
@@ -364,10 +385,17 @@ dismisses the popup.
 ## CSV reports
 
 CSV generation is delegated to `ptrack_py`. Go obtains the CSV by
-calling `ptrack_py report --in <file> --format csv --out -` (stdout) and
-caches the result in memory for the lifetime of the page. The same data
-powers both the GUI stats columns and the downloadable CSV file, so
-presence ratios and challenge accuracy are computed only once, in Python.
+calling `ptrack_py report --in <file> --format csv --out -` (or
+`ptrack_py aggregate --in '<glob>' --format csv --out -` for the
+multi-file case) and streams the result to the response. The stats
+view's `↓ Export CSV` buttons hit `GET /stats.csv?file=…` (one or more
+`file` values), which dispatches to the correct `ptrack_py` subcommand
+based on the file count.
+
+The stats JSON returned by `ptrack_py stats` and the CSV returned by
+the report/aggregate subcommands are computed from the same Polars
+expressions, so presence ratios and challenge accuracy never disagree
+between the GUI table and the downloaded CSV.
 
 ### Single meeting CSV
 
@@ -469,7 +497,8 @@ On screens narrower than ~600 px:
 - The stats columns (presence ratio, challenge stats) and the presence
   band wrap onto a second line below the participant's name / meeting
   title string.
-- The search box on the cross-meeting view remains full-width.
+- The search box and paging controls on the cross-meeting stats view
+  remain full-width.
 - The navigation bar collapses to a hamburger menu.
 
 ## Accessibility
