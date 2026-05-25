@@ -1,14 +1,89 @@
 package views
 
 import (
+	"encoding/json"
+	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"presence-tracker/src/internal/config"
+	"presence-tracker/src/internal/participants"
 	"presence-tracker/src/internal/session"
 )
+
+// RegistryFilterInputs holds the raw, user-typed values from the
+// registry page's filter form. All fields are blank when the user has
+// not narrowed the list. From / To accept a date/time prefix (year,
+// year-month, year-month-day, with optional hour, minute, or second);
+// the prefix is parsed into a time.Time bound by the gui handler before
+// being handed to the registry.
+type RegistryFilterInputs struct {
+	Name      string
+	Messenger string
+	From      string
+	To        string
+}
+
+// Active reports whether any filter field is set.
+func (f RegistryFilterInputs) Active() bool {
+	return f.Name != "" || f.Messenger != "" || f.From != "" || f.To != ""
+}
+
+// RegistryData is the data model for the registry page.
+type RegistryData struct {
+	Entries    []participants.RegistryEntry
+	Messengers []string
+	Filter     RegistryFilterInputs
+	// HasAny is true when the registry contains any entries at all,
+	// regardless of the current filter — used to decide whether to show
+	// the filter form vs. the global empty-state hint.
+	HasAny bool
+}
+
+// RegistryFilterErrors maps a form field name to a translation key for
+// the error to render in the results container. An empty map means
+// every input was acceptable.
+type RegistryFilterErrors map[string]string
+
+// registryFilterFieldOrder is the order in which invalid-filter
+// messages are rendered. Go map iteration is unordered; this keeps
+// repeated renders stable so a refresh does not reshuffle the lines.
+var registryFilterFieldOrder = []string{"name", "messenger", "from", "to"}
+
+// Ordered yields (fieldKey, errorKey) pairs in a fixed order, skipping
+// fields that have no error.
+func (e RegistryFilterErrors) Ordered() []struct{ Field, Key string } {
+	out := make([]struct{ Field, Key string }, 0, len(e))
+	for _, f := range registryFilterFieldOrder {
+		if k, ok := e[f]; ok {
+			out = append(out, struct{ Field, Key string }{f, k})
+		}
+	}
+	return out
+}
+
+// RegistryFilterErrorMessage builds the localized sentence shown in
+// the results card for one invalid filter input. The shape is
+// "Error in filter "<label>": <detail>" — labels and the connector
+// template both come from the locale catalogue so word order can
+// change per language.
+func RegistryFilterErrorMessage(fieldKey, errorKey string, locale Locale) string {
+	return fmt.Sprintf(
+		locale.T("registry.filter.error.template"),
+		locale.T("registry.filter."+fieldKey),
+		locale.T(errorKey),
+	)
+}
+
+// RegistryExactDeleteVals encodes the hx-vals payload that the per-row
+// delete icon sends. It posts only exact_name so the handler removes
+// that single entry without consulting the filter form.
+func RegistryExactDeleteVals(displayName string) string {
+	b, _ := json.Marshal(map[string]string{"exact_name": displayName}) //nolint:errchkjson // a single string field cannot fail to marshal
+	return string(b)
+}
 
 // Locale carries the active language and a translation lookup function.
 type Locale struct {

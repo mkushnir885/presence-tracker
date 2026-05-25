@@ -18,6 +18,12 @@ type SentChallenge struct {
 	Deleted bool
 }
 
+// Name is the canonical identifier this adapter reports through
+// Messenger.Name. The mock intentionally does not call
+// messengers.Register: it is a test-only adapter and stays out of the
+// production catalog returned by messengers.Names.
+const Name = "mock"
+
 // Messenger is a no-op messenger suitable for automated tests.
 type Messenger struct {
 	mu            sync.Mutex
@@ -40,7 +46,7 @@ func New() *Messenger {
 	return &Messenger{events: make(chan messengers.Event, 64)}
 }
 
-func (m *Messenger) Name() string { return "mock" }
+func (m *Messenger) Name() string { return Name }
 
 func (m *Messenger) Start(_ context.Context) (<-chan messengers.Event, error) {
 	return m.events, nil

@@ -114,15 +114,15 @@ func (c *Coordinator) MeetingID() string { return c.cfg.MeetingID }
 
 // Run drives the session event loop. It returns when the meeting ends, ctx is
 // cancelled, or an unrecoverable error occurs.
+//
+// The Messenger is not started here — it runs for the whole daemon
+// process so registrations work before any meeting. The caller routes
+// messenger events into this coordinator via HandleMessengerEvent
+// (typically through messengers.Router).
 func (c *Coordinator) Run(ctx context.Context) error {
 	providerEvents, err := c.provider.Subscribe(ctx, c.cfg.PlatformMeetingID)
 	if err != nil {
 		return fmt.Errorf("session: subscribe to provider: %w", err)
-	}
-
-	messengerEvents, err := c.messenger.Start(ctx)
-	if err != nil {
-		return fmt.Errorf("session: start messenger: %w", err)
 	}
 
 	defer func() { //nolint:contextcheck // cleanup must run after ctx is cancelled or the provider closed; uses a fresh context
@@ -144,15 +144,15 @@ func (c *Coordinator) Run(ctx context.Context) error {
 				return nil
 			}
 			c.handleProviderEvent(ctx, evt)
-
-		case evt, ok := <-messengerEvents:
-			if !ok {
-				slog.Warn("session: messenger channel closed unexpectedly")
-				continue
-			}
-			c.handleMessengerEvent(ctx, evt)
 		}
 	}
+}
+
+// HandleMessengerEvent processes one event delivered by the Messenger.
+// Safe to call concurrently with Run; the coordinator's state is
+// guarded by an internal mutex.
+func (c *Coordinator) HandleMessengerEvent(ctx context.Context, evt messengers.Event) {
+	c.handleMessengerEvent(ctx, evt)
 }
 
 func (c *Coordinator) handleProviderEvent(ctx context.Context, evt providers.Event) {

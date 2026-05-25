@@ -17,6 +17,14 @@ import (
 	"presence-tracker/src/internal/participants"
 )
 
+// Name is the canonical identifier this adapter reports through
+// Messenger.Name and registers under in the messengers catalog.
+const Name = "telegram"
+
+func init() {
+	messengers.Register(Name)
+}
+
 // pendingKey identifies a question message whose reply is expected as an answer.
 type pendingKey struct {
 	chatID    int64
@@ -50,7 +58,7 @@ func New(token string, registry participants.Registry) (*Adapter, error) {
 	}, nil
 }
 
-func (a *Adapter) Name() string { return "telegram" }
+func (a *Adapter) Name() string { return Name }
 
 // Start begins polling the Telegram API for updates. The returned channel is
 // closed when ctx is cancelled.
@@ -155,11 +163,11 @@ func (a *Adapter) handleUnregister(ctx context.Context, msg *tgbotapi.Message) {
 	chatID := msg.Chat.ID
 	handle := strconv.FormatInt(chatID, 10)
 
-	found, err := a.registry.UnregisterByHandle(ctx, a.Name(), handle)
+	n, err := a.registry.Delete(ctx, participants.Filter{MessengerName: a.Name(), Handle: handle})
 	switch {
 	case err != nil:
 		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, "Could not remove registration: "+err.Error()))
-	case !found:
+	case n == 0:
 		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, "You have no active registration."))
 	default:
 		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, "✓ Registration removed."))

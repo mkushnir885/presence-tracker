@@ -12,6 +12,13 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
+// normName is the canonical key under which entries are stored. It
+// must stay in sync with session.normName, which converts the same
+// display names into session map keys.
+func normName(displayName string) string {
+	return strings.TrimSpace(displayName)
+}
+
 // bucketParticipants stores norm(displayName) → RegistryEntry (JSON).
 // Lookups by handle scan the bucket; at classroom scale this is cheaper than
 // maintaining a secondary index in sync.
@@ -42,10 +49,6 @@ func OpenBolt(dataDir string) (*BoltRegistry, error) {
 }
 
 func (r *BoltRegistry) Close() error { return r.db.Close() }
-
-func normName(displayName string) string {
-	return strings.TrimSpace(displayName)
-}
 
 // findByHandle scans the bucket for an entry owned by (messengerName, handle).
 // Returns the bucket key (normalized display name), the entry, and whether a
@@ -133,40 +136,6 @@ func putEntry(b *bolt.Bucket, key []byte, entry RegistryEntry) error {
 	return b.Put(key, data)
 }
 
-func (r *BoltRegistry) UnregisterByName(_ context.Context, displayName string) (bool, error) {
-	nameKey := []byte(normName(displayName))
-	var found bool
-	err := r.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketParticipants)
-		if b.Get(nameKey) == nil {
-			return nil
-		}
-		if err := b.Delete(nameKey); err != nil {
-			return err
-		}
-		found = true
-		return nil
-	})
-	return found, err
-}
-
-func (r *BoltRegistry) UnregisterByHandle(_ context.Context, messengerName, handle string) (bool, error) {
-	var found bool
-	err := r.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucketParticipants)
-		key, _, ok := findByHandle(b, messengerName, handle)
-		if !ok {
-			return nil
-		}
-		if err := b.Delete(key); err != nil {
-			return err
-		}
-		found = true
-		return nil
-	})
-	return found, err
-}
-
 func (r *BoltRegistry) HandleForName(displayName, messengerName string) (string, bool) {
 	entry, ok := r.Resolve(displayName)
 	if !ok {
@@ -195,7 +164,7 @@ func (r *BoltRegistry) LookupByHandle(messengerName, handle string) (RegistryEnt
 	return entry, found
 }
 
-func (r *BoltRegistry) List(_ context.Context) ([]RegistryEntry, error) {
+func (r *BoltRegistry) Find(_ context.Context, f Filter) ([]RegistryEntry, error) {
 	var out []RegistryEntry
 	err := r.db.View(func(tx *bolt.Tx) error {
 		return tx.Bucket(bucketParticipants).ForEach(func(_, v []byte) error {
@@ -203,19 +172,54 @@ func (r *BoltRegistry) List(_ context.Context) ([]RegistryEntry, error) {
 			if err := json.Unmarshal(v, &entry); err != nil {
 				return err
 			}
-			out = append(out, entry)
+			if f.Match(entry) {
+				out = append(out, entry)
+			}
 			return nil
 		})
 	})
 	return out, err
 }
 
-func (r *BoltRegistry) ClearAll(_ context.Context) error {
-	return r.db.Update(func(tx *bolt.Tx) error {
-		if err := tx.DeleteBucket(bucketParticipants); err != nil {
+func (r *BoltRegistry) Delete(_ context.Context, f Filter) (int, error) {
+	if f.IsZero() {
+		// Fast path: empty filter clears every entry. DeleteBucket +
+		// CreateBucket avoids walking the index, then we return the
+		// pre-clear count for the caller.
+		var n int
+		err := r.db.Update(func(tx *bolt.Tx) error {
+			n = tx.Bucket(bucketParticipants).Stats().KeyN
+			if err := tx.DeleteBucket(bucketParticipants); err != nil {
+				return err
+			}
+			_, err := tx.CreateBucket(bucketParticipants)
 			return err
+		})
+		return n, err
+	}
+
+	var n int
+	err := r.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketParticipants)
+		// Bolt forbids deleting keys during iteration, so collect first.
+		var keys [][]byte
+		_ = b.ForEach(func(k, v []byte) error {
+			var entry RegistryEntry
+			if err := json.Unmarshal(v, &entry); err != nil {
+				return nil
+			}
+			if f.Match(entry) {
+				keys = append(keys, append([]byte(nil), k...))
+			}
+			return nil
+		})
+		for _, k := range keys {
+			if err := b.Delete(k); err != nil {
+				return err
+			}
 		}
-		_, err := tx.CreateBucket(bucketParticipants)
-		return err
+		n = len(keys)
+		return nil
 	})
+	return n, err
 }

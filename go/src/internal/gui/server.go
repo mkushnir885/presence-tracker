@@ -23,8 +23,6 @@ import (
 	"presence-tracker/src/internal/eventstore"
 	"presence-tracker/src/internal/gui/views"
 	"presence-tracker/src/internal/messengers"
-	mockmessenger "presence-tracker/src/internal/messengers/mock"
-	"presence-tracker/src/internal/messengers/telegram"
 	"presence-tracker/src/internal/participants"
 	"presence-tracker/src/internal/providers"
 	bbbprovider "presence-tracker/src/internal/providers/bbb"
@@ -36,6 +34,7 @@ import (
 type Server struct {
 	cfg      *config.Config
 	registry participants.Registry
+	router   *messengers.Router
 
 	mu     sync.RWMutex
 	active *activeSession
@@ -52,9 +51,11 @@ type activeSession struct {
 	buf          *logBuffer
 }
 
-// New creates a Server.
-func New(cfg *config.Config, registry participants.Registry) *Server {
-	return &Server{cfg: cfg, registry: registry}
+// New creates a Server. The router owns the long-running messenger
+// that handles registrations; the Server installs the active session's
+// coordinator as the router's event handler while a session is running.
+func New(cfg *config.Config, registry participants.Registry, router *messengers.Router) *Server {
+	return &Server{cfg: cfg, registry: registry, router: router}
 }
 
 // RegisterRoutes attaches the GUI's HTML and htmx routes to mux. The HTTP
@@ -75,8 +76,8 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /participants/{p}", s.handleParticipant)
 	mux.HandleFunc("GET /participants/{p}/export.csv", s.handleParticipantCSV)
 	mux.HandleFunc("GET /registry", s.handleRegistry)
-	mux.HandleFunc("DELETE /registry/{name}", s.handleDeleteRegistryEntry)
-	mux.HandleFunc("DELETE /registry", s.handleClearRegistry)
+	mux.HandleFunc("POST /registry/filter", s.handleFilterRegistry)
+	mux.HandleFunc("POST /registry/delete", s.handleDeleteRegistry)
 	mux.HandleFunc("GET /questions/{id}", s.handleQuestion)
 	mux.HandleFunc("GET /config", s.handleConfig)
 	mux.HandleFunc("POST /config", s.handleSaveConfig)
@@ -173,17 +174,7 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var msgr messengers.Messenger
-	if s.cfg.Get().Messengers.Telegram.Enabled {
-		tgAdapter, err := telegram.New(s.cfg.Get().Messengers.Telegram.BotToken, s.registry)
-		if err != nil {
-			http.Error(w, "telegram init error: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		msgr = tgAdapter
-	} else {
-		msgr = mockmessenger.New()
-	}
+	msgr := s.router.Messenger()
 
 	internalMeetingID := uuid.Must(uuid.NewV7()).String()
 	startTime := time.Now()
@@ -230,9 +221,12 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 	s.active = act
 	s.mu.Unlock()
 
+	s.router.SetHandler(coord)
+
 	go func() {
 		defer close(done)
 		defer func() {
+			s.router.SetHandler(nil)
 			slog.SetDefault(prevDefault)
 			s.mu.Lock()
 			s.active = nil
@@ -501,35 +495,92 @@ func (s *Server) handleAllParticipantsCSV(w http.ResponseWriter, r *http.Request
 	_, _ = w.Write([]byte(csvStr))
 }
 
-// handleRegistry renders the participant registry page.
+// handleRegistry renders the registry page in its initial state — the
+// filter form is empty and every entry is listed. Subsequent filtering
+// and deletion happen over POST endpoints that carry the form in the
+// request body and return only the fragment that needs to swap.
 func (s *Server) handleRegistry(w http.ResponseWriter, r *http.Request) {
-	entries, err := s.registry.List(r.Context())
+	all, err := s.registry.Find(r.Context(), participants.Filter{})
 	if err != nil {
 		http.Error(w, "list registry: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	data := views.RegistryData{
+		Entries:    all,
+		Messengers: messengers.Names(),
+		HasAny:     len(all) > 0,
+	}
 	locale := localeFromRequest(r)
-	_ = views.Registry(entries, locale).Render(r.Context(), w)
+	_ = views.Registry(data, locale).Render(r.Context(), w)
 }
 
-// handleDeleteRegistryEntry removes one registry entry by display name
-// (URL-decoded by net/http).
-func (s *Server) handleDeleteRegistryEntry(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if _, err := s.registry.UnregisterByName(r.Context(), name); err != nil {
-		http.Error(w, "unregister: "+err.Error(), http.StatusInternalServerError)
+// handleFilterRegistry executes the user's filter against the registry
+// and returns just the results fragment (htmx swaps it into the
+// #registry-results container). On validation errors the fragment
+// carries empty entries plus the error messages.
+func (s *Server) handleFilterRegistry(w http.ResponseWriter, r *http.Request) {
+	req, err := parseRegistryRequest(r)
+	if err != nil {
+		http.Error(w, "bad form body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	locale := localeFromRequest(r)
+	filter, vErrs := validateInputs(req.Filter)
+	if len(vErrs) > 0 {
+		_ = views.RegistryResults(nil, vErrs, locale).Render(r.Context(), w)
+		return
+	}
+	entries, err := s.registry.Find(r.Context(), filter)
+	if err != nil {
+		http.Error(w, "find: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = views.RegistryResults(entries, nil, locale).Render(r.Context(), w)
 }
 
-// handleClearRegistry removes all registered participants.
-func (s *Server) handleClearRegistry(w http.ResponseWriter, r *http.Request) {
-	if err := s.registry.ClearAll(r.Context()); err != nil {
-		http.Error(w, "clear failed: "+err.Error(), http.StatusInternalServerError)
+// handleDeleteRegistry removes registry entries. The body decides the
+// scope:
+//
+//   - If exact_name is set, that one entry is removed and the response
+//     is an empty 200 so the caller's per-row hx-target can swap it
+//     out. The filter form is not consulted in this branch — the per-row
+//     icon button is for "drop just this person".
+//   - Otherwise the bulk-delete button is in play: the filter inputs
+//     are validated and every matching entry is removed, then the
+//     refreshed results fragment is returned. An empty filter clears
+//     every registration.
+func (s *Server) handleDeleteRegistry(w http.ResponseWriter, r *http.Request) {
+	req, err := parseRegistryRequest(r)
+	if err != nil {
+		http.Error(w, "bad form body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	locale := localeFromRequest(r)
+
+	if req.ExactName != "" {
+		if _, err := s.registry.Delete(r.Context(), participants.Filter{DisplayName: req.ExactName}); err != nil {
+			http.Error(w, "delete: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	filter, vErrs := validateInputs(req.Filter)
+	if len(vErrs) > 0 {
+		_ = views.RegistryResults(nil, vErrs, locale).Render(r.Context(), w)
+		return
+	}
+	if _, err := s.registry.Delete(r.Context(), filter); err != nil {
+		http.Error(w, "delete: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	entries, err := s.registry.Find(r.Context(), filter)
+	if err != nil {
+		http.Error(w, "find: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = views.RegistryResults(entries, nil, locale).Render(r.Context(), w)
 }
 
 // handleQuestion returns a question record as JSON.

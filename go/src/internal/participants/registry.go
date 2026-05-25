@@ -3,6 +3,7 @@ package participants
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -23,10 +24,69 @@ type RegistryEntry struct {
 	RegisteredAt   time.Time
 }
 
+// Filter narrows a Find or Delete to a subset of the registry. Every
+// field is optional; the zero value matches every entry. Set fields
+// combine with AND.
+type Filter struct {
+	// DisplayName matches an entry's canonical display name exactly
+	// (whitespace-trimmed, case-sensitive — same rule as Resolve).
+	DisplayName string
+
+	// DisplayNameContains matches entries whose display name contains
+	// this substring, case-insensitive.
+	DisplayNameContains string
+
+	// MessengerName matches a specific messenger (e.g. "telegram").
+	MessengerName string
+
+	// Handle matches a specific messenger handle. Handles are only
+	// unique within one messenger, so callers normally set
+	// MessengerName alongside this field.
+	Handle string
+
+	// RegisteredFrom matches entries registered at or after this instant.
+	RegisteredFrom time.Time
+
+	// RegisteredTo is an exclusive upper bound on RegisteredAt.
+	RegisteredTo time.Time
+}
+
+// IsZero reports whether f has every field at its zero value (i.e.
+// matches every entry).
+func (f Filter) IsZero() bool {
+	return f.DisplayName == "" && f.DisplayNameContains == "" &&
+		f.MessengerName == "" && f.Handle == "" &&
+		f.RegisteredFrom.IsZero() && f.RegisteredTo.IsZero()
+}
+
+// Match reports whether e satisfies every set field of f.
+func (f Filter) Match(e RegistryEntry) bool {
+	if f.DisplayName != "" && normName(e.DisplayName) != normName(f.DisplayName) {
+		return false
+	}
+	if f.DisplayNameContains != "" &&
+		!strings.Contains(strings.ToLower(e.DisplayName), strings.ToLower(f.DisplayNameContains)) {
+		return false
+	}
+	if f.MessengerName != "" && e.MessengerName != f.MessengerName {
+		return false
+	}
+	if f.Handle != "" && e.Handle != f.Handle {
+		return false
+	}
+	if !f.RegisteredFrom.IsZero() && e.RegisteredAt.Before(f.RegisteredFrom) {
+		return false
+	}
+	if !f.RegisteredTo.IsZero() && !e.RegisteredAt.Before(f.RegisteredTo) {
+		return false
+	}
+	return true
+}
+
 // Registry maps display names to messenger handles. A messenger account
 // holds at most one registration at a time; calling Register again from
 // the same handle replaces the previous entry (after freeing the old
-// name). Use UnregisterByName or UnregisterByHandle to drop one.
+// name).
 type Registry interface {
 	// Resolve looks up a participant by display name. Matching is
 	// case-sensitive and ignores leading/trailing whitespace; the returned
@@ -39,14 +99,6 @@ type Registry interface {
 	// name, the previous entry is replaced atomically.
 	Register(ctx context.Context, messengerName, handle, messengerLabel, displayName string) error
 
-	// UnregisterByName removes the entry for the given display name.
-	// Returns true if an entry was removed.
-	UnregisterByName(ctx context.Context, displayName string) (bool, error)
-
-	// UnregisterByHandle removes the entry owned by (messengerName, handle).
-	// Returns true if an entry was removed.
-	UnregisterByHandle(ctx context.Context, messengerName, handle string) (bool, error)
-
 	// HandleForName returns the messenger handle bound to displayName,
 	// when the registration uses messengerName. Used by the session
 	// coordinator to look up where to send the verification DM.
@@ -56,12 +108,16 @@ type Registry interface {
 	// Used by the messenger adapter to answer "what name am I registered as?".
 	LookupByHandle(messengerName, handle string) (RegistryEntry, bool)
 
-	// List returns all registry entries.
-	List(ctx context.Context) ([]RegistryEntry, error)
+	// Find returns every entry that satisfies f. The zero Filter
+	// returns every entry. Results come back in bucket order (sorted
+	// by normalized display name).
+	Find(ctx context.Context, f Filter) ([]RegistryEntry, error)
 
-	// ClearAll removes all registered participants. Parquet files are not affected.
-	ClearAll(ctx context.Context) error
+	// Delete removes every entry that satisfies f and returns the
+	// number removed. The zero Filter clears the entire registry.
+	Delete(ctx context.Context, f Filter) (int, error)
 
 	// Close releases resources held by the registry.
 	Close() error
 }
+

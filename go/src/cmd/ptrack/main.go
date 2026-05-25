@@ -236,6 +236,17 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 	if err != nil {
 		return err
 	}
+	router := messengers.NewRouter(msgr)
+	if err := router.Start(ctx); err != nil {
+		return fmt.Errorf("start messenger: %w", err)
+	}
+	defer func() { //nolint:contextcheck // ctx is cancelled by the time this runs; shutdown uses a fresh context
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := router.Stop(stopCtx); err != nil {
+			slog.Error("track: stop messenger", "err", err)
+		}
+	}()
 
 	// internalMeetingID is a time-based UUID that identifies this session in the
 	// Parquet event log. It is independent of the provider meeting ID (--meeting
@@ -261,6 +272,8 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 	}
 
 	coord := session.New(sessCfg, prov, msgr, registry, store)
+	router.SetHandler(coord)
+	defer router.SetHandler(nil)
 
 	mux := http.NewServeMux()
 	mountPollHandler(mux, func() *session.Coordinator { return coord })
@@ -498,7 +511,23 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	srv := gui.New(cfg, registry)
+	msgr, err := buildMessenger(cfg, registry)
+	if err != nil {
+		return err
+	}
+	router := messengers.NewRouter(msgr)
+	if err := router.Start(ctx); err != nil {
+		return fmt.Errorf("start messenger: %w", err)
+	}
+	defer func() { //nolint:contextcheck // ctx is cancelled by the time this runs; shutdown uses a fresh context
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := router.Stop(stopCtx); err != nil {
+			slog.Error("serve: stop messenger", "err", err)
+		}
+	}()
+
+	srv := gui.New(cfg, registry, router)
 	mux := http.NewServeMux()
 	srv.RegisterRoutes(mux)
 	mountPollHandler(mux, srv.Coord)

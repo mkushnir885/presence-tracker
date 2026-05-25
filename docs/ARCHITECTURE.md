@@ -182,6 +182,13 @@ type Messenger interface {
   record). On **No** the buffer is discarded; no events are written.
 - `AnswerEvent` — a student answered a challenge question.
 
+The Messenger runs for the whole daemon lifetime, not per-session.
+`messengers.Router` owns the bot loop and forwards events to whichever
+session coordinator is currently active (installed via `SetHandler`).
+Registrations therefore work before the first meeting is started and
+between meetings; join confirmations and answers outside an active
+session are dropped.
+
 ### Challenge pipeline (`go/src/internal/challenges/`)
 
 There is **no `ChallengeType` interface and no plug-in producer registry**.

@@ -2,63 +2,171 @@ package views
 
 import (
 	"net/url"
+	"strconv"
 
 	"presence-tracker/src/internal/participants"
 )
 
-templ Registry(entries []participants.RegistryEntry, locale Locale) {
+templ Registry(data RegistryData, locale Locale) {
 	@Layout("Registry", locale) {
 		<h1>{ locale.T("registry.title") }</h1>
-		if len(entries) == 0 {
+		if !data.HasAny {
 			<div class="card">
 				<p>{ locale.T("registry.empty") }</p>
 				<p class="text-muted">{ locale.T("registry.empty_hint") }</p>
 			</div>
 		} else {
-			<div class="card" style="overflow-x:auto;">
-				<table style="width:100%;border-collapse:collapse;">
-					<thead>
-						<tr>
-							<th style="text-align:left;padding:0.5rem;">{ locale.T("registry.col_display_name") }</th>
-							<th style="text-align:left;padding:0.5rem;">{ locale.T("registry.col_messenger") }</th>
-							<th style="text-align:left;padding:0.5rem;">{ locale.T("registry.col_account") }</th>
-							<th style="text-align:left;padding:0.5rem;">{ locale.T("registry.col_registered") }</th>
-							<th></th>
-						</tr>
-					</thead>
-					<tbody>
-						for _, e := range entries {
-							<tr id={ "entry-" + url.PathEscape(e.DisplayName) } style="border-top:1px solid var(--border);">
-								<td style="padding:0.5rem;">{ e.DisplayName }</td>
-								<td style="padding:0.5rem;">{ e.MessengerName }</td>
-								<td style="padding:0.5rem;">{ e.MessengerLabel }</td>
-								<td style="padding:0.5rem;" class="text-muted">{ e.RegisteredAt.Format("2006-01-02 15:04") }</td>
-								<td style="padding:0.5rem;">
-									<button
-										class="btn btn-sm btn-danger"
-										hx-delete={ "/registry/" + url.PathEscape(e.DisplayName) }
-										hx-confirm={ locale.T("registry.delete_confirm") }
-										hx-target={ "#entry-" + url.PathEscape(e.DisplayName) }
-										hx-swap="outerHTML"
-									>{ locale.T("registry.delete") }</button>
-								</td>
-							</tr>
-						}
-					</tbody>
-				</table>
-			</div>
-			<div class="card" style="margin-top:2rem;border-color:var(--danger);">
-				<h2 style="margin-top:0;color:var(--danger);">{ locale.T("config.danger_zone") }</h2>
-				<p class="text-muted">{ locale.T("config.clear_participants_text") }</p>
-				<button
-					type="button"
-					class="btn btn-danger"
-					hx-delete="/registry"
-					hx-confirm={ locale.T("config.clear_participants_confirm") }
-					hx-target="body"
-					hx-push-url="/registry"
-				>{ locale.T("config.clear_participants") }</button>
+			@registryFilters(data, locale)
+			<div id="registry-results">
+				@RegistryResults(data.Entries, nil, locale)
 			</div>
 		}
 	}
+}
+
+// RegistryResults renders the table fragment swapped into
+// #registry-results by the filter and delete endpoints. When the
+// submitted filter failed validation, errors is non-empty and we
+// render the messages here (in red) instead of a results table — the
+// invalid-filter feedback lives in the same container as the data so
+// the user is never split-attentioned between two places.
+templ RegistryResults(entries []participants.RegistryEntry, errors RegistryFilterErrors, locale Locale) {
+	if len(errors) > 0 {
+		<div class="card filter-errors">
+			for _, e := range errors.Ordered() {
+				<p class="field-error">{ RegistryFilterErrorMessage(e.Field, e.Key, locale) }</p>
+			}
+		</div>
+	} else if len(entries) == 0 {
+		<div class="card">
+			<p>{ locale.T("registry.no_matches") }</p>
+		</div>
+	} else {
+		<div class="card" style="overflow-x:auto;">
+			<table class="registry-table">
+				<thead>
+					<tr>
+						<th style="width:2.5rem;text-align:right;">{ locale.T("registry.col_num") }</th>
+						<th>{ locale.T("registry.col_display_name") }</th>
+						<th>{ locale.T("registry.col_messenger") }</th>
+						<th>{ locale.T("registry.col_account") }</th>
+						<th>{ locale.T("registry.col_registered") }</th>
+						<th></th>
+					</tr>
+				</thead>
+				<tbody>
+					for i, e := range entries {
+						<tr id={ "entry-" + url.PathEscape(e.DisplayName) }>
+							<td style="text-align:right;" class="text-muted">{ strconv.Itoa(i + 1) }</td>
+							<td>{ e.DisplayName }</td>
+							<td>{ e.MessengerName }</td>
+							<td>{ e.MessengerLabel }</td>
+							<td class="text-muted">{ e.RegisteredAt.Format("2006-01-02 15:04") }</td>
+							<td style="text-align:right;">
+								<button
+									type="button"
+									class="icon-btn icon-btn-danger"
+									data-tooltip={ locale.T("registry.delete_tooltip") }
+									aria-label={ locale.T("registry.delete_tooltip") }
+									hx-post="/registry/delete"
+									hx-vals={ RegistryExactDeleteVals(e.DisplayName) }
+									hx-confirm={ locale.T("registry.delete_confirm") }
+									hx-target={ "#entry-" + url.PathEscape(e.DisplayName) }
+									hx-swap="outerHTML"
+								>
+									@iconTrash()
+								</button>
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	}
+}
+
+templ registryFilters(data RegistryData, locale Locale) {
+	<div class="card">
+		<form
+			id="registry-filter-form"
+			class="registry-filters"
+			hx-post="/registry/filter"
+			hx-target="#registry-results"
+			hx-trigger="submit"
+		>
+			<div class="field">
+				<label for="filter-name">{ locale.T("registry.filter.name") }</label>
+				<input
+					id="filter-name"
+					type="text"
+					name="name"
+					value={ data.Filter.Name }
+					placeholder={ locale.T("registry.filter.name_placeholder") }
+				/>
+			</div>
+			<div class="field">
+				<label for="filter-messenger">{ locale.T("registry.filter.messenger") }</label>
+				<select id="filter-messenger" name="messenger">
+					<option value="">{ locale.T("registry.filter.messenger_all") }</option>
+					for _, m := range data.Messengers {
+						if m == data.Filter.Messenger {
+							<option value={ m } selected>{ m }</option>
+						} else {
+							<option value={ m }>{ m }</option>
+						}
+					}
+				</select>
+			</div>
+			<div class="field">
+				<label for="filter-from">{ locale.T("registry.filter.from") }</label>
+				<input
+					id="filter-from"
+					type="text"
+					name="from"
+					value={ data.Filter.From }
+					placeholder={ locale.T("registry.filter.date_placeholder") }
+				/>
+			</div>
+			<div class="field">
+				<label for="filter-to">{ locale.T("registry.filter.to") }</label>
+				<input
+					id="filter-to"
+					type="text"
+					name="to"
+					value={ data.Filter.To }
+					placeholder={ locale.T("registry.filter.date_placeholder") }
+				/>
+			</div>
+			<div class="registry-filter-actions">
+				<button type="submit" class="btn btn-primary">{ locale.T("registry.filter.apply") }</button>
+				<button
+					type="button"
+					class="btn"
+					onclick="(function(f){f.reset();htmx.trigger(f,'submit');})(this.form)"
+				>{ locale.T("registry.filter.reset") }</button>
+				<button
+					type="button"
+					class="icon-btn icon-btn-danger"
+					data-tooltip={ locale.T("registry.clear_tooltip") }
+					aria-label={ locale.T("registry.clear_tooltip") }
+					hx-post="/registry/delete"
+					hx-include="#registry-filter-form"
+					hx-target="#registry-results"
+					hx-confirm={ locale.T("registry.clear_confirm") }
+				>
+					@iconTrash()
+				</button>
+			</div>
+		</form>
+	</div>
+}
+
+templ iconTrash() {
+	<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+		<path d="M3 6h18"></path>
+		<path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+		<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+		<path d="M10 11v6"></path>
+		<path d="M14 11v6"></path>
+	</svg>
 }

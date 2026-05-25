@@ -2,8 +2,34 @@ package messengers
 
 import (
 	"context"
+	"slices"
 	"time"
 )
+
+// registeredNames is the catalog of adapter names appended to from
+// each adapter subpackage's init via Register. Read-only after init.
+var registeredNames []string
+
+// Register adds name to the catalog returned by Names. Adapter
+// subpackages call this from their init function so adding or removing
+// an adapter is a single-package change. Test-only adapters (e.g.
+// mock) intentionally do not register.
+func Register(name string) {
+	registeredNames = append(registeredNames, name)
+	slices.Sort(registeredNames)
+}
+
+// Names returns the messenger adapters available in this build, in
+// alphabetical order. The result is a fresh slice safe for the caller
+// to mutate.
+//
+// The GUI uses this for its messenger filter dropdown so options stay
+// stable regardless of whether anyone has actually registered through
+// a given messenger — a participant from a previously-enabled adapter
+// is still filterable.
+func Names() []string {
+	return slices.Clone(registeredNames)
+}
 
 // EventKind labels the kind of event a Messenger emits.
 type EventKind string

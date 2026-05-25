@@ -228,7 +228,37 @@ details.menu .menu-list button.active { background: var(--accent-tint); color: v
 details.menu .menu-list button.active:hover { background: var(--accent-tint); filter: brightness(0.95); }
 details.menu .menu-list button.active svg { color: var(--accent); }
 
+.icon-btn-danger { color: var(--danger); border-color: var(--border); }
+.icon-btn-danger:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
+
+.registry-filters {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    gap: 0.75rem;
+    align-items: end;
+}
+.registry-filters .field { margin-bottom: 0; }
+.registry-filter-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.registry-filter-actions .icon-btn-danger { margin-left: auto; }
+
+.registry-table { border-collapse: collapse; }
+.registry-table th, .registry-table td { padding: 0.5rem; border-bottom: 1px solid var(--border); }
+.registry-table tbody tr:last-child td { border-bottom: none; }
+
+.field-error {
+    color: var(--danger);
+    margin: 0;
+}
+.filter-errors .field-error + .field-error { margin-top: 0.35rem; }
+
 @media (max-width: 600px) {
+  .registry-filters { grid-template-columns: 1fr 1fr; }
   nav { flex-wrap: wrap; gap: 0.75rem; }
   main { padding: 1rem; }
 }
