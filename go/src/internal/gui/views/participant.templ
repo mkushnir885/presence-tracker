@@ -1,14 +1,16 @@
 package views
 
-import "fmt"
+import (
+	"fmt"
+	"net/url"
+)
 
 templ ParticipantView(data ParticipantData, locale Locale) {
 	@Layout("Participant "+data.DisplayName, locale) {
 		<div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;">
 			<h1 style="margin:0;">{ data.DisplayName }</h1>
-			<span class="text-muted" style="font-size:0.85rem;">{ data.ParticipantID }</span>
 			<div style="flex:1"></div>
-			<a class="btn" href={ templ.SafeURL("/participants/" + data.ParticipantID + "/export.csv") }>{ locale.T("participant.download_csv") }</a>
+			<a class="btn" href={ templ.SafeURL("/participants/" + url.PathEscape(data.DisplayName) + "/export.csv") }>{ locale.T("participant.download_csv") }</a>
 		</div>
 		if len(data.Meetings) == 0 {
 			<div class="card">

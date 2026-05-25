@@ -17,28 +17,36 @@ import (
 	"presence-tracker/src/internal/providers"
 )
 
-// presenceInfo tracks the current in-meeting state of one verified participant.
-type presenceInfo struct {
-	participantID participants.ParticipantID
-	displayName   string
-	platformID    string
-	joinedAt      time.Time
-	lastChallenge time.Time
+// bufferedJoin holds a participant_joined that has not yet been flushed
+// to Parquet because verification is still pending.
+type bufferedJoin struct {
+	platformID string
+	joinedAt   time.Time
+	metadata   map[string]string
 }
 
-// pendingVerification tracks a participant who joined and for whom a
-// confirmation DM has been sent but not yet answered.
-type pendingVerification struct {
-	participantID participants.ParticipantID
-	displayName   string
-	platformID    string
-	joinedAt      time.Time
+// nameState owns the per-display-name lifecycle inside a session.
+// Lookup keyed on normalize(canonicalName). A state is created when a
+// registered participant first joins and destroyed when no platformID
+// is currently claiming the name.
+type nameState struct {
+	canonicalName      string                // as stored in the registry, written verbatim to Parquet
+	handle             participants.Handle   // for sending and editing the verification DM
+	platformIDs        map[string]struct{}   // every current claimant (verified, pending, or ignored)
+	pending            *bufferedJoin         // buffered join awaiting verification, if any
+	confirmRef         messengers.MessageRef // ref to the verification DM, for edit on collision
+	verifiedPlatformID string                // platformID of the verified participant; "" if none
+	verifiedAt         time.Time
+	lastChallenge      time.Time
+	tainted            bool // a pre-verification collision occurred; ignore everything until cleared
 }
 
-// unregisteredInfo tracks a participant who joined but has no registry entry.
+// unregisteredInfo tracks a participant whose display name is not in the
+// registry. In-memory only; never written to Parquet.
 type unregisteredInfo struct {
 	displayName string
 	platformID  string
+	joinedAt    time.Time
 }
 
 // CoordStatus is a snapshot of the coordinator's current state.
@@ -50,10 +58,9 @@ type CoordStatus struct {
 
 // PresenceStatus describes one verified participant currently in the meeting.
 type PresenceStatus struct {
-	ParticipantID string
-	DisplayName   string
-	PlatformID    string
-	JoinedAt      time.Time
+	DisplayName string
+	PlatformID  string
+	JoinedAt    time.Time
 }
 
 // UnregisteredStatus describes a participant who joined but is not in the registry.
@@ -85,23 +92,25 @@ type Coordinator struct {
 	store     *eventstore.Writer
 	pipeline  *challenges.Pipeline
 
-	mu           sync.Mutex
-	present      map[participants.ParticipantID]*presenceInfo
-	pending      map[string]*pendingVerification // messengerHandle → info
-	unregistered map[string]*unregisteredInfo    // platformID → info
+	mu            sync.Mutex
+	names         map[string]*nameState        // normName → state
+	platformIndex map[string]string            // platformID → normName (for fast onLeave)
+	pendingHandle map[string]string            // messenger handle → normName (only while pending)
+	unregistered  map[string]*unregisteredInfo // platformID → info (live GUI only)
 }
 
 // New creates a Coordinator.
 func New(cfg Config, provider providers.Provider, messenger messengers.Messenger, registry participants.Registry, store *eventstore.Writer) *Coordinator {
 	c := &Coordinator{
-		cfg:          cfg,
-		provider:     provider,
-		messenger:    messenger,
-		registry:     registry,
-		store:        store,
-		present:      make(map[participants.ParticipantID]*presenceInfo),
-		pending:      make(map[string]*pendingVerification),
-		unregistered: make(map[string]*unregisteredInfo),
+		cfg:           cfg,
+		provider:      provider,
+		messenger:     messenger,
+		registry:      registry,
+		store:         store,
+		names:         make(map[string]*nameState),
+		platformIndex: make(map[string]string),
+		pendingHandle: make(map[string]string),
+		unregistered:  make(map[string]*unregisteredInfo),
 	}
 	window := time.Duration(cfg.AnswerWindowSecs) * time.Second
 	c.pipeline = challenges.NewPipeline(c, window)
@@ -181,99 +190,160 @@ func (c *Coordinator) onMeetingStarted(ctx context.Context, evt providers.Event)
 	})
 }
 
+// onJoin runs the verification-gated state machine for a provider join event.
+// Nothing is written to Parquet until verification arrives.
 func (c *Coordinator) onJoin(ctx context.Context, evt providers.Event) {
-	rec := eventstore.Record{
-		EventType:      "participant_joined",
-		Source:         "provider:" + c.provider.Name(),
-		PlatformHandle: evt.PlatformID,
-		DisplayName:    evt.DisplayName,
-		Metadata:       evt.Extra,
+	entry, registered := c.registry.Resolve(evt.DisplayName)
+	if !registered || entry.MessengerName != c.messenger.Name() {
+		// Either no registration at all, or the registration belongs to a
+		// messenger we're not running. Either way, treat as unregistered.
+		c.markUnregistered(evt)
+		return
 	}
+	handle := entry.Handle
 
-	pid, known := c.registry.Resolve(evt.DisplayName)
-	if known {
-		rec.ParticipantID = string(pid)
-		handle, hasHandle := c.registry.Handle(pid, c.messenger.Name())
-		if hasHandle {
-			c.writeEvent(ctx, rec)
-			c.sendVerification(ctx, pid, handle, evt)
-			return
-		}
-		// Registered but no handle for the active messenger: treat as unregistered.
-	}
+	key := normName(entry.DisplayName)
 
-	c.writeEvent(ctx, rec)
-	slog.Info("session: unregistered participant joined", "name", evt.DisplayName)
 	c.mu.Lock()
-	c.unregistered[evt.PlatformID] = &unregisteredInfo{
-		displayName: evt.DisplayName,
-		platformID:  evt.PlatformID,
+	state := c.names[key]
+	if state == nil {
+		state = &nameState{
+			canonicalName: entry.DisplayName,
+			handle:        handle,
+			platformIDs:   make(map[string]struct{}),
+		}
+		c.names[key] = state
 	}
+	state.platformIDs[evt.PlatformID] = struct{}{}
+	c.platformIndex[evt.PlatformID] = key
+
+	switch {
+	case state.tainted:
+		c.mu.Unlock()
+		slog.Info("session: ignoring join on tainted name", "name", entry.DisplayName, "platform_id", evt.PlatformID)
+		return
+
+	case state.verifiedPlatformID != "":
+		// Already-verified participant; a second platformID claiming the
+		// same name is silently ignored (no DM, no Parquet).
+		c.mu.Unlock()
+		slog.Info("session: ignoring extra join under already-verified name", "name", entry.DisplayName, "platform_id", evt.PlatformID)
+		return
+
+	case state.pending != nil:
+		// Pre-verification collision: drop the buffer, edit the DM,
+		// taint the name. Nothing for this name will be processed until
+		// every claimant has left the meeting.
+		oldRef := state.confirmRef
+		oldHandleStr := string(state.handle)
+		state.pending = nil
+		state.confirmRef = messengers.MessageRef{}
+		state.tainted = true
+		delete(c.pendingHandle, oldHandleStr)
+		c.mu.Unlock()
+
+		_ = c.messenger.EditMessage(ctx, oldRef,
+			fmt.Sprintf("⚠ Verification cancelled — another participant joined the meeting with the name %q. "+
+				"Once everyone using this name leaves, you can re-join to verify.", entry.DisplayName))
+		slog.Info("session: collision tainted name", "name", entry.DisplayName)
+		return
+	}
+
+	// Empty slot: buffer the join and send the verification DM.
+	state.pending = &bufferedJoin{
+		platformID: evt.PlatformID,
+		joinedAt:   evt.Timestamp,
+		metadata:   evt.Extra,
+	}
+	c.pendingHandle[string(handle)] = key
 	c.mu.Unlock()
-	c.writeEvent(ctx, eventstore.Record{
-		EventType:      "participant_unregistered",
-		Source:         "provider:" + c.provider.Name(),
-		PlatformHandle: evt.PlatformID,
-		DisplayName:    evt.DisplayName,
-	})
-}
 
-func (c *Coordinator) sendVerification(ctx context.Context, pid participants.ParticipantID, handle participants.Handle, evt providers.Event) {
-	c.writeEvent(ctx, eventstore.Record{
-		EventType:      "participant_verification_sent",
-		Source:         "messenger:" + c.messenger.Name(),
-		ParticipantID:  string(pid),
-		PlatformHandle: evt.PlatformID,
-		DisplayName:    evt.DisplayName,
-		Metadata:       map[string]string{"messenger": c.messenger.Name(), "platform": c.provider.Name()},
-	})
-
-	if _, err := c.messenger.SendJoinConfirmation(ctx, string(handle), c.cfg.MeetingID, c.provider.Name()); err != nil {
+	ref, err := c.messenger.SendJoinConfirmation(ctx, string(handle), c.cfg.MeetingID, c.provider.Name())
+	if err != nil {
 		slog.Warn("session: send join confirmation", "err", err)
-		// Fall back to unregistered state so challenges aren't silently skipped.
 		c.mu.Lock()
-		c.unregistered[evt.PlatformID] = &unregisteredInfo{displayName: evt.DisplayName, platformID: evt.PlatformID}
+		if state.pending != nil && state.pending.platformID == evt.PlatformID {
+			state.pending = nil
+		}
+		delete(c.pendingHandle, string(handle))
 		c.mu.Unlock()
 		return
 	}
 
 	c.mu.Lock()
-	c.pending[string(handle)] = &pendingVerification{
-		participantID: pid,
-		displayName:   evt.DisplayName,
-		platformID:    evt.PlatformID,
-		joinedAt:      evt.Timestamp,
+	if state.pending != nil && state.pending.platformID == evt.PlatformID {
+		state.confirmRef = ref
 	}
 	c.mu.Unlock()
 }
 
+func (c *Coordinator) markUnregistered(evt providers.Event) {
+	c.mu.Lock()
+	c.unregistered[evt.PlatformID] = &unregisteredInfo{
+		displayName: evt.DisplayName,
+		platformID:  evt.PlatformID,
+		joinedAt:    evt.Timestamp,
+	}
+	c.mu.Unlock()
+	slog.Info("session: unregistered participant joined (live-only)", "name", evt.DisplayName)
+}
+
 func (c *Coordinator) onLeave(ctx context.Context, evt providers.Event) {
-	rec := eventstore.Record{
-		EventType:      "participant_left",
-		Source:         "provider:" + c.provider.Name(),
-		PlatformHandle: evt.PlatformID,
+	c.mu.Lock()
+	if _, ok := c.unregistered[evt.PlatformID]; ok {
+		delete(c.unregistered, evt.PlatformID)
+		c.mu.Unlock()
+		return
 	}
 
-	c.mu.Lock()
-	// Find verified participant by platformID.
-	for pid, info := range c.present {
-		if info.platformID == evt.PlatformID {
-			rec.ParticipantID = string(pid)
-			delete(c.present, pid)
-			break
-		}
+	key, ok := c.platformIndex[evt.PlatformID]
+	if !ok {
+		c.mu.Unlock()
+		return
 	}
-	// Clean up any pending verification for this platform ID.
-	for handle, pv := range c.pending {
-		if pv.platformID == evt.PlatformID {
-			delete(c.pending, handle)
-			break
-		}
+	delete(c.platformIndex, evt.PlatformID)
+
+	state := c.names[key]
+	if state == nil {
+		c.mu.Unlock()
+		return
 	}
-	delete(c.unregistered, evt.PlatformID)
+	delete(state.platformIDs, evt.PlatformID)
+
+	var (
+		droppedPending    bool
+		droppedConfirmRef messengers.MessageRef
+		verifiedLeft      bool
+		leftDisplayName   string
+	)
+	if state.pending != nil && state.pending.platformID == evt.PlatformID {
+		droppedPending = true
+		droppedConfirmRef = state.confirmRef
+		delete(c.pendingHandle, string(state.handle))
+		state.pending = nil
+		state.confirmRef = messengers.MessageRef{}
+	}
+	if state.verifiedPlatformID == evt.PlatformID {
+		verifiedLeft = true
+		leftDisplayName = state.canonicalName
+		state.verifiedPlatformID = ""
+	}
+	if len(state.platformIDs) == 0 {
+		delete(c.names, key)
+	}
 	c.mu.Unlock()
 
-	c.writeEvent(ctx, rec)
+	if droppedPending && droppedConfirmRef.Opaque != "" {
+		_ = c.messenger.EditMessage(ctx, droppedConfirmRef,
+			"Verification cancelled — you left the meeting before confirming.")
+	}
+	if verifiedLeft {
+		c.writeEvent(ctx, eventstore.Record{
+			EventType:   "participant_left",
+			Source:      "provider:" + c.provider.Name(),
+			DisplayName: leftDisplayName,
+		})
+	}
 }
 
 // Status returns a snapshot of the current session state.
@@ -281,13 +351,15 @@ func (c *Coordinator) Status() CoordStatus {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	present := make([]PresenceStatus, 0, len(c.present))
-	for _, info := range c.present {
+	present := make([]PresenceStatus, 0, len(c.names))
+	for _, state := range c.names {
+		if state.verifiedPlatformID == "" {
+			continue
+		}
 		present = append(present, PresenceStatus{
-			ParticipantID: string(info.participantID),
-			DisplayName:   info.displayName,
-			PlatformID:    info.platformID,
-			JoinedAt:      info.joinedAt,
+			DisplayName: state.canonicalName,
+			PlatformID:  state.verifiedPlatformID,
+			JoinedAt:    state.verifiedAt,
 		})
 	}
 
@@ -324,88 +396,86 @@ func (c *Coordinator) handleMessengerEvent(ctx context.Context, evt messengers.E
 	}
 }
 
+// onJoinConfirmation handles a Yes/No tap on the verification DM.
+// On Yes, the buffered participant_joined is flushed to Parquet with its
+// original timestamp and a participant_verified record is appended.
+// On No, the buffer is discarded silently.
 func (c *Coordinator) onJoinConfirmation(ctx context.Context, evt messengers.Event) {
 	c.mu.Lock()
-	pv, ok := c.pending[evt.Handle]
-	if ok {
-		delete(c.pending, evt.Handle)
-	}
-	c.mu.Unlock()
-
+	key, ok := c.pendingHandle[evt.Handle]
 	if !ok {
-		return // stale confirmation (e.g. from a previous meeting)
-	}
-
-	if evt.Confirmed {
-		latency := evt.Timestamp.Sub(pv.joinedAt).Milliseconds()
-		c.mu.Lock()
-		c.present[pv.participantID] = &presenceInfo{
-			participantID: pv.participantID,
-			displayName:   pv.displayName,
-			platformID:    pv.platformID,
-			joinedAt:      pv.joinedAt,
-		}
 		c.mu.Unlock()
-		slog.Info("session: participant verified", "id", pv.participantID, "name", pv.displayName)
-		c.writeEvent(ctx, eventstore.Record{
-			EventType:      "participant_verified",
-			Source:         "messenger:" + c.messenger.Name(),
-			ParticipantID:  string(pv.participantID),
-			PlatformHandle: pv.platformID,
-			DisplayName:    pv.displayName,
-			Metadata: map[string]string{
-				"messenger":  c.messenger.Name(),
-				"platform":   c.provider.Name(),
-				"latency_ms": fmt.Sprintf("%d", latency),
-			},
-		})
-	} else {
-		slog.Info("session: participant denied", "name", pv.displayName)
-		c.writeEvent(ctx, eventstore.Record{
-			EventType:      "participant_verification_denied",
-			Source:         "messenger:" + c.messenger.Name(),
-			ParticipantID:  string(pv.participantID),
-			PlatformHandle: pv.platformID,
-			DisplayName:    pv.displayName,
-			Metadata:       map[string]string{"messenger": c.messenger.Name(), "platform": c.provider.Name()},
-		})
+		return
 	}
-}
+	delete(c.pendingHandle, evt.Handle)
 
-// onRegistration handles a /register event from the messenger. If the newly
-// registered participant is already present in the meeting as unregistered,
-// a verification DM is sent immediately.
-func (c *Coordinator) onRegistration(ctx context.Context, evt messengers.Event) {
-	c.mu.Lock()
-	var unregInfo *unregisteredInfo
-	for _, info := range c.unregistered {
-		if strings.EqualFold(strings.TrimSpace(info.displayName), strings.TrimSpace(evt.DisplayName)) {
-			unregInfo = info
-			delete(c.unregistered, info.platformID)
-			break
-		}
+	state := c.names[key]
+	if state == nil || state.pending == nil {
+		c.mu.Unlock()
+		return
 	}
-	c.mu.Unlock()
+	pending := state.pending
+	state.pending = nil
+	state.confirmRef = messengers.MessageRef{}
 
-	if unregInfo == nil {
-		return // not currently in the meeting
-	}
-
-	pid, known := c.registry.Resolve(evt.DisplayName)
-	if !known {
-		return // shouldn't happen right after a successful /register
-	}
-	handle, hasHandle := c.registry.Handle(pid, c.messenger.Name())
-	if !hasHandle {
+	if !evt.Confirmed {
+		c.mu.Unlock()
+		slog.Info("session: participant denied verification", "name", state.canonicalName)
 		return
 	}
 
-	joinEvt := providers.Event{
-		PlatformID:  unregInfo.platformID,
-		DisplayName: unregInfo.displayName,
-		Timestamp:   time.Now().UTC(),
+	state.verifiedPlatformID = pending.platformID
+	state.verifiedAt = evt.Timestamp
+	canonicalName := state.canonicalName
+	c.mu.Unlock()
+
+	c.writeEvent(ctx, eventstore.Record{
+		Timestamp:   pending.joinedAt,
+		EventType:   "participant_joined",
+		Source:      "provider:" + c.provider.Name(),
+		DisplayName: canonicalName,
+		Metadata:    pending.metadata,
+	})
+	c.writeEvent(ctx, eventstore.Record{
+		Timestamp:   evt.Timestamp,
+		EventType:   "participant_verified",
+		Source:      "messenger:" + c.messenger.Name(),
+		DisplayName: canonicalName,
+		Metadata: map[string]string{
+			"messenger":  c.messenger.Name(),
+			"platform":   c.provider.Name(),
+			"latency_ms": fmt.Sprintf("%d", evt.Timestamp.Sub(pending.joinedAt).Milliseconds()),
+		},
+	})
+	slog.Info("session: participant verified", "name", canonicalName)
+}
+
+// onRegistration handles a /register event. If anyone in the live-only
+// unregistered list matches the newly registered display name, treat each
+// match as a fresh join — the regular state machine takes it from there
+// (including the collision rule when more than one such participant is
+// currently in the meeting).
+func (c *Coordinator) onRegistration(ctx context.Context, evt messengers.Event) {
+	normIncoming := normName(evt.DisplayName)
+
+	c.mu.Lock()
+	matches := make([]providers.Event, 0)
+	for _, info := range c.unregistered {
+		if normName(info.displayName) == normIncoming {
+			matches = append(matches, providers.Event{
+				Kind:        providers.EventKindParticipantJoined,
+				PlatformID:  info.platformID,
+				DisplayName: info.displayName,
+				Timestamp:   info.joinedAt,
+			})
+			delete(c.unregistered, info.platformID)
+		}
 	}
-	c.sendVerification(ctx, pid, handle, joinEvt)
+	c.mu.Unlock()
+
+	for _, joinEvt := range matches {
+		c.onJoin(ctx, joinEvt)
+	}
 }
 
 // RunPoll loads a question bank from disk and dispatches one poll round
@@ -437,7 +507,7 @@ func (c *Coordinator) RunPoll(ctx context.Context, bankPath, typeLabel string) (
 }
 
 // eligibleParticipants returns verified participants currently in the meeting,
-// paired with the active messenger, and outside the challenge cooldown.
+// outside the challenge cooldown.
 func (c *Coordinator) eligibleParticipants() []challenges.EligibleParticipant {
 	minGap := time.Duration(c.cfg.MinGapBetweenChallengesSecs) * time.Second
 	now := time.Now()
@@ -446,17 +516,16 @@ func (c *Coordinator) eligibleParticipants() []challenges.EligibleParticipant {
 	defer c.mu.Unlock()
 
 	var out []challenges.EligibleParticipant
-	for pid, info := range c.present {
-		handle, ok := c.registry.Handle(pid, c.messenger.Name())
-		if !ok {
+	for _, state := range c.names {
+		if state.verifiedPlatformID == "" || state.tainted {
 			continue
 		}
-		if !info.lastChallenge.IsZero() && now.Sub(info.lastChallenge) < minGap {
+		if !state.lastChallenge.IsZero() && now.Sub(state.lastChallenge) < minGap {
 			continue
 		}
 		out = append(out, challenges.EligibleParticipant{
-			ParticipantID: string(pid),
-			Handle:        string(handle),
+			DisplayName: state.canonicalName,
+			Handle:      string(state.handle),
 		})
 	}
 	return out
@@ -473,10 +542,16 @@ func (c *Coordinator) writeEvent(_ context.Context, r eventstore.Record) {
 
 // RecordChallengeIssued implements challenges.EventSink.
 func (c *Coordinator) RecordChallengeIssued(ctx context.Context, issued challenges.IssuedChallenge) error {
+	c.mu.Lock()
+	if state, ok := c.names[normName(issued.DisplayName)]; ok {
+		state.lastChallenge = time.Now()
+	}
+	c.mu.Unlock()
+
 	c.writeEvent(ctx, eventstore.Record{
-		EventType:     "challenge_issued",
-		Source:        "scheduler",
-		ParticipantID: issued.ParticipantID,
+		EventType:   "challenge_issued",
+		Source:      "scheduler",
+		DisplayName: issued.DisplayName,
 		Metadata: map[string]string{
 			"challenge_id":    issued.ChallengeID,
 			"challenge_type":  issued.TypeLabel,
@@ -484,12 +559,6 @@ func (c *Coordinator) RecordChallengeIssued(ctx context.Context, issued challeng
 			"answer_window_s": fmt.Sprintf("%d", c.cfg.AnswerWindowSecs),
 		},
 	})
-	pid := participants.ParticipantID(issued.ParticipantID)
-	c.mu.Lock()
-	if info, ok := c.present[pid]; ok {
-		info.lastChallenge = time.Now()
-	}
-	c.mu.Unlock()
 	return nil
 }
 
@@ -520,16 +589,16 @@ func (c *Coordinator) RecordChallengeUnanswered(ctx context.Context, challengeID
 	return nil
 }
 
-// RecordChallengeSkipped implements challenges.EventSink.
-func (c *Coordinator) RecordChallengeSkipped(ctx context.Context, participantID, reason string) error {
-	evtType := "challenge_skipped_offline"
-	if reason == "unregistered" {
-		evtType = "challenge_skipped_unregistered"
+// RecordChallengeSkipped implements challenges.EventSink. Only the offline
+// reason produces a Parquet event now that the eligible list is verified-only.
+func (c *Coordinator) RecordChallengeSkipped(ctx context.Context, displayName, reason string) error {
+	if reason != "offline" {
+		return nil
 	}
 	c.writeEvent(ctx, eventstore.Record{
-		EventType:     evtType,
-		Source:        "scheduler",
-		ParticipantID: participantID,
+		EventType:   "challenge_skipped_offline",
+		Source:      "scheduler",
+		DisplayName: displayName,
 	})
 	return nil
 }
@@ -537,4 +606,8 @@ func (c *Coordinator) RecordChallengeSkipped(ctx context.Context, participantID,
 // DeleteMessage implements challenges.EventSink.
 func (c *Coordinator) DeleteMessage(ctx context.Context, ref string) error {
 	return c.messenger.DeleteMessage(ctx, messengers.MessageRef{Opaque: ref})
+}
+
+func normName(displayName string) string {
+	return strings.ToLower(strings.TrimSpace(displayName))
 }

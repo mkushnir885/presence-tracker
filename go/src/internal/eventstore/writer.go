@@ -18,17 +18,16 @@ import (
 	"github.com/apache/arrow/go/v17/parquet/pqarrow"
 )
 
-// Record is one row of the event log.
+// Record is one row of the event log. DisplayName is the canonical
+// registered name and is the participant identity used end-to-end.
 type Record struct {
-	EventID        string
-	MeetingID      string
-	Timestamp      time.Time
-	Source         string
-	EventType      string
-	ParticipantID  string            // empty → null
-	PlatformHandle string            // empty → null
-	DisplayName    string            // empty → null
-	Metadata       map[string]string // nil → null
+	EventID     string
+	MeetingID   string
+	Timestamp   time.Time
+	Source      string
+	EventType   string
+	DisplayName string            // empty → null
+	Metadata    map[string]string // nil → null
 }
 
 // fileTimeFormat is the Go time layout for the date-time stamp in file names: ddmmyy_hhmm.
@@ -172,8 +171,6 @@ func buildRecord(rows []Record, startTime time.Time) arrow.Record {
 	ts := array.NewInt64Builder(pool)
 	source := array.NewStringBuilder(pool)
 	eventType := array.NewStringBuilder(pool)
-	participantID := array.NewStringBuilder(pool)
-	platformHandle := array.NewStringBuilder(pool)
 	displayName := array.NewStringBuilder(pool)
 	metadata := array.NewStringBuilder(pool)
 
@@ -196,8 +193,6 @@ func buildRecord(rows []Record, startTime time.Time) arrow.Record {
 		}
 		source.Append(r.Source)
 		eventType.Append(r.EventType)
-		appendNullable(participantID, r.ParticipantID)
-		appendNullable(platformHandle, r.PlatformHandle)
 		appendNullable(displayName, r.DisplayName)
 		if r.Metadata == nil {
 			metadata.AppendNull()
@@ -213,8 +208,6 @@ func buildRecord(rows []Record, startTime time.Time) arrow.Record {
 		ts.NewArray(),
 		source.NewArray(),
 		eventType.NewArray(),
-		participantID.NewArray(),
-		platformHandle.NewArray(),
 		displayName.NewArray(),
 		metadata.NewArray(),
 	}

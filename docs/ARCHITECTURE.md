@@ -170,13 +170,16 @@ type Messenger interface {
 - `RegistrationEvent` — a student sent `/register <name>`. The
   messenger adapter validates the command syntax and calls
   `Registry.Register`; the result determines the bot's reply. The
-  adapter also handles `/unregister <name>` (drops one entry) and
-  `/names` (lists the caller's registrations, up to
-  `participants.MaxNamesPerHandle = 5`). Registration is handled inside
-  the adapter so it works even when no meeting is active.
+  adapter also handles `/unregister` (releases the caller's
+  registration) and `/whoami` (shows the current one). Each messenger
+  account holds at most one registration; sending `/register` again
+  replaces the previous name. Registration is handled inside the
+  adapter so it works even when no meeting is active.
 - `JoinConfirmationEvent` — a student tapped **Yes** or **No** on a
-  join-confirmation message. The session coordinator uses this to emit
-  `participant_verified` or `participant_verification_denied`.
+  join-confirmation message. On **Yes** the session coordinator flushes
+  the buffered `participant_joined` event and emits
+  `participant_verified`. On **No** the buffer is discarded; no events
+  are written.
 - `AnswerEvent` — a student answered a challenge question.
 
 ### Challenge pipeline (`go/src/internal/challenges/`)
@@ -204,32 +207,30 @@ that is the control plane's concern. See "Control plane" below.
 ### Participant registry (`go/src/internal/participants/`)
 
 ```go
-const MaxNamesPerHandle = 5
-
 type Registry interface {
     // Resolve looks up a participant by displayName.
-    // Matching is case-insensitive with whitespace trimming.
-    Resolve(displayName string) (ParticipantID, bool)
+    // Matching is case-insensitive with whitespace trimming. The
+    // returned entry carries the canonical registered casing.
+    Resolve(displayName string) (RegistryEntry, bool)
 
     // Register stores a displayName → handle binding.
     // Returns ErrNameTaken if the name is already claimed by a different
-    // handle. Returns ErrTooManyNames if the handle has reached
-    // MaxNamesPerHandle. Re-registering the same (handle, name) is
-    // idempotent: it refreshes the label and canonical casing.
-    Register(messengerName string, handle Handle, messengerLabel, displayName string) (ParticipantID, error)
+    // handle. If the handle already has a registration under a different
+    // name, the previous entry is replaced atomically.
+    Register(messengerName string, handle Handle, messengerLabel, displayName string) error
 
-    // Unregister removes the registry entry for a participant.
-    Unregister(id ParticipantID) error
+    // UnregisterByName removes the entry for the given display name.
+    UnregisterByName(displayName string) (bool, error)
 
-    // UnregisterByName removes the entry for (messengerName, handle,
-    // displayName). Returns the deleted ID and true if found.
-    UnregisterByName(messengerName string, handle Handle, displayName string) (ParticipantID, bool, error)
+    // UnregisterByHandle removes the entry owned by (messengerName, handle).
+    UnregisterByHandle(messengerName string, handle Handle) (bool, error)
 
-    // Handle returns the messenger handle for a participant.
-    Handle(p ParticipantID, messengerName string) (Handle, bool)
+    // HandleForName returns the messenger handle bound to displayName
+    // under messengerName (used by the coordinator to send the verification DM).
+    HandleForName(displayName, messengerName string) (Handle, bool)
 
-    // ListByHandle returns all entries owned by one messenger account.
-    ListByHandle(messengerName string, handle Handle) ([]RegistryEntry, error)
+    // LookupByHandle returns the entry owned by (messengerName, handle), if any.
+    LookupByHandle(messengerName string, handle Handle) (RegistryEntry, bool)
 
     // List returns all entries, for display on the registry GUI page.
     List() ([]RegistryEntry, error)
@@ -240,7 +241,6 @@ type Registry interface {
 }
 
 type RegistryEntry struct {
-    ID             ParticipantID
     DisplayName    string   // canonical casing as registered
     MessengerName  string
     Handle         Handle
@@ -251,28 +251,30 @@ type RegistryEntry struct {
 
 Backed by BoltDB. Persists across meetings. Display names are
 platform-agnostic — a single registration matches the participant on
-any provider. One messenger account may hold up to `MaxNamesPerHandle`
-registrations (each its own `ParticipantID`). The messenger adapter
-calls `Register` directly when it receives a `/register` command —
-registration works even when no meeting is active.
+any provider. Each messenger account holds at most one registration at
+a time. Display name is the identity end to end: it is the bolt primary
+key, the URL identifier on the registry page, and the value written to
+every per-participant Parquet event. There is no internal opaque ID.
+The messenger adapter calls `Register` directly when it receives a
+`/register` command — registration works even when no meeting is active.
 
 ### Per-file display name rewrite (`eventstore`)
 
-A function in `go/src/internal/eventstore/` handles all rename
-operations. Both the single-file and multi-file rename buttons in the
-GUI call it once per file:
+A helper in `go/src/internal/eventstore/` rewrites display names in a
+single Parquet file:
 
 ```go
-// RenameParticipant rewrites the display_name column for all events
-// belonging to participantID in the given Parquet file. It reads the
-// file into memory, patches the column, and atomically replaces the file.
-func RenameParticipant(ctx context.Context, path string, participantID ParticipantID, newName string) error
+// UpdateDisplayName rewrites every row whose display_name equals oldName,
+// replacing it with newName. Reads the file into memory, patches the
+// column, atomically replaces the file.
+func UpdateDisplayName(parquetPath, oldName, newName string) error
 ```
 
-This is the backend for `PATCH /meetings/{id}/participants/{p}/display-name`.
-Renames are always scoped to the files explicitly selected by the
-teacher. They never create a persistent name override — future meetings
-record the platform-provided name until the teacher renames them too.
+This is the backend for `PATCH /meetings/{id}/participants/{name}/display-name`,
+where `{name}` is the current (URL-encoded) display name. Renames are
+always scoped to one file and never create a persistent override —
+future meetings record the canonical name from whatever registration is
+active at the time.
 
 ## Control plane
 

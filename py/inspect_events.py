@@ -59,10 +59,7 @@ def main() -> None:
         else:
             time_str = fmt_elapsed(ts)
 
-        pid = row.get("participant_id") or ""
-        handle = row.get("platform_handle") or ""
-        dname = row.get("display_name") or ""
-        participant = f"{dname} ({handle}:{pid})"
+        participant = row.get("display_name") or ""
 
         raw_meta = row.get("metadata") or ""
         if raw_meta:

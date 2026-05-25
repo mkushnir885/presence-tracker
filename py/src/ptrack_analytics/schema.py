@@ -5,7 +5,11 @@ Must stay in sync with:
   - go/src/internal/eventstore/schema.go
   - docs/EVENT_SCHEMA.md
 
-timestamp semantics (schema_version 3):
+display_name is the participant identity end to end — there is no separate
+participant_id column. Every per-participant event carries the canonical
+registered name.
+
+timestamp semantics:
   - meeting_started row: absolute Unix timestamp in milliseconds.
   - all other rows: milliseconds elapsed since the meeting_started timestamp.
 """
@@ -22,10 +26,6 @@ EVENT_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "timestamp": pl.Int64,
     "source": pl.String,
     "event_type": pl.String,
-    "participant_id": pl.String,
-    "platform_handle": pl.String,
     "display_name": pl.String,
     "metadata": pl.String,  # JSON-encoded; parse with pl.Expr.str.json_decode
 }
-
-SCHEMA_VERSION = 3

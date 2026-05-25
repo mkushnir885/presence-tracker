@@ -6,13 +6,6 @@ import (
 	"time"
 )
 
-// MaxNamesPerHandle is the hard cap on how many display names a single
-// messenger account may register.
-const MaxNamesPerHandle = 5
-
-// ParticipantID is the stable identifier for one display-name registration.
-type ParticipantID string
-
 // Handle is a messenger-specific persistent contact identifier (e.g. a
 // Telegram chat_id encoded as a decimal string).
 type Handle string
@@ -21,13 +14,10 @@ type Handle string
 // claimed by a different messenger handle.
 var ErrNameTaken = errors.New("participants: display name already registered by another account")
 
-// ErrTooManyNames is returned by Register when the handle has already
-// reached MaxNamesPerHandle entries.
-var ErrTooManyNames = errors.New("participants: too many display names registered for this account")
-
-// RegistryEntry is one row in the participant registry.
+// RegistryEntry is one row in the participant registry. DisplayName is
+// the identity end to end: the canonical name written to every
+// per-participant Parquet event and the key used everywhere else.
 type RegistryEntry struct {
-	ID             ParticipantID
 	DisplayName    string // canonical casing as supplied at registration
 	MessengerName  string
 	Handle         Handle
@@ -35,34 +25,38 @@ type RegistryEntry struct {
 	RegisteredAt   time.Time
 }
 
-// Registry maps display names to ParticipantIDs and manages the
-// display-name pairing flow. A single messenger account may register up
-// to MaxNamesPerHandle distinct display names; each registration is its
-// own row with its own ParticipantID.
+// Registry maps display names to messenger handles. A messenger account
+// holds at most one registration at a time; calling Register again from
+// the same handle replaces the previous entry (after freeing the old
+// name). Use UnregisterByName or UnregisterByHandle to drop one.
 type Registry interface {
-	// Resolve looks up a participant by display name.
-	// Matching is case-insensitive with leading/trailing whitespace trimmed.
-	Resolve(displayName string) (ParticipantID, bool)
+	// Resolve looks up a participant by display name. Matching is
+	// case-insensitive with leading/trailing whitespace trimmed; the
+	// returned entry carries the canonical casing registered for the name.
+	Resolve(displayName string) (RegistryEntry, bool)
 
 	// Register stores a displayName → handle binding persistently.
-	// Returns ErrNameTaken if the name is already claimed by a different handle.
-	// Returns ErrTooManyNames if the handle has reached MaxNamesPerHandle.
-	// Re-registering the same (handle, name) is idempotent: it refreshes the
-	// label and canonical casing without consuming an extra slot.
-	Register(ctx context.Context, messengerName string, handle Handle, messengerLabel, displayName string) (ParticipantID, error)
+	// Returns ErrNameTaken if the name is already claimed by a different
+	// handle. If the handle already has a registration under a different
+	// name, the previous entry is replaced atomically.
+	Register(ctx context.Context, messengerName string, handle Handle, messengerLabel, displayName string) error
 
-	// Unregister removes the registry entry for a participant.
-	Unregister(ctx context.Context, id ParticipantID) error
+	// UnregisterByName removes the entry for the given display name.
+	// Returns true if an entry was removed.
+	UnregisterByName(ctx context.Context, displayName string) (bool, error)
 
-	// UnregisterByName removes the entry for (messengerName, handle, displayName).
-	// Returns the deleted ParticipantID and true if an entry was removed.
-	UnregisterByName(ctx context.Context, messengerName string, handle Handle, displayName string) (ParticipantID, bool, error)
+	// UnregisterByHandle removes the entry owned by (messengerName, handle).
+	// Returns true if an entry was removed.
+	UnregisterByHandle(ctx context.Context, messengerName string, handle Handle) (bool, error)
 
-	// Handle returns the messenger handle for a participant, if known.
-	Handle(p ParticipantID, messengerName string) (Handle, bool)
+	// HandleForName returns the messenger handle bound to displayName,
+	// when the registration uses messengerName. Used by the session
+	// coordinator to look up where to send the verification DM.
+	HandleForName(displayName, messengerName string) (Handle, bool)
 
-	// ListByHandle returns all registry entries owned by one messenger account.
-	ListByHandle(messengerName string, handle Handle) ([]RegistryEntry, error)
+	// LookupByHandle returns the entry owned by (messengerName, handle), if any.
+	// Used by the messenger adapter to answer "what name am I registered as?".
+	LookupByHandle(messengerName string, handle Handle) (RegistryEntry, bool)
 
 	// List returns all registry entries.
 	List(ctx context.Context) ([]RegistryEntry, error)

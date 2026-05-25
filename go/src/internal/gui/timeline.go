@@ -10,28 +10,23 @@ import (
 
 // event type constants to avoid magic strings.
 const (
-	evtMeetingStarted              = "meeting_started"
-	evtMeetingEnded                = "meeting_ended"
-	evtParticipantJoined           = "participant_joined"
-	evtParticipantLeft             = "participant_left"
-	evtChallengeIssued             = "challenge_issued"
-	evtChallengeAnsweredCorrect    = "challenge_answered_correct"
-	evtChallengeAnsweredIncorrect  = "challenge_answered_incorrect"
-	evtChallengeUnanswered         = "challenge_unanswered"
-	evtChallengeSkippedOffline     = "challenge_skipped_offline"
-	evtChallengeSkippedUnregistered = "challenge_skipped_unregistered"
+	evtMeetingStarted             = "meeting_started"
+	evtMeetingEnded               = "meeting_ended"
+	evtParticipantJoined          = "participant_joined"
+	evtParticipantLeft            = "participant_left"
+	evtChallengeIssued            = "challenge_issued"
+	evtChallengeAnsweredCorrect   = "challenge_answered_correct"
+	evtChallengeAnsweredIncorrect = "challenge_answered_incorrect"
+	evtChallengeUnanswered        = "challenge_unanswered"
+	evtChallengeSkippedOffline    = "challenge_skipped_offline"
 )
 
-// segmentBuilder accumulates join/leave events for one participant.
-type segmentBuilder struct {
-	joinedAt time.Time
-}
-
-// ComputeMeetingInfo builds the display timeline from raw Parquet records and optional CSV rows.
+// ComputeMeetingInfo builds the display timeline from raw Parquet records
+// and optional CSV rows. Participants are grouped by display_name (the
+// canonical registered name written for every per-participant event).
 func ComputeMeetingInfo(meetingID string, records []eventstore.Record, csvRows []reporter.Row) views.MeetingInfo {
 	var startTime, endTime time.Time
 
-	// First pass: find meeting start/end.
 	for _, r := range records {
 		switch r.EventType {
 		case evtMeetingStarted:
@@ -53,34 +48,26 @@ func ComputeMeetingInfo(meetingID string, records []eventstore.Record, csvRows [
 		duration = time.Second
 	}
 
-	// Build per-participant data.
 	type pInfo struct {
-		displayNames  []string
-		displaySeen   map[string]bool
-		openedAt      time.Time // current open segment start
-		segments      []views.Segment
-		markersByID   map[string]*views.Marker // challenge_id → marker
-		markers       []views.Marker
-		lastJoinIdx   int // unused placeholder
+		openedAt    time.Time
+		segments    []views.Segment
+		markersByID map[string]*views.Marker
+		markers     []views.Marker
 	}
 
-	// Maintain insertion order of participants.
 	order := []string{}
 	seen := map[string]bool{}
 	participants := map[string]*pInfo{}
 
-	getOrCreate := func(pid string) *pInfo {
-		if p, ok := participants[pid]; ok {
+	getOrCreate := func(name string) *pInfo {
+		if p, ok := participants[name]; ok {
 			return p
 		}
-		p := &pInfo{
-			displaySeen: map[string]bool{},
-			markersByID: map[string]*views.Marker{},
-		}
-		participants[pid] = p
-		if !seen[pid] {
-			order = append(order, pid)
-			seen[pid] = true
+		p := &pInfo{markersByID: map[string]*views.Marker{}}
+		participants[name] = p
+		if !seen[name] {
+			order = append(order, name)
+			seen[name] = true
 		}
 		return p
 	}
@@ -100,15 +87,15 @@ func ComputeMeetingInfo(meetingID string, records []eventstore.Record, csvRows [
 	}
 
 	for _, r := range records {
-		pid := r.ParticipantID
-		if pid == "" {
-			// handle challenge results that have no participant_id but do have challenge_id
+		name := r.DisplayName
+		if name == "" {
+			// Challenge result events carry only challenge_id in metadata —
+			// resolve back to the participant via the issued-marker map.
 			if r.EventType == evtChallengeAnsweredCorrect || r.EventType == evtChallengeAnsweredIncorrect || r.EventType == evtChallengeUnanswered {
 				cid := r.Metadata["challenge_id"]
 				if cid == "" {
 					continue
 				}
-				// Find the marker across all participants.
 				for _, p := range participants {
 					if m, ok := p.markersByID[cid]; ok {
 						switch r.EventType {
@@ -125,12 +112,7 @@ func ComputeMeetingInfo(meetingID string, records []eventstore.Record, csvRows [
 			continue
 		}
 
-		p := getOrCreate(pid)
-
-		if r.DisplayName != "" && !p.displaySeen[r.DisplayName] {
-			p.displayNames = append(p.displayNames, r.DisplayName)
-			p.displaySeen[r.DisplayName] = true
-		}
+		p := getOrCreate(name)
 
 		switch r.EventType {
 		case evtParticipantJoined:
@@ -156,7 +138,7 @@ func ComputeMeetingInfo(meetingID string, records []eventstore.Record, csvRows [
 			m := &views.Marker{
 				XPct:          xPct,
 				ChallengeType: ctype,
-				Result:        "unanswered", // default; may be updated by result event
+				Result:        "unanswered",
 				ChallengeID:   cid,
 				QuestionID:    qid,
 				TimestampMS:   r.Timestamp.UnixMilli(),
@@ -189,18 +171,9 @@ func ComputeMeetingInfo(meetingID string, records []eventstore.Record, csvRows [
 				Result:      "skipped_offline",
 				TimestampMS: r.Timestamp.UnixMilli(),
 			})
-
-		case evtChallengeSkippedUnregistered:
-			xPct := pctOf(r.Timestamp)
-			p.markers = append(p.markers, views.Marker{
-				XPct:        xPct,
-				Result:      "skipped_unregistered",
-				TimestampMS: r.Timestamp.UnixMilli(),
-			})
 		}
 	}
 
-	// Close any still-open segments at meeting end.
 	for _, p := range participants {
 		if !p.openedAt.IsZero() {
 			startPct := pctOf(p.openedAt)
@@ -211,7 +184,6 @@ func ComputeMeetingInfo(meetingID string, records []eventstore.Record, csvRows [
 			})
 			p.openedAt = time.Time{}
 		}
-		// Sync marker slice from pointer map so results are reflected.
 		for i := range p.markers {
 			cid := p.markers[i].ChallengeID
 			if m, ok := p.markersByID[cid]; ok {
@@ -220,37 +192,27 @@ func ComputeMeetingInfo(meetingID string, records []eventstore.Record, csvRows [
 		}
 	}
 
-	// Build CSV lookup for presence ratios.
 	csvByName := map[string]reporter.Row{}
 	for _, row := range csvRows {
 		csvByName[row.DisplayName] = row
 	}
 
 	rows := make([]views.ParticipantRow, 0, len(order))
-	for _, pid := range order {
-		p := participants[pid]
+	for _, name := range order {
+		p := participants[name]
 
 		presenceRatio := computePresenceRatio(p.segments)
-		challengesIssued := 0
-		challengesCorrect := 0
+		challengesIssued := countIssued(p.markers)
+		challengesCorrect := countCorrect(p.markers)
 
-		// Use CSV data if available.
-		if len(p.displayNames) > 0 {
-			if csvRow, ok := csvByName[p.displayNames[0]]; ok {
-				presenceRatio = csvRow.PresenceRatio
-				challengesIssued = csvRow.ChallengesIssued
-				challengesCorrect = csvRow.ChallengesCorrect
-			}
-		}
-		if challengesIssued == 0 {
-			challengesIssued = countIssued(p.markers)
-			challengesCorrect = countCorrect(p.markers)
+		if csvRow, ok := csvByName[name]; ok {
+			presenceRatio = csvRow.PresenceRatio
+			challengesIssued = csvRow.ChallengesIssued
+			challengesCorrect = csvRow.ChallengesCorrect
 		}
 
 		rows = append(rows, views.ParticipantRow{
-			ParticipantID:     pid,
-			DisplayNames:      p.displayNames,
-			HasMultipleNames:  len(p.displayNames) > 1,
+			DisplayName:       name,
 			PresenceRatio:     presenceRatio,
 			ChallengesIssued:  challengesIssued,
 			ChallengesCorrect: challengesCorrect,

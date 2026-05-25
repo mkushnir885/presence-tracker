@@ -374,7 +374,6 @@ round with zero eligible participants is skipped and emits
 
 Additional diagnostic events (not counted in challenge stats):
 
-- `challenge_skipped_unregistered` — participant has no messenger handle.
 - `challenge_skipped_offline` — messenger delivery failed.
 - `challenge_generator_failed` — auto-generation produced no usable
   questions for a scheduled batch.

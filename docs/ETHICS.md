@@ -50,7 +50,12 @@ transmit, or export participant data.
   uses display-name registration through the messenger bot, not chat
   scraping.
 - Telegram handles: stored in the participant registry (not the event
-  log); the event log only references the internal `ParticipantID`.
+  log); the event log only references the canonical `display_name` that
+  the student registered. The Telegram chat ID never leaves the
+  registry.
+- Unverified joins are buffered in memory only; if the student denies
+  verification or leaves before answering, no Parquet event is written
+  for them.
 - No mic, camera, or screen-share state of meeting participants is
   tracked or stored.
 - Meeting recordings: out of scope. The tool does not record audio or

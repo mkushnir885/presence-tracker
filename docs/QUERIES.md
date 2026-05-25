@@ -20,13 +20,13 @@ from ptrack_analytics import data, meetings, participants
 
 data: pl.LazyFrame         # all events from loaded files, concatenated
 meetings: pl.LazyFrame     # one row per meeting (id, start, end, duration)
-participants: pl.LazyFrame # one row per known participant (id, display_name)
+participants: pl.LazyFrame # one row per display_name seen across the loaded files
 
 # Derived frames (also lazy; shared code path with CSV reports)
 from ptrack_analytics import presence, challenges, questions
 
-presence: pl.LazyFrame     # (participant_id, meeting_id, presence_seconds, ...)
-challenges: pl.LazyFrame   # (participant_id, meeting_id, challenge_id, challenge_type, state, latency_ms)
+presence: pl.LazyFrame     # (display_name, meeting_id, presence_seconds, ...)
+challenges: pl.LazyFrame   # (display_name, meeting_id, challenge_id, challenge_type, state, latency_ms)
 questions: pl.LazyFrame    # loaded from .jsonl files: (question_id, prompt, question_type, choices, ...)
 ```
 
@@ -51,7 +51,7 @@ import polars as pl
 load("meetings/spring-2026-*.parquet")
 
 # Who attends the least?
-presence.group_by("participant_id") \
+presence.group_by("display_name") \
     .agg(pl.col("presence_seconds").mean().alias("avg_s")) \
     .sort("avg_s") \
     .collect()
@@ -118,7 +118,7 @@ The GUI fetches analysis results via `POST /analysis/{name}` and renders:
 @analysis(name="avg_presence", title="Average presence per student")
 def avg_presence(presence: pl.LazyFrame, **_) -> pl.DataFrame:
     return (
-        presence.group_by("participant_id")
+        presence.group_by("display_name")
         .agg(pl.col("presence_seconds").mean().alias("avg_s"))
         .sort("avg_s", descending=True)
         .collect()

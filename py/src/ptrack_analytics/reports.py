@@ -33,23 +33,21 @@ def generate_csv(events: pl.LazyFrame) -> str:
             .otherwise(pl.col("presence_seconds"))
             .alias("presence_seconds")
         )
-        .group_by("participant_id")
+        .group_by("display_name")
         .agg(
             pl.col("presence_seconds").sum(),
             pl.col("duration_seconds").first(),
-            pl.col("display_name").drop_nulls().last(),
         )
     )
 
-    chal = _challenge_stats(events, group_by=["participant_id"])
+    chal = _challenge_stats(events, group_by=["display_name"])
 
     df: pl.DataFrame = (  # type: ignore  # ty limitation: collect() return includes InProcessQuery
-        pres.join(chal, on="participant_id", how="left")
+        pres.join(chal, on="display_name", how="left")
         .with_columns(
             _presence_ratio(),
             pl.col("challenges_issued").fill_null(0),
             pl.col("challenges_correct").fill_null(0),
-            pl.col("display_name").fill_null("(unknown)"),
         )
         .sort(pl.col("display_name").str.to_lowercase())
         .select(
@@ -86,24 +84,22 @@ def generate_aggregate_csv(events: pl.LazyFrame) -> str:
             .otherwise(pl.col("presence_seconds"))
             .alias("presence_seconds")
         )
-        .group_by(["participant_id", "meeting_id"])
+        .group_by(["display_name", "meeting_id"])
         .agg(
             pl.col("presence_seconds").sum(),
             pl.col("duration_seconds").first(),
             pl.col("started_at").first(),
-            pl.col("display_name").drop_nulls().last(),
         )
     )
 
-    chal = _challenge_stats(events, group_by=["participant_id", "meeting_id"])
+    chal = _challenge_stats(events, group_by=["display_name", "meeting_id"])
 
     df: pl.DataFrame = (  # type: ignore  # ty limitation: collect() return includes InProcessQuery
-        pres.join(chal, on=["participant_id", "meeting_id"], how="left")
+        pres.join(chal, on=["display_name", "meeting_id"], how="left")
         .with_columns(
             _presence_ratio(),
             pl.col("challenges_issued").fill_null(0),
             pl.col("challenges_correct").fill_null(0),
-            pl.col("display_name").fill_null("(unknown)"),
             pl.col("started_at").dt.strftime("%Y-%m-%dT%H:%M:%SZ").alias("meeting"),
         )
         .sort([pl.col("display_name").str.to_lowercase(), pl.col("started_at")])

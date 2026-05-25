@@ -92,8 +92,8 @@ func (a *Adapter) handleUpdate(ctx context.Context, upd tgbotapi.Update) {
 		a.handleRegister(ctx, upd.Message)
 	case upd.Message != nil && upd.Message.IsCommand() && upd.Message.Command() == "unregister":
 		a.handleUnregister(ctx, upd.Message)
-	case upd.Message != nil && upd.Message.IsCommand() && upd.Message.Command() == "names":
-		a.handleNames(upd.Message.Chat.ID)
+	case upd.Message != nil && upd.Message.IsCommand() && upd.Message.Command() == "whoami":
+		a.handleWhoami(upd.Message.Chat.ID)
 	case upd.Message != nil && upd.Message.Text != "":
 		a.handleTextMessage(upd.Message)
 	case upd.CallbackQuery != nil:
@@ -104,16 +104,13 @@ func (a *Adapter) handleUpdate(ctx context.Context, upd tgbotapi.Update) {
 func (a *Adapter) handleStart(msg *tgbotapi.Message) {
 	chatID := msg.Chat.ID
 	// TODO: use the configured UI language for this message
-	text := fmt.Sprintf(
-		"Welcome to Presence Tracker!\n\nTo receive attendance challenges, register your display name:\n\n"+
-			"/register <your display name>\n\n"+
-			"Example: /register John Smith\n\n"+
-			"You may register up to %d different display names (one per /register).\n"+
-			"Use /names to list your registrations, /unregister <name> to remove one.",
-		participants.MaxNamesPerHandle,
-	)
-	reply := tgbotapi.NewMessage(chatID, text)
-	_, _ = a.bot.Send(reply)
+	text := "Welcome to Presence Tracker!\n\n" +
+		"To receive attendance challenges, register your display name:\n\n" +
+		"/register <your display name>\n\n" +
+		"Example: /register John Smith\n\n" +
+		"Each account may hold one registration at a time. Sending /register again replaces it. " +
+		"Use /whoami to see your current registration and /unregister to release it."
+	_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, text))
 }
 
 func (a *Adapter) handleRegister(ctx context.Context, msg *tgbotapi.Message) {
@@ -123,23 +120,17 @@ func (a *Adapter) handleRegister(ctx context.Context, msg *tgbotapi.Message) {
 
 	displayName := strings.TrimSpace(msg.CommandArguments())
 	if displayName == "" {
-		a.handleNames(chatID)
+		a.handleWhoami(chatID)
 		return
 	}
 
 	// TODO: use configured UI language for replies below
-	_, err := a.registry.Register(ctx, "telegram", participants.Handle(handle), label, displayName)
+	err := a.registry.Register(ctx, "telegram", participants.Handle(handle), label, displayName)
 	switch {
 	case errors.Is(err, participants.ErrNameTaken):
 		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf(
 			"⚠ The name %q is already registered by another account. Ask your teacher to remove the existing entry from the registry page, then try again.",
 			displayName,
-		)))
-		return
-	case errors.Is(err, participants.ErrTooManyNames):
-		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf(
-			"⚠ You already have %d display names registered (the maximum). Use /unregister <name> to free a slot first.",
-			participants.MaxNamesPerHandle,
 		)))
 		return
 	case err != nil:
@@ -148,7 +139,7 @@ func (a *Adapter) handleRegister(ctx context.Context, msg *tgbotapi.Message) {
 	}
 
 	_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf(
-		"✓ Registered %q. When you join a meeting under this name, you'll receive a confirmation message.",
+		"✓ Registered as %q. When you join a meeting under this name, you'll receive a confirmation message.",
 		displayName,
 	)))
 
@@ -164,44 +155,29 @@ func (a *Adapter) handleUnregister(ctx context.Context, msg *tgbotapi.Message) {
 	chatID := msg.Chat.ID
 	handle := strconv.FormatInt(chatID, 10)
 
-	displayName := strings.TrimSpace(msg.CommandArguments())
-	if displayName == "" {
-		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, "Usage: /unregister <display name>"))
-		return
-	}
-
-	_, found, err := a.registry.UnregisterByName(ctx, "telegram", participants.Handle(handle), displayName)
+	found, err := a.registry.UnregisterByHandle(ctx, "telegram", participants.Handle(handle))
 	switch {
 	case err != nil:
 		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, "Could not remove registration: "+err.Error()))
 	case !found:
-		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("You have no registration for %q.", displayName)))
+		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, "You have no active registration."))
 	default:
-		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("✓ Removed registration for %q.", displayName)))
+		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, "✓ Registration removed."))
 	}
 }
 
-func (a *Adapter) handleNames(chatID int64) {
+func (a *Adapter) handleWhoami(chatID int64) {
 	handle := strconv.FormatInt(chatID, 10)
-	entries, err := a.registry.ListByHandle("telegram", participants.Handle(handle))
-	if err != nil {
-		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, "Could not list registrations: "+err.Error()))
+	entry, ok := a.registry.LookupByHandle("telegram", participants.Handle(handle))
+	if !ok {
+		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID,
+			"You have no active registration.\n\nUse /register <display name> to register."))
 		return
 	}
-	if len(entries) == 0 {
-		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf(
-			"You have no display names registered yet.\n\nUse /register <display name> to add one (up to %d).",
-			participants.MaxNamesPerHandle,
-		)))
-		return
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "Your registered display names (%d/%d):\n", len(entries), participants.MaxNamesPerHandle)
-	for _, e := range entries {
-		fmt.Fprintf(&b, "• %s\n", e.DisplayName)
-	}
-	b.WriteString("\nUse /register <name> to add another, /unregister <name> to remove one.")
-	_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, b.String()))
+	_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf(
+		"You are registered as %q. Use /register <name> to change it, or /unregister to release it.",
+		entry.DisplayName,
+	)))
 }
 
 func (a *Adapter) handleTextMessage(msg *tgbotapi.Message) {

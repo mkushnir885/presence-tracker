@@ -89,11 +89,12 @@ def load(
         )
     )
 
-    # Derive participants frame: one row per participant.
+    # Derive participants frame: one row per registered display name that
+    # appears in the events.
     participants = (
-        data.filter(pl.col("participant_id").is_not_null())
-        .group_by("participant_id")
-        .agg(pl.col("display_name").drop_nulls().last().alias("display_name"))
+        data.filter(pl.col("display_name").is_not_null())
+        .group_by("display_name")
+        .agg(pl.len().alias("event_count"))
     )
 
     presence = _presence_fn(data)

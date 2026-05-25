@@ -37,9 +37,10 @@ func ReadAll(ctx context.Context, path string) ([]Record, error) {
 
 	// Column indices match schema.go:
 	// 0=event_id, 1=meeting_id, 2=timestamp, 3=source, 4=event_type,
-	// 5=participant_id, 6=platform_handle, 7=display_name, 8=metadata
-	strCols := make([]*strReader, 9)
-	for i := range 9 {
+	// 5=display_name, 6=metadata
+	const numCols = 7
+	strCols := make([]*strReader, numCols)
+	for i := range numCols {
 		if i == 2 {
 			continue // timestamp column handled separately
 		}
@@ -47,8 +48,8 @@ func ReadAll(ctx context.Context, path string) ([]Record, error) {
 	}
 	tsCol := newInt64Reader(table.Column(2))
 
-	// Collect raw timestamp values (schema v2: absolute Unix ms for
-	// meeting_started, ms offset from meeting start for all others).
+	// Collect raw timestamp values (absolute Unix ms for meeting_started,
+	// ms offset from meeting start for all others).
 	rawTS := make([]int64, n)
 	for i := range n {
 		rawTS[i] = tsCol.get(i)
@@ -80,16 +81,10 @@ func ReadAll(ctx context.Context, path string) ([]Record, error) {
 			EventType: strCols[4].get(i),
 		}
 		if !strCols[5].isNull(i) {
-			r.ParticipantID = strCols[5].get(i)
+			r.DisplayName = strCols[5].get(i)
 		}
 		if !strCols[6].isNull(i) {
-			r.PlatformHandle = strCols[6].get(i)
-		}
-		if !strCols[7].isNull(i) {
-			r.DisplayName = strCols[7].get(i)
-		}
-		if !strCols[8].isNull(i) {
-			raw := strCols[8].get(i)
+			raw := strCols[6].get(i)
 			if raw != "" {
 				var m map[string]string
 				if jsonErr := json.Unmarshal([]byte(raw), &m); jsonErr == nil {

@@ -89,73 +89,67 @@ See `@docs/ARCHITECTURE.md` for interface signatures and rationale.
 ## Participant identity
 
 A student's display name on the video-conferencing platform is the
-pairing key. `go/src/internal/participants/` owns a persistent registry
-that maps `display_name` to a stable internal `ParticipantID` and
-Telegram handle. Display names are platform-agnostic — the same
-registration matches the participant on any provider.
+pairing key — and, after the Parquet schema simplification, the
+participant identity used end to end. `go/src/internal/participants/`
+owns a persistent registry that maps each `display_name` to one Telegram
+handle. Registrations are platform-agnostic.
 
-**Registration flow — display-name pairing:**
+**Registration flow:**
 
 1. Student sends `/start` to the Telegram bot; the bot explains how to
    register.
 2. Student sends `/register <display name>` (e.g. `/register John Smith`).
-   A single Telegram account may register **up to 5 distinct display
-   names** — useful when a student appears under different names across
-   platforms or sessions. `/names` lists current registrations;
-   `/unregister <display name>` removes one.
+   Each Telegram account holds **at most one** registration at a time —
+   sending `/register` again replaces the previous name (the old slot is
+   freed first). `/whoami` shows the current registration;
+   `/unregister` releases it.
 3. The registry stores the `display_name → Telegram handle` binding
    persistently. If that name is already claimed by a different Telegram
-   account, the bot rejects the request: "Name already registered — ask
-   your teacher to remove the existing entry via the registry page, then
-   try again." If the same account is already at the 5-name cap, the
-   bot asks the student to `/unregister` an existing name first. The
-   same student may re-send `/register` for one of their own names to
-   refresh the canonical casing.
-4. When a participant with a matching display name joins a meeting, the
-   bot sends them a private message: "Did you just join [meeting title]
-   on [platform]?" with **Yes / No** inline buttons.
-5. Tapping **Yes** verifies the participant for that meeting session —
-   challenges will be sent. Tapping **No** (or never responding) leaves
-   them unverified and challenges are skipped for that session.
+   account, the bot rejects the request and tells the student to ask
+   their teacher to remove the existing entry via the registry page.
+4. When a participant whose display name is registered joins a meeting,
+   the bot sends them a private message: "Did you just join [meeting
+   title] on [platform]?" with **Yes / No** inline buttons. **Nothing
+   is written to Parquet yet** — the `participant_joined` event is
+   buffered in memory.
+5. Tapping **Yes** flushes the buffered `participant_joined` with its
+   original timestamp and emits `participant_verified`. Tapping **No**
+   (or leaving the meeting before answering) discards the buffer
+   silently — there is no Parquet trace of unverified joins.
 
-Each `/register` creates its own `ParticipantID`, so multiple names from
-one Telegram account are distinct identities in the event log and the
-registry GUI. Registration is persistent across meetings. The
-per-meeting **Yes/No** tap is the only action required during a
-meeting; it is comparable in effort to answering a challenge.
+**Collision handling.** If a second participant with the same display
+name joins while the first is still pre-verification, the name is
+*tainted*: the buffered join is dropped, the in-flight DM is edited to
+"verification cancelled — name conflict", and every further join under
+that name is ignored until every claimant has left the meeting. Once the
+name is clear again, the next join is processed normally. After
+verification, a colliding second join is silently ignored; the verified
+participant continues.
+
+Display name is the only participant identifier — there is no separate
+internal ID. The registry's bolt primary key is the normalized display
+name, and registry GUI URLs use the URL-encoded display name. This
+matches how every other per-participant URL in the GUI (meeting
+analysis, cross-meeting view) already works.
 
 Display name matching is case-insensitive and ignores leading/trailing
-whitespace. A teacher can remove any entry individually or clear the
-whole registry from the registry page in the GUI.
+whitespace. The canonical name stored at registration is what gets
+written to every Parquet record, so platform-side name drift (case,
+whitespace) does not pollute cross-meeting reports. A teacher can remove
+any entry individually or clear the whole registry from the registry
+page in the GUI.
 
 If the Messenger is not initialized (no challenges configured), the bot
 is never started and no registration prompts are sent.
 
-If a participant joins without a matching registry entry, challenges are
-skipped and a `participant_unregistered` event is logged. The teacher
-sees unregistered participants in the GUI and can ask students to run
-`/register`.
+Unregistered or unverifiable participants are still shown in the live
+GUI status view so the teacher can ask them to register, but no Parquet
+events are written for them.
 
-Teachers can rename a participant by rewriting the `display_name`
-column directly in the relevant Parquet file(s). All renames are
-file-scoped — they never propagate to future meetings automatically:
-
-- **Single-file rename** (`PATCH /meetings/{id}/participants/{p}/display-name`):
-  rewrites `display_name` for that participant in one Parquet file.
-- **Multi-file rename** (from the cross-meeting view): applies the same
-  new name to all Parquet files currently shown in that view. The
-  teacher selects the scope explicitly; files outside the current view
-  are never touched.
-
-Future meetings always record whatever name the platform provides. A
-rename never sets a persistent override for meetings that have not yet
-happened.
-
-If a participant's display name changed mid-meeting (the platform or the
-user sent different names), the Parquet file may contain several distinct
-`display_name` values for the same `participant_id`. The GUI detects
-this, shows all variants as **Name1 | Name2 | Name3**, and hints the
-teacher to pick a canonical name with the single-file rename button.
+Teachers can rename a participant after the fact by rewriting the
+`display_name` column in a Parquet file via the meeting analysis view
+(`PATCH /meetings/{id}/participants/{display_name}/display-name`). The
+rename is file-scoped and never propagates to future meetings.
 
 ## Challenge system
 
@@ -290,7 +284,7 @@ the full analysis and CSV report API. Advanced users import it in a
 from ptrack_analytics import load, presence, challenges, generate_csv
 
 load("~/Documents/ptrack/meetings/spring-2026-*.parquet")
-presence.group_by("participant_id").agg(pl.col("presence_seconds").mean())
+presence.group_by("display_name").agg(pl.col("presence_seconds").mean())
 ```
 
 Typical workflow: load the desired Parquet files, import the library, ask
@@ -377,10 +371,10 @@ audio capture, and the BBB/Zoom polling rewrite are still pending.
   `ptrack serve` (handler lives in `cmd/ptrack/main.go`), `PTRACK_PORTS`
   env var that lists every running daemon's port, `ptrack track` /
   `ptrack serve` / `ptrack poll` / `ptrack report` CLI commands,
-  `internal/reporter/` package.
-  Note: the Telegram messenger and participant registry still implement
-  the old pairing-code flow and need to be updated to the display-name
-  flow described above.
+  `internal/reporter/` package. Telegram messenger and registry use the
+  display-name flow (`/register`, `/unregister`, `/whoami`); the session
+  coordinator buffers joins until verification, applies the collision
+  rule, and writes only verified participants to Parquet.
 - Python: `ptrack_analytics` library with schema, `load()`, derived
   frames (`presence`, `challenge_results`), CSV report generation
   (`generate_csv`, `generate_aggregate_csv` in `reports.py`), and

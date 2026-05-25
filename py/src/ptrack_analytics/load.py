@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
-from .schema import EVENT_SCHEMA, SCHEMA_VERSION
+from .schema import EVENT_SCHEMA
 
 if TYPE_CHECKING:
     pass
@@ -33,15 +33,7 @@ def load_events(pattern: str) -> pl.LazyFrame:
 
     frames: list[pl.LazyFrame] = []
     for p in paths:
-        lf = pl.scan_parquet(p, schema=pl.Schema(EVENT_SCHEMA))
-        # Validate schema_version stored in Parquet file metadata.
-        meta = _read_parquet_metadata(p)
-        version = int(meta.get("schema_version", "1"))
-        if version > SCHEMA_VERSION:
-            raise LoadError(
-                f"{p}: schema_version {version} > supported {SCHEMA_VERSION}"
-            )
-        frames.append(lf)
+        frames.append(pl.scan_parquet(p, schema=pl.Schema(EVENT_SCHEMA)))
 
     return pl.concat(frames)
 
@@ -76,15 +68,3 @@ def load_questions(questions_dir: str, meeting_ids: list[str]) -> pl.LazyFrame:
         )
 
     return pl.concat(frames)
-
-
-def _read_parquet_metadata(path: str) -> dict[str, str]:
-    """Read Parquet file-level key-value metadata without loading row data."""
-    try:
-        import pyarrow.parquet as pq  # type: ignore[import-untyped]
-
-        pf = pq.ParquetFile(path)
-        raw = pf.schema_arrow.metadata or {}
-        return {k.decode(): v.decode() for k, v in raw.items()}
-    except Exception:
-        return {}

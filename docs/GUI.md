@@ -31,12 +31,12 @@ Rendered server-side with templ; interactive bits use htmx.
 | `GET /status/unregistered`                           | htmx fragment: list of unregistered participants                               |
 | `GET /meetings/{id}`                                 | Single meeting analysis view (from Parquet file)                               |
 | `GET /meetings/{id}/export.csv`                      | Download CSV report for one meeting                                            |
-| `PATCH /meetings/{id}/participants/{p}/display-name` | Rename a participant's display name in this meeting's Parquet file             |
-| `GET /participants/{p}`                              | Cross-meeting aggregate view for one participant                               |
-| `GET /participants/{p}/export.csv`                   | Download cross-meeting CSV for one participant                                 |
+| `PATCH /meetings/{id}/participants/{display_name}/display-name` | Rename a participant's display name in this meeting's Parquet file. `{display_name}` is URL-encoded. |
+| `GET /participants/{display_name}`                   | Cross-meeting aggregate view for one participant (URL-encoded display name)     |
+| `GET /participants/{display_name}/export.csv`        | Download cross-meeting CSV for one participant                                 |
 | `GET /participants/export.csv`                       | Download cross-meeting CSV for all participants                                |
 | `GET /registry`                                      | Participant registry page — list all registered display-name entries           |
-| `DELETE /registry/{id}`                              | Remove one registry entry by ParticipantID                                     |
+| `DELETE /registry/{display_name}`                    | Remove one registry entry (URL-encoded display name)                           |
 | `DELETE /registry`                                   | Clear all registry entries (pairing data only; Parquet files untouched)        |
 | `POST /poll`                                         | Trigger a poll on the active session (body: `{type, bank_path}`); 409 if none  |
 | `PATCH /poll/config`                                 | Update auto-generation poll config mid-meeting                                 |
@@ -237,36 +237,28 @@ seconds). The "↓ Export CSV" button downloads `GET /meetings/{id}/export.csv`.
 Each participant row contains:
 
 | Element             | Details                                                                                     |
-| ------------------- | ------------------------------------------------------------------------------------------- |
-| **✏ Rename**        | Opens an inline edit field; saves via `PATCH /meetings/{id}/participants/{p}/display-name`  |
-| **Display name**    | All distinct `display_name` values seen in the file for this participant, joined with `\|`  |
-| **⚠ hint**          | Shown only when multiple name variants exist; clicking reveals "Rename to unify" suggestion |
-| **Presence ratio**  | `XX% present`, sourced from the CSV                                                         |
-| **Challenge stats** | `N/M ✓` (correctly answered / total issued), sourced from the CSV                           |
-| **Presence band**   | Inline SVG timeline bar; click opens the presence legend popup                              |
-
-### Display name variants
-
-If the platform or the user sent different names for the same
-`participant_id` within one meeting, the Parquet file contains multiple
-distinct `display_name` strings for that participant. The GUI:
-
-1. Joins all variants with `|` in every place a name is displayed
-   (row label, CSV, reports).
-2. Flags the row with a ⚠ indicator and a tooltip: "Multiple display
-   names detected — click ✏ Rename to set a single canonical name."
-
-The ⚠ indicator disappears once a per-file rename has been applied.
+| ------------------- | -------------------------------------------------------------------------------------------------- |
+| **✏ Rename**        | Opens an inline edit field; saves via `PATCH /meetings/{id}/participants/{display_name}/display-name` |
+| **Display name**    | The canonical registered name as recorded in this Parquet file                                     |
+| **Presence ratio**  | `XX% present`, sourced from the CSV                                                                |
+| **Challenge stats** | `N/M ✓` (correctly answered / total issued), sourced from the CSV                                  |
+| **Presence band**   | Inline SVG timeline bar; click opens the presence legend popup                                     |
 
 ### Per-file rename
 
 The **✏ Rename** button on a meeting analysis row writes only to that
-Parquet file: it rewrites the `display_name` column for all events
-belonging to `participant_id` in that file, replacing every variant with
-the new name. No other files are affected.
+Parquet file: it rewrites the `display_name` column for every event that
+currently shows the old name, replacing it with the new name. No other
+files are affected.
+
+Because the session coordinator always writes the canonical registered
+name (not the raw platform-side display name), one Parquet file
+normally contains exactly one variant per participant. Renames are
+useful when a teacher wants to change how a student appears in the
+analysis view after the fact, or to merge two histories that should
+have been one.
 
 Renames never create a persistent name override for future meetings.
-Future meetings record whatever name the platform provides at join time.
 
 ## Cross-meeting participant view
 
@@ -394,7 +386,7 @@ One row per (participant, meeting) pair.
 
 | Column               | Description                                |
 | -------------------- | ------------------------------------------ |
-| `display_name`       | Same multi-variant format as above         |
+| `display_name`       | Canonical registered name                  |
 | `meeting`            | Meeting identifier (ISO datetime of start) |
 | `presence_ratio`     | Decimal 0–1                                |
 | `challenges_issued`  | Integer                                    |
@@ -414,8 +406,8 @@ ptrack_py aggregate --in 'meetings/*.parquet' --format csv --out semester.csv
 ## Registry page
 
 `GET /registry` shows every display-name entry currently stored in the
-participant registry — one row per registered display name. A single
-messenger account may own up to 5 rows (see `MaxNamesPerHandle`).
+participant registry — one row per registered display name. Each
+messenger account holds at most one registration at a time.
 
 ### Page layout
 
@@ -425,26 +417,24 @@ Registry — Registered Participants          [Clear all]
 Display name       Messenger        Registered
 ────────────────   ──────────────   ──────────────────
 Alice Smith        Telegram @alice  2026-04-15 09:12   [Delete]
-A. Smith           Telegram @alice  2026-04-15 09:13   [Delete]
 Ivan Kovalenko     Telegram @ivan   2026-03-01 14:30   [Delete]
 ```
 
 The table is sorted by display name (case-insensitive). The
 **Messenger** column shows the messenger name and the human-readable
 label stored at registration time (Telegram @username if available, or
-first name) — multiple rows with the same messenger label belong to the
-same student.
+first name).
 
-**[Delete]** calls `DELETE /registry/{id}` for that entry. A brief
-inline confirmation is shown before the request is sent (htmx confirm).
-The row disappears on success without a full page reload.
+**[Delete]** calls `DELETE /registry/{display_name}` for that entry,
+where `{display_name}` is URL-encoded. A brief inline confirmation is
+shown before the request is sent (htmx confirm). The row disappears on
+success without a full page reload.
 
 **[Clear all]** calls `DELETE /registry`. A modal confirmation dialog is
 shown first. Parquet files are not affected.
 
 When the registry is empty the page shows a short explanation of how
-students register (send `/register <display name>` to the bot, up to 5
-names per account).
+students register (send `/register <display name>` to the bot).
 
 A link to the registry page is placed in the top navigation bar (visible
 at all times, not just during a meeting).

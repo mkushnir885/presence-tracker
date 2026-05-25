@@ -60,10 +60,10 @@ type MeetingInfo struct {
 }
 
 // ParticipantRow is the timeline data for one participant in a meeting.
+// DisplayName is the canonical registered name and the row's identity end
+// to end — there is no separate participant ID at the Parquet layer.
 type ParticipantRow struct {
-	ParticipantID     string
-	DisplayNames      []string // deduplicated, in order of first appearance
-	HasMultipleNames  bool
+	DisplayName       string
 	PresenceRatio     float64
 	ChallengesIssued  int
 	ChallengesCorrect int
@@ -90,9 +90,8 @@ type Marker struct {
 
 // ParticipantData is the data model for the cross-meeting participant view.
 type ParticipantData struct {
-	ParticipantID string
-	DisplayName   string
-	Meetings      []ParticipantMeetingRow
+	DisplayName string
+	Meetings    []ParticipantMeetingRow
 }
 
 // ParticipantMeetingRow is per-meeting data in the participant view.

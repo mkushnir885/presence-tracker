@@ -2,7 +2,7 @@ package views
 
 import (
 	"fmt"
-	"strings"
+	"net/url"
 )
 
 templ MeetingAnalysis(data MeetingData, locale Locale) {
@@ -52,20 +52,14 @@ templ MeetingAnalysis(data MeetingData, locale Locale) {
 
 templ participantRow(meetingID string, idx int, row ParticipantRow, t func(string) string) {
 	<div style="display:flex;align-items:center;margin-bottom:0.4rem;">
-		<div style="width:180px;font-size:0.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title={ strings.Join(row.DisplayNames, " | ") }>
-			if row.HasMultipleNames {
-				<span title={ strings.Join(row.DisplayNames, " | ") }>{ strings.Join(row.DisplayNames, " | ") }</span>
-				<span> </span>
-				<a href="#" style="font-size:0.75rem;color:var(--accent);"
-					hx-patch={ "/meetings/" + meetingID + "/participants/" + row.ParticipantID + "/display-name" }
-					hx-prompt={ t("meeting.rename_prompt") }
-					hx-target="this"
-					hx-swap="outerHTML">✏</a>
-			} else if len(row.DisplayNames) > 0 {
-				{ row.DisplayNames[0] }
-			} else {
-				{ row.ParticipantID }
-			}
+		<div style="width:180px;font-size:0.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title={ row.DisplayName }>
+			{ row.DisplayName }
+			<span> </span>
+			<a href="#" style="font-size:0.75rem;color:var(--accent);"
+				hx-patch={ "/meetings/" + meetingID + "/participants/" + url.PathEscape(row.DisplayName) + "/display-name" }
+				hx-prompt={ t("meeting.rename_prompt") }
+				hx-target="this"
+				hx-swap="outerHTML">✏</a>
 		</div>
 		<div style="flex:1;position:relative;height:24px;">
 			<svg width="100%" height="24" style="overflow:visible;">

@@ -4,10 +4,12 @@ Derived lazy frames computed from the raw event log.
 All functions take the raw event LazyFrame and return a new LazyFrame.
 They do not read files or call collect(); that is the caller's responsibility.
 
-timestamp column semantics (schema v2): the meeting_started row stores an
-absolute Unix ms value; every other row stores a ms offset from that anchor.
-The frames below work with raw offsets — callers that need wall-clock times
-should join against the meetings frame which exposes started_at (Datetime).
+timestamp column semantics: the meeting_started row stores an absolute Unix
+ms value; every other row stores a ms offset from that anchor. The frames
+below work with raw offsets — callers that need wall-clock times should
+join against the meetings frame which exposes started_at (Datetime).
+
+display_name is the participant identity end to end.
 """
 
 from __future__ import annotations
@@ -17,34 +19,32 @@ import polars as pl
 
 def presence(events: pl.LazyFrame) -> pl.LazyFrame:
     """
-    Derive presence intervals: one row per (participant_id, meeting_id, interval).
+    Derive presence intervals: one row per (display_name, meeting_id, interval).
 
-    Columns: participant_id, meeting_id, joined_ms, left_ms, presence_seconds,
-             display_name.
+    Columns: display_name, meeting_id, joined_ms, left_ms, presence_seconds.
     joined_ms and left_ms are ms offsets from the meeting start.
     left_ms is null if the participant was still present when the meeting ended.
     """
     joined = events.filter(pl.col("event_type") == "participant_joined").select(
-        pl.col("participant_id"),
+        pl.col("display_name"),
         pl.col("meeting_id"),
         pl.col("timestamp").alias("joined_ms"),
-        pl.col("display_name"),
     )
     left = events.filter(pl.col("event_type") == "participant_left").select(
-        pl.col("participant_id"),
+        pl.col("display_name"),
         pl.col("meeting_id"),
         pl.col("timestamp").alias("left_ms"),
     )
 
     # Pair joins with their nearest following leave in the same meeting.
     return (
-        joined.join(left, on=["participant_id", "meeting_id"], how="left")
+        joined.join(left, on=["display_name", "meeting_id"], how="left")
         .filter(
             pl.col("left_ms").is_null() | (pl.col("left_ms") >= pl.col("joined_ms"))
         )
-        .sort(["participant_id", "meeting_id", "joined_ms", "left_ms"])
-        .group_by(["participant_id", "meeting_id", "joined_ms"])
-        .agg(pl.col("left_ms").first(), pl.col("display_name").first())
+        .sort(["display_name", "meeting_id", "joined_ms", "left_ms"])
+        .group_by(["display_name", "meeting_id", "joined_ms"])
+        .agg(pl.col("left_ms").first())
         .with_columns(
             pl.when(pl.col("left_ms").is_not_null())
             .then((pl.col("left_ms") - pl.col("joined_ms")) / 1_000.0)
@@ -58,12 +58,12 @@ def challenge_results(events: pl.LazyFrame) -> pl.LazyFrame:
     """
     One row per challenge_issued event, annotated with its final state.
 
-    Columns: participant_id, meeting_id, challenge_id, question_id,
+    Columns: display_name, meeting_id, challenge_id, question_id,
              challenge_type, issued_ms, state, latency_ms.
     issued_ms is a ms offset from the meeting start.
     """
     issued = events.filter(pl.col("event_type") == "challenge_issued").select(
-        pl.col("participant_id"),
+        pl.col("display_name"),
         pl.col("meeting_id"),
         pl.col("timestamp").alias("issued_ms"),
         # Extract from JSON metadata

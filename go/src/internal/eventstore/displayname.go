@@ -13,20 +13,21 @@ import (
 	"github.com/apache/arrow/go/v17/parquet/pqarrow"
 )
 
-// UpdateDisplayName rewrites all events in parquetPath, setting display_name
-// for every event whose participant_id matches the given participantID.
+// UpdateDisplayName rewrites all events in parquetPath whose display_name
+// matches oldName, replacing it with newName. Matching is exact (no case
+// folding or trim) — the GUI sends back the value it showed the teacher.
 //
-// This is called by the GUI when the teacher changes a student's display name
-// in the meeting analysis view.
-func UpdateDisplayName(parquetPath, participantID, displayName string) error {
+// This is called by the GUI when the teacher renames a participant in the
+// meeting analysis view.
+func UpdateDisplayName(parquetPath, oldName, newName string) error {
 	records, err := ReadAll(context.Background(), parquetPath)
 	if err != nil {
 		return fmt.Errorf("eventstore: read for rename: %w", err)
 	}
 
 	for i := range records {
-		if records[i].ParticipantID == participantID {
-			records[i].DisplayName = displayName
+		if records[i].DisplayName == oldName {
+			records[i].DisplayName = newName
 		}
 	}
 

@@ -1,6 +1,10 @@
 package views
 
-import "presence-tracker/src/internal/participants"
+import (
+	"net/url"
+
+	"presence-tracker/src/internal/participants"
+)
 
 templ Registry(entries []participants.RegistryEntry, locale Locale) {
 	@Layout("Registry", locale) {
@@ -35,16 +39,16 @@ templ Registry(entries []participants.RegistryEntry, locale Locale) {
 					</thead>
 					<tbody>
 						for _, e := range entries {
-							<tr id={ "entry-" + string(e.ID) } style="border-top:1px solid var(--border);">
+							<tr id={ "entry-" + url.PathEscape(e.DisplayName) } style="border-top:1px solid var(--border);">
 								<td style="padding:0.5rem;">{ e.DisplayName }</td>
 								<td style="padding:0.5rem;">{ e.MessengerName } { e.MessengerLabel }</td>
 								<td style="padding:0.5rem;" class="text-muted">{ e.RegisteredAt.Format("2006-01-02 15:04") }</td>
 								<td style="padding:0.5rem;">
 									<button
 										class="btn btn-sm btn-danger"
-										hx-delete={ "/registry/" + string(e.ID) }
+										hx-delete={ "/registry/" + url.PathEscape(e.DisplayName) }
 										hx-confirm={ locale.T("registry.delete_confirm") }
-										hx-target={ "#entry-" + string(e.ID) }
+										hx-target={ "#entry-" + url.PathEscape(e.DisplayName) }
 										hx-swap="outerHTML"
 									>{ locale.T("registry.delete") }</button>
 								</td>

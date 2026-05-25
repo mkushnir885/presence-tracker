@@ -14,21 +14,22 @@ import (
 )
 
 // EligibleParticipant is a snapshot of one participant eligible to receive
-// a challenge in a poll round.
+// a challenge in a poll round. Identity is the canonical display name —
+// the same value written to every per-participant Parquet event.
 type EligibleParticipant struct {
-	ParticipantID string
-	Handle        string
+	DisplayName string
+	Handle      string
 }
 
 // IssuedChallenge records one delivered challenge.
 type IssuedChallenge struct {
-	ChallengeID   string
-	ParticipantID string
-	TypeLabel     string
-	Question      Question
-	Handle        string
-	MessageRef    string
-	IssuedAt      time.Time
+	ChallengeID string
+	DisplayName string
+	TypeLabel   string
+	Question    Question
+	Handle      string
+	MessageRef  string
+	IssuedAt    time.Time
 }
 
 // EventSink receives scored challenge results and side effects. Implemented
@@ -37,7 +38,7 @@ type EventSink interface {
 	RecordChallengeIssued(ctx context.Context, c IssuedChallenge) error
 	RecordChallengeResult(ctx context.Context, challengeID string, result ScoreResult, latencyMS int64) error
 	RecordChallengeUnanswered(ctx context.Context, challengeID string) error
-	RecordChallengeSkipped(ctx context.Context, participantID, reason string) error
+	RecordChallengeSkipped(ctx context.Context, displayName, reason string) error
 	DeleteMessage(ctx context.Context, ref string) error
 }
 
@@ -176,19 +177,19 @@ func (p *Pipeline) deliver(
 ) bool {
 	ref, err := send(ctx, ep.Handle, cid, q)
 	if err != nil {
-		slog.Warn("challenges: delivery failed", "participant", ep.ParticipantID, "err", err)
-		_ = p.sink.RecordChallengeSkipped(ctx, ep.ParticipantID, "delivery_failed")
+		slog.Warn("challenges: delivery failed", "participant", ep.DisplayName, "err", err)
+		_ = p.sink.RecordChallengeSkipped(ctx, ep.DisplayName, "delivery_failed")
 		return false
 	}
 
 	issued := IssuedChallenge{
-		ChallengeID:   cid,
-		ParticipantID: ep.ParticipantID,
-		TypeLabel:     typeLabel,
-		Question:      q,
-		Handle:        ep.Handle,
-		MessageRef:    ref,
-		IssuedAt:      issuedAt,
+		ChallengeID: cid,
+		DisplayName: ep.DisplayName,
+		TypeLabel:   typeLabel,
+		Question:    q,
+		Handle:      ep.Handle,
+		MessageRef:  ref,
+		IssuedAt:    issuedAt,
 	}
 	if err := p.sink.RecordChallengeIssued(ctx, issued); err != nil {
 		slog.Error("challenges: record issued", "err", err)

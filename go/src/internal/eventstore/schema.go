@@ -8,7 +8,11 @@ import (
 // It must stay in sync with docs/EVENT_SCHEMA.md and
 // py/src/ptrack_analytics/schema.py.
 //
-// timestamp semantics (schema_version 3):
+// display_name is the participant identity: it is the canonical name the
+// student registered with, recorded on every per-participant event and
+// used as the cross-meeting join key.
+//
+// timestamp semantics:
 //   - meeting_started row: absolute Unix timestamp in milliseconds.
 //   - all other rows: milliseconds elapsed since the meeting_started timestamp.
 //
@@ -20,11 +24,6 @@ var Schema = arrow.NewSchema([]arrow.Field{
 	{Name: "timestamp", Type: arrow.PrimitiveTypes.Int64, Nullable: false},
 	{Name: "source", Type: arrow.BinaryTypes.String, Nullable: false},
 	{Name: "event_type", Type: arrow.BinaryTypes.String, Nullable: false},
-	{Name: "participant_id", Type: arrow.BinaryTypes.String, Nullable: true},
-	{Name: "platform_handle", Type: arrow.BinaryTypes.String, Nullable: true},
 	{Name: "display_name", Type: arrow.BinaryTypes.String, Nullable: true},
 	{Name: "metadata", Type: arrow.BinaryTypes.String, Nullable: true}, // JSON-encoded map
-}, func() *arrow.Metadata {
-	m := arrow.MetadataFrom(map[string]string{"schema_version": "3"})
-	return &m
-}())
+}, nil)
