@@ -31,7 +31,7 @@ type bufferedJoin struct {
 // is currently claiming the name.
 type nameState struct {
 	canonicalName      string                // as stored in the registry, written verbatim to Parquet
-	handle             participants.Handle   // for sending and editing the verification DM
+	handle             string                // for sending and editing the verification DM
 	platformIDs        map[string]struct{}   // every current claimant (verified, pending, or ignored)
 	pending            *bufferedJoin         // buffered join awaiting verification, if any
 	confirmRef         messengers.MessageRef // ref to the verification DM, for edit on collision
@@ -76,7 +76,6 @@ type Config struct {
 	MeetingsDir                 string
 	QuestionsDir                string
 	ProviderName                string
-	MessengerName               string
 	AnswerWindowSecs            int
 	MinGapBetweenChallengesSecs int
 	EventStoreCompression       string
@@ -235,11 +234,11 @@ func (c *Coordinator) onJoin(ctx context.Context, evt providers.Event) {
 		// taint the name. Nothing for this name will be processed until
 		// every claimant has left the meeting.
 		oldRef := state.confirmRef
-		oldHandleStr := string(state.handle)
+		oldHandle := state.handle
 		state.pending = nil
 		state.confirmRef = messengers.MessageRef{}
 		state.tainted = true
-		delete(c.pendingHandle, oldHandleStr)
+		delete(c.pendingHandle, oldHandle)
 		c.mu.Unlock()
 
 		_ = c.messenger.EditMessage(ctx, oldRef,
@@ -255,17 +254,17 @@ func (c *Coordinator) onJoin(ctx context.Context, evt providers.Event) {
 		joinedAt:   evt.Timestamp,
 		metadata:   evt.Extra,
 	}
-	c.pendingHandle[string(handle)] = key
+	c.pendingHandle[handle] = key
 	c.mu.Unlock()
 
-	ref, err := c.messenger.SendJoinConfirmation(ctx, string(handle), c.cfg.MeetingID, c.provider.Name())
+	ref, err := c.messenger.SendJoinConfirmation(ctx, handle, c.cfg.MeetingID, c.provider.Name())
 	if err != nil {
 		slog.Warn("session: send join confirmation", "err", err)
 		c.mu.Lock()
 		if state.pending != nil && state.pending.platformID == evt.PlatformID {
 			state.pending = nil
 		}
-		delete(c.pendingHandle, string(handle))
+		delete(c.pendingHandle, handle)
 		c.mu.Unlock()
 		return
 	}
@@ -319,7 +318,7 @@ func (c *Coordinator) onLeave(ctx context.Context, evt providers.Event) {
 	if state.pending != nil && state.pending.platformID == evt.PlatformID {
 		droppedPending = true
 		droppedConfirmRef = state.confirmRef
-		delete(c.pendingHandle, string(state.handle))
+		delete(c.pendingHandle, state.handle)
 		state.pending = nil
 		state.confirmRef = messengers.MessageRef{}
 	}
@@ -525,7 +524,7 @@ func (c *Coordinator) eligibleParticipants() []challenges.EligibleParticipant {
 		}
 		out = append(out, challenges.EligibleParticipant{
 			DisplayName: state.canonicalName,
-			Handle:      string(state.handle),
+			Handle:      state.handle,
 		})
 	}
 	return out

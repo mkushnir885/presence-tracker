@@ -33,6 +33,7 @@ templ Registry(entries []participants.RegistryEntry, locale Locale) {
 						<tr>
 							<th style="text-align:left;padding:0.5rem;">{ locale.T("registry.col_display_name") }</th>
 							<th style="text-align:left;padding:0.5rem;">{ locale.T("registry.col_messenger") }</th>
+							<th style="text-align:left;padding:0.5rem;">{ locale.T("registry.col_account") }</th>
 							<th style="text-align:left;padding:0.5rem;">{ locale.T("registry.col_registered") }</th>
 							<th></th>
 						</tr>
@@ -41,7 +42,8 @@ templ Registry(entries []participants.RegistryEntry, locale Locale) {
 						for _, e := range entries {
 							<tr id={ "entry-" + url.PathEscape(e.DisplayName) } style="border-top:1px solid var(--border);">
 								<td style="padding:0.5rem;">{ e.DisplayName }</td>
-								<td style="padding:0.5rem;">{ e.MessengerName } { e.MessengerLabel }</td>
+								<td style="padding:0.5rem;">{ e.MessengerName }</td>
+								<td style="padding:0.5rem;">{ e.MessengerLabel }</td>
 								<td style="padding:0.5rem;" class="text-muted">{ e.RegisteredAt.Format("2006-01-02 15:04") }</td>
 								<td style="padding:0.5rem;">
 									<button

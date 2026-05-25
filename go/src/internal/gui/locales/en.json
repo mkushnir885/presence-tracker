@@ -59,6 +59,7 @@
   "registry.title": "Participant Registry",
   "registry.col_display_name": "Display Name",
   "registry.col_messenger": "Messenger",
+  "registry.col_account": "Account",
   "registry.col_registered": "Registered",
   "registry.empty": "No participants registered yet.",
   "registry.empty_hint": "Students register by sending /register <display-name> to the Telegram bot (up to 5 names per account).",

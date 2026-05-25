@@ -59,6 +59,7 @@
   "registry.title": "Реєстр учасників",
   "registry.col_display_name": "Відображуване ім'я",
   "registry.col_messenger": "Месенджер",
+  "registry.col_account": "Акаунт",
   "registry.col_registered": "Зареєстровано",
   "registry.empty": "Учасників ще не зареєстровано.",
   "registry.empty_hint": "Слухачі реєструються, надсилаючи /register <ім'я> боту Telegram (до 5 імен на акаунт).",

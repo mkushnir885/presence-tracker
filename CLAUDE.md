@@ -132,12 +132,12 @@ name, and registry GUI URLs use the URL-encoded display name. This
 matches how every other per-participant URL in the GUI (meeting
 analysis, cross-meeting view) already works.
 
-Display name matching is case-insensitive and ignores leading/trailing
+Display name matching is case-sensitive and ignores leading/trailing
 whitespace. The canonical name stored at registration is what gets
-written to every Parquet record, so platform-side name drift (case,
-whitespace) does not pollute cross-meeting reports. A teacher can remove
-any entry individually or clear the whole registry from the registry
-page in the GUI.
+written to every Parquet record, so platform-side whitespace drift does
+not pollute cross-meeting reports. A teacher can remove any entry
+individually or clear the whole registry from the registry page in the
+GUI.
 
 If the Messenger is not initialized (no challenges configured), the bot
 is never started and no registration prompts are sent.

@@ -12,18 +12,10 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-var (
-	bucketParticipants = []byte("participants_v3") // norm(displayName) → participantRecord (JSON)
-	bucketHandleIndex  = []byte("handle_index_v3") // norm(messenger:handle) → norm(displayName)
-)
-
-type participantRecord struct {
-	DisplayName    string
-	MessengerName  string
-	Handle         string
-	MessengerLabel string
-	RegisteredAt   time.Time
-}
+// bucketParticipants stores norm(displayName) → RegistryEntry (JSON).
+// Lookups by handle scan the bucket; at classroom scale this is cheaper than
+// maintaining a secondary index in sync.
+var bucketParticipants = []byte("participants")
 
 // BoltRegistry is a BoltDB-backed Registry implementation.
 type BoltRegistry struct {
@@ -40,15 +32,11 @@ func OpenBolt(dataDir string) (*BoltRegistry, error) {
 		return nil, fmt.Errorf("participants: open db: %w", err)
 	}
 	if err := db.Update(func(tx *bolt.Tx) error {
-		for _, name := range [][]byte{bucketParticipants, bucketHandleIndex} {
-			if _, err := tx.CreateBucketIfNotExists(name); err != nil {
-				return err
-			}
-		}
-		return nil
+		_, err := tx.CreateBucketIfNotExists(bucketParticipants)
+		return err
 	}); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("participants: init buckets: %w", err)
+		return nil, fmt.Errorf("participants: init bucket: %w", err)
 	}
 	return &BoltRegistry{db: db}, nil
 }
@@ -56,11 +44,31 @@ func OpenBolt(dataDir string) (*BoltRegistry, error) {
 func (r *BoltRegistry) Close() error { return r.db.Close() }
 
 func normName(displayName string) string {
-	return strings.ToLower(strings.TrimSpace(displayName))
+	return strings.TrimSpace(displayName)
 }
 
-func handleKey(messengerName string, handle Handle) string {
-	return strings.ToLower(messengerName) + ":" + string(handle)
+// findByHandle scans the bucket for an entry owned by (messengerName, handle).
+// Returns the bucket key (normalized display name), the entry, and whether a
+// match was found. Bucket scan is fine at classroom scale.
+func findByHandle(b *bolt.Bucket, messengerName, handle string) ([]byte, RegistryEntry, bool) {
+	var (
+		foundKey   []byte
+		foundEntry RegistryEntry
+		found      bool
+	)
+	_ = b.ForEach(func(k, v []byte) error {
+		var entry RegistryEntry
+		if err := json.Unmarshal(v, &entry); err != nil {
+			return nil
+		}
+		if entry.MessengerName == messengerName && entry.Handle == handle {
+			foundKey = append([]byte(nil), k...)
+			foundEntry = entry
+			found = true
+		}
+		return nil
+	})
+	return foundKey, foundEntry, found
 }
 
 func (r *BoltRegistry) Resolve(displayName string) (RegistryEntry, bool) {
@@ -73,82 +81,67 @@ func (r *BoltRegistry) Resolve(displayName string) (RegistryEntry, bool) {
 		if raw == nil {
 			return nil
 		}
-		var rec participantRecord
-		if err := json.Unmarshal(raw, &rec); err != nil {
+		if err := json.Unmarshal(raw, &entry); err != nil {
 			return nil
 		}
-		entry = entryFromRecord(rec)
 		found = true
 		return nil
 	})
 	return entry, found
 }
 
-func (r *BoltRegistry) Register(_ context.Context, messengerName string, handle Handle, messengerLabel, displayName string) error {
+func (r *BoltRegistry) Register(_ context.Context, messengerName, handle, messengerLabel, displayName string) error {
 	nameKey := []byte(normName(displayName))
-	hKey := []byte(handleKey(messengerName, handle))
 
 	return r.db.Update(func(tx *bolt.Tx) error {
-		partBucket := tx.Bucket(bucketParticipants)
-		handleBucket := tx.Bucket(bucketHandleIndex)
+		b := tx.Bucket(bucketParticipants)
 
-		if existing := partBucket.Get(nameKey); existing != nil {
-			var rec participantRecord
-			_ = json.Unmarshal(existing, &rec)
-			if rec.Handle != string(handle) || rec.MessengerName != messengerName {
+		if existing := b.Get(nameKey); existing != nil {
+			var entry RegistryEntry
+			_ = json.Unmarshal(existing, &entry)
+			if entry.Handle != handle || entry.MessengerName != messengerName {
 				return ErrNameTaken
 			}
 			// Same handle re-registering the same name: refresh label/casing.
-			rec.DisplayName = displayName
-			rec.MessengerLabel = messengerLabel
-			data, err := json.Marshal(rec)
-			if err != nil {
-				return fmt.Errorf("participants: marshal record: %w", err)
-			}
-			return partBucket.Put(nameKey, data)
+			entry.DisplayName = displayName
+			entry.MessengerLabel = messengerLabel
+			return putEntry(b, nameKey, entry)
 		}
 
 		// New name. If the handle already owns a different registration, drop it.
-		if prevName := handleBucket.Get(hKey); prevName != nil {
-			if err := partBucket.Delete(prevName); err != nil {
+		if prevKey, _, ok := findByHandle(b, messengerName, handle); ok {
+			if err := b.Delete(prevKey); err != nil {
 				return err
 			}
 		}
 
-		rec := participantRecord{
+		return putEntry(b, nameKey, RegistryEntry{
 			DisplayName:    displayName,
 			MessengerName:  messengerName,
-			Handle:         string(handle),
+			Handle:         handle,
 			MessengerLabel: messengerLabel,
 			RegisteredAt:   time.Now().UTC(),
-		}
-		data, err := json.Marshal(rec)
-		if err != nil {
-			return fmt.Errorf("participants: marshal record: %w", err)
-		}
-		if err := partBucket.Put(nameKey, data); err != nil {
-			return err
-		}
-		return handleBucket.Put(hKey, nameKey)
+		})
 	})
+}
+
+func putEntry(b *bolt.Bucket, key []byte, entry RegistryEntry) error {
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Errorf("participants: marshal entry: %w", err)
+	}
+	return b.Put(key, data)
 }
 
 func (r *BoltRegistry) UnregisterByName(_ context.Context, displayName string) (bool, error) {
 	nameKey := []byte(normName(displayName))
 	var found bool
 	err := r.db.Update(func(tx *bolt.Tx) error {
-		raw := tx.Bucket(bucketParticipants).Get(nameKey)
-		if raw == nil {
+		b := tx.Bucket(bucketParticipants)
+		if b.Get(nameKey) == nil {
 			return nil
 		}
-		var rec participantRecord
-		if err := json.Unmarshal(raw, &rec); err != nil {
-			return fmt.Errorf("participants: decode record: %w", err)
-		}
-		if err := tx.Bucket(bucketHandleIndex).Delete([]byte(handleKey(rec.MessengerName, Handle(rec.Handle)))); err != nil {
-			return err
-		}
-		if err := tx.Bucket(bucketParticipants).Delete(nameKey); err != nil {
+		if err := b.Delete(nameKey); err != nil {
 			return err
 		}
 		found = true
@@ -157,18 +150,15 @@ func (r *BoltRegistry) UnregisterByName(_ context.Context, displayName string) (
 	return found, err
 }
 
-func (r *BoltRegistry) UnregisterByHandle(_ context.Context, messengerName string, handle Handle) (bool, error) {
-	hKey := []byte(handleKey(messengerName, handle))
+func (r *BoltRegistry) UnregisterByHandle(_ context.Context, messengerName, handle string) (bool, error) {
 	var found bool
 	err := r.db.Update(func(tx *bolt.Tx) error {
-		nameKey := tx.Bucket(bucketHandleIndex).Get(hKey)
-		if nameKey == nil {
+		b := tx.Bucket(bucketParticipants)
+		key, _, ok := findByHandle(b, messengerName, handle)
+		if !ok {
 			return nil
 		}
-		if err := tx.Bucket(bucketParticipants).Delete(nameKey); err != nil {
-			return err
-		}
-		if err := tx.Bucket(bucketHandleIndex).Delete(hKey); err != nil {
+		if err := b.Delete(key); err != nil {
 			return err
 		}
 		found = true
@@ -177,7 +167,7 @@ func (r *BoltRegistry) UnregisterByHandle(_ context.Context, messengerName strin
 	return found, err
 }
 
-func (r *BoltRegistry) HandleForName(displayName, messengerName string) (Handle, bool) {
+func (r *BoltRegistry) HandleForName(displayName, messengerName string) (string, bool) {
 	entry, ok := r.Resolve(displayName)
 	if !ok {
 		return "", false
@@ -188,25 +178,17 @@ func (r *BoltRegistry) HandleForName(displayName, messengerName string) (Handle,
 	return entry.Handle, true
 }
 
-func (r *BoltRegistry) LookupByHandle(messengerName string, handle Handle) (RegistryEntry, bool) {
+func (r *BoltRegistry) LookupByHandle(messengerName, handle string) (RegistryEntry, bool) {
 	var (
 		entry RegistryEntry
 		found bool
 	)
 	_ = r.db.View(func(tx *bolt.Tx) error {
-		nameKey := tx.Bucket(bucketHandleIndex).Get([]byte(handleKey(messengerName, handle)))
-		if nameKey == nil {
+		_, e, ok := findByHandle(tx.Bucket(bucketParticipants), messengerName, handle)
+		if !ok {
 			return nil
 		}
-		raw := tx.Bucket(bucketParticipants).Get(nameKey)
-		if raw == nil {
-			return nil
-		}
-		var rec participantRecord
-		if err := json.Unmarshal(raw, &rec); err != nil {
-			return nil
-		}
-		entry = entryFromRecord(rec)
+		entry = e
 		found = true
 		return nil
 	})
@@ -217,11 +199,11 @@ func (r *BoltRegistry) List(_ context.Context) ([]RegistryEntry, error) {
 	var out []RegistryEntry
 	err := r.db.View(func(tx *bolt.Tx) error {
 		return tx.Bucket(bucketParticipants).ForEach(func(_, v []byte) error {
-			var rec participantRecord
-			if err := json.Unmarshal(v, &rec); err != nil {
+			var entry RegistryEntry
+			if err := json.Unmarshal(v, &entry); err != nil {
 				return err
 			}
-			out = append(out, entryFromRecord(rec))
+			out = append(out, entry)
 			return nil
 		})
 	})
@@ -230,24 +212,10 @@ func (r *BoltRegistry) List(_ context.Context) ([]RegistryEntry, error) {
 
 func (r *BoltRegistry) ClearAll(_ context.Context) error {
 	return r.db.Update(func(tx *bolt.Tx) error {
-		for _, name := range [][]byte{bucketParticipants, bucketHandleIndex} {
-			if err := tx.DeleteBucket(name); err != nil {
-				return err
-			}
-			if _, err := tx.CreateBucket(name); err != nil {
-				return err
-			}
+		if err := tx.DeleteBucket(bucketParticipants); err != nil {
+			return err
 		}
-		return nil
+		_, err := tx.CreateBucket(bucketParticipants)
+		return err
 	})
-}
-
-func entryFromRecord(rec participantRecord) RegistryEntry {
-	return RegistryEntry{
-		DisplayName:    rec.DisplayName,
-		MessengerName:  rec.MessengerName,
-		Handle:         Handle(rec.Handle),
-		MessengerLabel: rec.MessengerLabel,
-		RegisteredAt:   rec.RegisteredAt,
-	}
 }

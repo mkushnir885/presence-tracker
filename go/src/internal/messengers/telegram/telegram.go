@@ -125,7 +125,7 @@ func (a *Adapter) handleRegister(ctx context.Context, msg *tgbotapi.Message) {
 	}
 
 	// TODO: use configured UI language for replies below
-	err := a.registry.Register(ctx, "telegram", participants.Handle(handle), label, displayName)
+	err := a.registry.Register(ctx, a.Name(), handle, label, displayName)
 	switch {
 	case errors.Is(err, participants.ErrNameTaken):
 		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf(
@@ -155,7 +155,7 @@ func (a *Adapter) handleUnregister(ctx context.Context, msg *tgbotapi.Message) {
 	chatID := msg.Chat.ID
 	handle := strconv.FormatInt(chatID, 10)
 
-	found, err := a.registry.UnregisterByHandle(ctx, "telegram", participants.Handle(handle))
+	found, err := a.registry.UnregisterByHandle(ctx, a.Name(), handle)
 	switch {
 	case err != nil:
 		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, "Could not remove registration: "+err.Error()))
@@ -168,7 +168,7 @@ func (a *Adapter) handleUnregister(ctx context.Context, msg *tgbotapi.Message) {
 
 func (a *Adapter) handleWhoami(chatID int64) {
 	handle := strconv.FormatInt(chatID, 10)
-	entry, ok := a.registry.LookupByHandle("telegram", participants.Handle(handle))
+	entry, ok := a.registry.LookupByHandle(a.Name(), handle)
 	if !ok {
 		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID,
 			"You have no active registration.\n\nUse /register <display name> to register."))

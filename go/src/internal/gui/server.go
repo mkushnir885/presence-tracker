@@ -198,7 +198,6 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 		MeetingsDir:                 s.cfg.Get().MeetingsDir,
 		QuestionsDir:                s.cfg.Get().QuestionsDir,
 		ProviderName:                prov.Name(),
-		MessengerName:               msgr.Name(),
 		AnswerWindowSecs:            s.cfg.Get().Challenges.Defaults.AnswerWindowSeconds,
 		MinGapBetweenChallengesSecs: s.cfg.Get().Challenges.Defaults.MinGapBetweenChallengesSecs,
 		EventStoreCompression:       s.cfg.Get().EventStore.Compression,

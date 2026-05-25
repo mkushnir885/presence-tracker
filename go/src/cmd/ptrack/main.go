@@ -254,7 +254,6 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 		MeetingsDir:                 v.MeetingsDir,
 		QuestionsDir:                v.QuestionsDir,
 		ProviderName:                prov.Name(),
-		MessengerName:               msgr.Name(),
 		AnswerWindowSecs:            v.Challenges.Defaults.AnswerWindowSeconds,
 		MinGapBetweenChallengesSecs: v.Challenges.Defaults.MinGapBetweenChallengesSecs,
 		EventStoreCompression:       v.EventStore.Compression,
