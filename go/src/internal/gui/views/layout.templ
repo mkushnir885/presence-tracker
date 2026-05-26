@@ -1,6 +1,9 @@
 package views
 
-templ Layout(title string, locale Locale) {
+// Layout is the page chrome shared by every view. navExtras is an
+// optional component injected into the nav between the spacer and the
+// theme menu — pages that don't need it pass nil.
+templ Layout(title string, locale Locale, navExtras templ.Component) {
 	<!DOCTYPE html>
 	<html lang={ htmlLang(locale.Lang) }>
 		<head>
@@ -21,6 +24,9 @@ templ Layout(title string, locale Locale) {
 			<nav>
 				<a class="brand" href="/">Presence Tracker</a>
 				<div class="spacer"></div>
+				if navExtras != nil {
+					@navExtras
+				}
 				@themeMenu(locale)
 				@langMenu(locale)
 				<a class="icon-btn" href="/registry" data-tooltip={ locale.T("nav.registry") } aria-label={ locale.T("nav.registry") }>
@@ -170,6 +176,14 @@ templ iconSun() {
 templ iconMoon() {
 	<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 		<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+	</svg>
+}
+
+templ iconDownload() {
+	<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+		<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+		<polyline points="7 10 12 15 17 10"></polyline>
+		<line x1="12" y1="15" x2="12" y2="3"></line>
 	</svg>
 }
 

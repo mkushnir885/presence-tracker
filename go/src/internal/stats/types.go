@@ -16,36 +16,51 @@ type Meeting struct {
 	MeetingID       string  `json:"meeting_id"`
 	StartedAt       string  `json:"started_at"`
 	DurationSeconds float64 `json:"duration_seconds"`
+	Platform        string  `json:"platform"`
+	EndedReason     string  `json:"ended_reason"`
+	MaxParticipants int     `json:"max_participants"`
+	SourceFile      string  `json:"source_file"`
 }
 
 // Participant is one student in canonical display-name order. Rows
 // holds one entry per meeting in the request set (with Absent=true for
 // meetings the participant did not attend, in cross-meeting mode).
 type Participant struct {
-	DisplayName string            `json:"display_name"`
+	DisplayName string           `json:"display_name"`
 	Rows        []ParticipantRow `json:"rows"`
 }
 
 // ParticipantRow is the (participant, meeting) cell — the unit one
 // row of the timeband list renders from.
 type ParticipantRow struct {
-	MeetingID         string    `json:"meeting_id"`
-	Absent            bool      `json:"absent"`
-	PresenceRatio     float64   `json:"presence_ratio"`
-	ChallengesIssued  int       `json:"challenges_issued"`
-	ChallengesCorrect int       `json:"challenges_correct"`
-	Segments          []Segment `json:"segments"`
-	Markers           []Marker  `json:"markers"`
+	MeetingID            string    `json:"meeting_id"`
+	Absent               bool      `json:"absent"`
+	PresenceRatio        float64   `json:"presence_ratio"`
+	PresenceSeconds      float64   `json:"presence_seconds"`
+	ChallengesIssued     int       `json:"challenges_issued"`
+	ChallengesCorrect    int       `json:"challenges_correct"`
+	ChallengesIncorrect  int       `json:"challenges_incorrect"`
+	ChallengesUnanswered int       `json:"challenges_unanswered"`
+	Segments             []Segment `json:"segments"`
+	Markers              []Marker  `json:"markers"`
 }
 
-// Segment is a presence band span, in percent of the meeting duration.
+// Segment is a presence band span. Percent fields drive SVG layout;
+// the millisecond offsets and metadata strings feed boundary tooltips.
 type Segment struct {
-	StartPct float64 `json:"start_pct"`
-	WidthPct float64 `json:"width_pct"`
-	Present  bool    `json:"present"`
+	StartPct     float64 `json:"start_pct"`
+	WidthPct     float64 `json:"width_pct"`
+	Present      bool    `json:"present"`
+	StartMS      int64   `json:"start_ms"`
+	EndMS        int64   `json:"end_ms"`
+	StillPresent bool    `json:"still_present"`
+	JoinMethod   string  `json:"join_method"`
+	LeaveReason  string  `json:"leave_reason"`
 }
 
 // Marker is a challenge event positioned along the meeting timeline.
+// Prompt and CorrectAnswer come from the meeting's questions JSONL
+// when one exists; they're empty strings when the file is missing.
 type Marker struct {
 	XPct          float64 `json:"x_pct"`
 	ChallengeType string  `json:"challenge_type"`
@@ -53,4 +68,7 @@ type Marker struct {
 	ChallengeID   string  `json:"challenge_id"`
 	QuestionID    string  `json:"question_id"`
 	TimestampMS   int64   `json:"timestamp_ms"`
+	LatencyMS     int64   `json:"latency_ms"`
+	Prompt        string  `json:"prompt"`
+	CorrectAnswer string  `json:"correct_answer"`
 }

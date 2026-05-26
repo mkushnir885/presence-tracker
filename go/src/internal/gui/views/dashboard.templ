@@ -3,7 +3,7 @@ package views
 import "fmt"
 
 templ Dashboard(data DashboardData, locale Locale) {
-	@Layout("Dashboard", locale) {
+	@Layout("Dashboard", locale, nil) {
 		<h1>{ locale.T("nav.dashboard") }</h1>
 		if data.ActiveSession {
 			<div class="card">
@@ -45,15 +45,30 @@ templ Dashboard(data DashboardData, locale Locale) {
 							<label for="meeting_id">{ locale.T("dashboard.connect.meeting_id") }</label>
 							<input id="meeting_id" name="meeting_id" type="text" placeholder="e.g. my-class-2026-05-01" required/>
 						</div>
+						<div class="field">
+							<label for="file_name">{ locale.T("dashboard.connect.file_name") }</label>
+							<input id="file_name" name="file_name" type="text" placeholder={ locale.T("dashboard.connect.file_name_placeholder") }/>
+							<small class="text-muted">{ locale.T("dashboard.connect.file_name_hint") }</small>
+						</div>
 						<button type="submit" class="btn btn-primary">{ locale.T("dashboard.connect.btn") }</button>
 					</form>
 				}
 			</div>
 		}
-		<h2>{ locale.T("dashboard.meetings.title") }</h2>
 		if len(data.Meetings) == 0 {
+			<h2>{ locale.T("dashboard.meetings.title") }</h2>
 			<p class="text-muted">{ locale.T("dashboard.meetings.empty") }</p>
 		} else {
+			<div class="meetings-heading">
+				<h2>{ locale.T("dashboard.meetings.title") }</h2>
+				<input
+					id="meetings-filter-input"
+					type="search"
+					placeholder={ locale.T("dashboard.meetings.filter_placeholder") }
+					aria-label={ locale.T("dashboard.meetings.filter_placeholder") }
+				/>
+				<span class="text-muted" id="meetings-filter-empty" hidden>{ locale.T("dashboard.meetings.filter_no_matches") }</span>
+			</div>
 			<form id="meetings-form" action="/stats" method="GET">
 				<table class="meetings-table">
 					<thead>
@@ -62,7 +77,16 @@ templ Dashboard(data DashboardData, locale Locale) {
 							<th>{ locale.T("dashboard.meetings.col_id") }</th>
 							<th>{ locale.T("dashboard.meetings.col_modified") }</th>
 							<th>{ locale.T("dashboard.meetings.col_size") }</th>
-							<th></th>
+							<th class="meetings-csv-cell">
+								<button
+									type="submit"
+									formaction="/report"
+									id="csv-cross-btn"
+									class="btn"
+									title={ locale.T("dashboard.meetings.export_cross_csv") }
+									style="visibility:hidden"
+								>CSV</button>
+							</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -90,19 +114,45 @@ templ Dashboard(data DashboardData, locale Locale) {
 					const rows = document.querySelectorAll('input.meetings-select');
 					const btn = document.getElementById('view-stats-btn');
 					const count = document.getElementById('meetings-selected-count');
+					const filter = document.getElementById('meetings-filter-input');
+					const empty = document.getElementById('meetings-filter-empty');
+					const csvBtn = document.getElementById('csv-cross-btn');
+					function visibleRows() {
+						return Array.from(rows).filter(r => !r.closest('tr').hidden);
+					}
 					function refresh() {
-						const n = Array.from(rows).filter(r => r.checked).length;
+						const visible = visibleRows();
+						const n = visible.filter(r => r.checked).length;
 						btn.disabled = n === 0;
 						count.textContent = n > 0 ? n + ' selected' : '';
-						all.checked = n === rows.length && n > 0;
-						all.indeterminate = n > 0 && n < rows.length;
+						all.checked = visible.length > 0 && n === visible.length;
+						all.indeterminate = n > 0 && n < visible.length;
+						all.disabled = visible.length === 0;
+						if (csvBtn) csvBtn.style.visibility = n < 2 ? 'hidden' : 'visible';
+					}
+					function applyFilter() {
+						const q = (filter.value || '').trim().toLowerCase();
+						let shown = 0;
+						rows.forEach(r => {
+							const tr = r.closest('tr');
+							const name = (r.value || '').toLowerCase();
+							const match = q === '' || name.indexOf(q) !== -1;
+							tr.hidden = !match;
+							if (!match) r.checked = false;
+							if (match) shown++;
+						});
+						empty.hidden = shown !== 0;
+						refresh();
 					}
 					all.addEventListener('change', () => {
-						rows.forEach(r => r.checked = all.checked);
+						visibleRows().forEach(r => r.checked = all.checked);
 						refresh();
 					});
 					rows.forEach(r => r.addEventListener('change', refresh));
-					refresh();
+					if (filter) {
+						filter.addEventListener('input', applyFilter);
+					}
+					applyFilter();
 				})();
 			</script>
 		}

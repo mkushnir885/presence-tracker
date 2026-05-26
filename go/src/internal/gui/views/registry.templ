@@ -8,7 +8,7 @@ import (
 )
 
 templ Registry(data RegistryData, locale Locale) {
-	@Layout("Registry", locale) {
+	@Layout("Registry", locale, nil) {
 		<h1>{ locale.T("registry.title") }</h1>
 		if !data.HasAny {
 			<div class="card">

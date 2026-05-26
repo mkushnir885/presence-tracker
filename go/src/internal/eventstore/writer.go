@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,28 +43,77 @@ type Writer struct {
 	dir          string
 	startTime    time.Time
 	tmpPath      string // <dir>/<start>.parquet — renamed to <start>-<end>.parquet on Close
+	customName   string // user-supplied base name (no .parquet); when set, tmpPath is the final path and no rename happens
 	compression  string
 	rowGroupSize int
 }
 
-// NewWriter creates a Writer that will write to <meetingsDir>/<start>.parquet on Flush
-// and rename the file to <start>-<end>.parquet on Close.
-// dir is created if it does not exist.
+// NewWriter creates a Writer that writes to a Parquet file under meetingsDir.
 //
-// TODO: add a custom file name option (per-meeting or global default) so teachers can
-// label recordings (e.g. "CS101-lecture3") instead of relying on the timestamp alone.
-func NewWriter(meetingsDir string, startTime time.Time, compression string, rowGroupSize int) (*Writer, error) {
+// When fileName is empty, the file is named after the start time: written
+// as <start>.parquet during the session and renamed to <start>-<end>.parquet
+// on Close. When fileName is non-empty, it must pass ValidateFileName and is
+// used verbatim (with a .parquet extension); no rename happens on Close, and
+// an existing file at that path is rejected up front.
+//
+// dir is created if it does not exist.
+func NewWriter(meetingsDir, fileName string, startTime time.Time, compression string, rowGroupSize int) (*Writer, error) {
 	if err := os.MkdirAll(meetingsDir, 0o755); err != nil {
 		return nil, fmt.Errorf("eventstore: mkdir %s: %w", meetingsDir, err)
 	}
-	startStr := startTime.UTC().Format(fileTimeFormat)
-	return &Writer{
+	w := &Writer{
 		dir:          meetingsDir,
 		startTime:    startTime,
-		tmpPath:      filepath.Join(meetingsDir, startStr+".parquet"),
 		compression:  compression,
 		rowGroupSize: rowGroupSize,
-	}, nil
+	}
+	if fileName == "" {
+		w.tmpPath = filepath.Join(meetingsDir, startTime.UTC().Format(fileTimeFormat)+".parquet")
+		return w, nil
+	}
+	clean, err := ValidateFileName(fileName)
+	if err != nil {
+		return nil, fmt.Errorf("eventstore: %w", err)
+	}
+	w.customName = clean
+	w.tmpPath = filepath.Join(meetingsDir, clean+".parquet")
+	if _, err := os.Stat(w.tmpPath); err == nil {
+		return nil, fmt.Errorf("eventstore: file %q already exists", filepath.Base(w.tmpPath))
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("eventstore: stat %s: %w", w.tmpPath, err)
+	}
+	return w, nil
+}
+
+// ValidateFileName returns a sanitized base name (no .parquet extension)
+// suitable for use under the meetings directory, or an error describing
+// why the input is unacceptable. Allowed characters: letters, digits,
+// space, dot, dash, underscore. The input is trimmed, the .parquet
+// suffix is stripped if present, and "." / ".." / names containing path
+// separators or "../" segments are rejected.
+func ValidateFileName(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	s = strings.TrimSuffix(s, ".parquet")
+	if s == "" {
+		return "", fmt.Errorf("file name is empty")
+	}
+	if s == "." || s == ".." || strings.Contains(s, "..") {
+		return "", fmt.Errorf("file name %q is not allowed", s)
+	}
+	if strings.ContainsAny(s, `/\`+"\x00") {
+		return "", fmt.Errorf("file name %q contains a path separator", s)
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '_', r == '-', r == '.', r == ' ':
+		default:
+			return "", fmt.Errorf("file name contains invalid character %q", r)
+		}
+	}
+	return s, nil
 }
 
 // Append adds a record to the in-memory buffer.
@@ -99,11 +149,18 @@ func (w *Writer) SetStartTime(t time.Time) {
 	w.mu.Unlock()
 }
 
-// Close flushes remaining buffered records and renames the file from
-// <start>.parquet to <start>-<end>.parquet.
+// Close flushes remaining buffered records and, for the default
+// timestamp-named file, renames it from <start>.parquet to
+// <start>-<end>.parquet. When the Writer was constructed with a custom
+// file name, the file is already at its final path and no rename
+// happens.
 func (w *Writer) Close(ctx context.Context) error {
 	if err := w.Flush(ctx); err != nil {
 		return err
+	}
+	if w.customName != "" {
+		slog.Info("eventstore: closed", "path", w.tmpPath)
+		return nil
 	}
 	endStr := time.Now().UTC().Format(fileTimeFormat)
 	startStr := w.startTime.UTC().Format(fileTimeFormat)

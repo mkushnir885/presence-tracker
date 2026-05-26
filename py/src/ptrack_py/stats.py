@@ -19,10 +19,13 @@ from typing import Any
 import polars as pl
 
 from ptrack_analytics.frames import challenge_results as _challenge_frame
-from ptrack_analytics.frames import presence as _presence_frame
 
 
-def generate_stats(events: pl.LazyFrame, mode: str) -> dict[str, Any]:
+def generate_stats(
+    events: pl.LazyFrame,
+    mode: str,
+    questions: pl.LazyFrame | None = None,
+) -> dict[str, Any]:
     """
     Build the JSON-serialisable stats document for *events*.
 
@@ -31,11 +34,16 @@ def generate_stats(events: pl.LazyFrame, mode: str) -> dict[str, Any]:
     number of --in arguments. Single-meeting mode omits absent-participant
     placeholder rows; cross-meeting mode includes one row per (participant,
     meeting) cell with `absent: true` when the participant did not appear.
+
+    *questions* is an optional LazyFrame loaded from the meeting's
+    `.jsonl` file(s); when supplied, marker tooltips include the prompt
+    and the canonical correct answer.
     """
     meetings = _collect_meetings(events)
-    summary = _collect_summary(events, meetings)
     segments = _collect_segments(events, meetings)
-    markers = _collect_markers(events, meetings)
+    summary = _collect_summary(events, meetings, segments)
+    markers = _collect_markers(events, meetings, questions)
+    max_participants = _collect_max_participants(events)
 
     return {
         "mode": mode,
@@ -44,6 +52,9 @@ def generate_stats(events: pl.LazyFrame, mode: str) -> dict[str, Any]:
                 "meeting_id": m["meeting_id"],
                 "started_at": m["started_at_iso"],
                 "duration_seconds": m["duration_seconds"],
+                "platform": m.get("platform") or "",
+                "ended_reason": m.get("ended_reason") or "",
+                "max_participants": int(max_participants.get(m["meeting_id"], 0)),
             }
             for m in meetings
         ],
@@ -63,19 +74,31 @@ def _collect_meetings(events: pl.LazyFrame) -> list[dict[str, Any]]:
         .agg(
             pl.from_epoch(pl.col("timestamp").first(), time_unit="ms").alias(
                 "started_at"
-            )
+            ),
+            pl.col("metadata")
+            .str.json_path_match("$.platform")
+            .first()
+            .alias("platform"),
         )
     )
-    # meeting_started's timestamp is the absolute Unix anchor; every other
-    # row's timestamp is an offset from it, so the duration is the max offset
-    # excluding meeting_started.
     duration = (
         events.filter(pl.col("event_type") != "meeting_started")
         .group_by("meeting_id")
         .agg(pl.col("timestamp").max().alias("duration_ms"))
     )
+    ended = (
+        events.filter(pl.col("event_type") == "meeting_ended")
+        .group_by("meeting_id")
+        .agg(
+            pl.col("metadata")
+            .str.json_path_match("$.reason")
+            .first()
+            .alias("ended_reason"),
+        )
+    )
     df: pl.DataFrame = (  # type: ignore  # ty limitation: collect returns InProcessQuery union
         start.join(duration, on="meeting_id", how="left")
+        .join(ended, on="meeting_id", how="left")
         .with_columns(
             pl.col("duration_ms").fill_null(0),
         )
@@ -94,88 +117,54 @@ def _collect_meetings(events: pl.LazyFrame) -> list[dict[str, Any]]:
     return df.to_dicts()
 
 
-def _collect_summary(
-    events: pl.LazyFrame, meetings: list[dict[str, Any]]
-) -> dict[tuple[str, str], dict[str, Any]]:
-    """Per-(display_name, meeting_id) presence ratio and challenge counts."""
-    meeting_durations = pl.LazyFrame(
-        {
-            "meeting_id": [m["meeting_id"] for m in meetings],
-            "duration_ms": [int(m["duration_ms"]) for m in meetings],
-            "duration_seconds": [m["duration_seconds"] for m in meetings],
-        }
-    )
-
-    pres = (
-        _presence_frame(events)
-        .join(meeting_durations, on="meeting_id", how="left")
-        .with_columns(
-            pl.when(pl.col("left_ms").is_null())
-            .then((pl.col("duration_ms") - pl.col("joined_ms")) / 1_000.0)
-            .otherwise(pl.col("presence_seconds"))
-            .alias("presence_seconds")
-        )
-        .group_by(["display_name", "meeting_id"])
-        .agg(
-            pl.col("presence_seconds").sum(),
-            pl.col("duration_seconds").first(),
-        )
-        .with_columns(
-            (pl.col("presence_seconds").fill_null(0.0) / pl.col("duration_seconds"))
-            .clip(0.0, 1.0)
-            .round(4)
-            .alias("presence_ratio")
-        )
-    )
-
-    chal = (
-        _challenge_frame(events)
-        .group_by(["display_name", "meeting_id"])
-        .agg(
-            pl.len().alias("challenges_issued"),
-            (pl.col("state") == "correct")
-            .sum()
-            .cast(pl.Int64)
-            .alias("challenges_correct"),
-        )
-    )
-
-    df: pl.DataFrame = (  # type: ignore  # ty limitation
-        pres.join(chal, on=["display_name", "meeting_id"], how="full", coalesce=True)
-        .with_columns(
-            pl.col("presence_ratio").fill_null(0.0),
-            pl.col("challenges_issued").fill_null(0),
-            pl.col("challenges_correct").fill_null(0),
-        )
-        .collect()
-    )
-
-    out: dict[tuple[str, str], dict[str, Any]] = {}
-    for row in df.to_dicts():
-        out[(row["display_name"], row["meeting_id"])] = {
-            "presence_ratio": float(row["presence_ratio"]),
-            "challenges_issued": int(row["challenges_issued"]),
-            "challenges_correct": int(row["challenges_correct"]),
-        }
-    return out
-
-
 def _collect_segments(
     events: pl.LazyFrame, meetings: list[dict[str, Any]]
 ) -> dict[tuple[str, str], list[dict[str, Any]]]:
-    """Per-(display_name, meeting_id) list of presence band segments (percentages)."""
-    meeting_durations = pl.LazyFrame(
+    """Per-(display_name, meeting_id) list of presence band segments.
+
+    Each segment carries both percentages (for SVG layout) and raw ms
+    offsets + the source events' metadata fields (for tooltip text).
+    Segments are pulled directly from participant_joined / _left rows so
+    the metadata columns ride along without re-parsing.
+    """
+    durations = pl.LazyFrame(
         {
             "meeting_id": [m["meeting_id"] for m in meetings],
             "duration_ms": [int(m["duration_ms"]) for m in meetings],
         }
     )
 
+    joined = events.filter(pl.col("event_type") == "participant_joined").select(
+        pl.col("display_name"),
+        pl.col("meeting_id"),
+        pl.col("timestamp").alias("joined_ms"),
+        pl.col("metadata").str.json_path_match("$.join_method").alias("join_method"),
+    )
+    left = events.filter(pl.col("event_type") == "participant_left").select(
+        pl.col("display_name"),
+        pl.col("meeting_id"),
+        pl.col("timestamp").alias("left_ms"),
+        pl.col("metadata").str.json_path_match("$.reason").alias("leave_reason"),
+    )
+
+    paired = (
+        joined.join(left, on=["display_name", "meeting_id"], how="left")
+        .filter(
+            pl.col("left_ms").is_null() | (pl.col("left_ms") >= pl.col("joined_ms"))
+        )
+        .sort(["display_name", "meeting_id", "joined_ms", "left_ms"])
+        .group_by(["display_name", "meeting_id", "joined_ms", "join_method"])
+        .agg(
+            pl.col("left_ms").first(),
+            pl.col("leave_reason").first(),
+        )
+    )
+
     df: pl.DataFrame = (  # type: ignore  # ty limitation
-        _presence_frame(events)
-        .join(meeting_durations, on="meeting_id", how="left")
+        paired.join(durations, on="meeting_id", how="left")
         .with_columns(
             pl.col("left_ms").fill_null(pl.col("duration_ms")).alias("end_ms"),
+            pl.col("left_ms").is_null().alias("still_present"),
         )
         .with_columns(
             (pl.col("joined_ms") / pl.col("duration_ms") * 100.0)
@@ -197,34 +186,148 @@ def _collect_segments(
                 "start_pct": float(row["start_pct"]),
                 "width_pct": float(row["width_pct"]),
                 "present": True,
+                "start_ms": int(row["joined_ms"]),
+                "end_ms": int(row["end_ms"]),
+                "still_present": bool(row["still_present"]),
+                "join_method": row["join_method"] or "",
+                "leave_reason": (
+                    "" if row["still_present"] else (row["leave_reason"] or "")
+                ),
             }
         )
     return out
 
 
+def _collect_summary(
+    events: pl.LazyFrame,
+    meetings: list[dict[str, Any]],
+    segments: dict[tuple[str, str], list[dict[str, Any]]],
+) -> dict[tuple[str, str], dict[str, Any]]:
+    """Per-(display_name, meeting_id) presence ratio + per-state challenge counts."""
+    duration_by_id = {m["meeting_id"]: m["duration_seconds"] for m in meetings}
+
+    presence_rows: dict[tuple[str, str], float] = {}
+    for key, segs in segments.items():
+        total = 0
+        for s in segs:
+            total += s["end_ms"] - s["start_ms"]
+        presence_rows[key] = total / 1_000.0
+
+    chal_df: pl.DataFrame = (  # type: ignore  # ty limitation
+        _challenge_frame(events)
+        .group_by(["display_name", "meeting_id"])
+        .agg(
+            pl.len().alias("challenges_issued"),
+            (pl.col("state") == "correct")
+            .sum()
+            .cast(pl.Int64)
+            .alias("challenges_correct"),
+            (pl.col("state") == "incorrect")
+            .sum()
+            .cast(pl.Int64)
+            .alias("challenges_incorrect"),
+            (pl.col("state") == "unanswered")
+            .sum()
+            .cast(pl.Int64)
+            .alias("challenges_unanswered"),
+        )
+        .collect()
+    )
+
+    out: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in chal_df.to_dicts():
+        out[(row["display_name"], row["meeting_id"])] = {
+            "presence_seconds": 0.0,
+            "presence_ratio": 0.0,
+            "challenges_issued": int(row["challenges_issued"]),
+            "challenges_correct": int(row["challenges_correct"]),
+            "challenges_incorrect": int(row["challenges_incorrect"]),
+            "challenges_unanswered": int(row["challenges_unanswered"]),
+        }
+
+    for key, secs in presence_rows.items():
+        meeting_dur = duration_by_id.get(key[1], 0.0) or 0.0
+        cell = out.setdefault(
+            key,
+            {
+                "presence_seconds": 0.0,
+                "presence_ratio": 0.0,
+                "challenges_issued": 0,
+                "challenges_correct": 0,
+                "challenges_incorrect": 0,
+                "challenges_unanswered": 0,
+            },
+        )
+        cell["presence_seconds"] = float(secs)
+        cell["presence_ratio"] = float(
+            min(1.0, max(0.0, secs / meeting_dur)) if meeting_dur > 0 else 0.0
+        )
+
+    return out
+
+
+def _collect_max_participants(events: pl.LazyFrame) -> dict[str, int]:
+    """Peak concurrent participant count per meeting (sweep-line on join/leave)."""
+    joined = events.filter(pl.col("event_type") == "participant_joined").select(
+        pl.col("meeting_id"),
+        pl.col("timestamp").alias("t"),
+        pl.lit(1, dtype=pl.Int64).alias("delta"),
+    )
+    left = events.filter(pl.col("event_type") == "participant_left").select(
+        pl.col("meeting_id"),
+        pl.col("timestamp").alias("t"),
+        pl.lit(-1, dtype=pl.Int64).alias("delta"),
+    )
+    # descending=[..., True] on delta sorts +1 before -1 at the same timestamp
+    # so a simultaneous join-and-leave doesn't undercount the moment.
+    df: pl.DataFrame = (  # type: ignore  # ty limitation
+        pl.concat([joined, left])
+        .sort(["meeting_id", "t", "delta"], descending=[False, False, True])
+        .with_columns(
+            pl.col("delta").cum_sum().over("meeting_id").alias("concurrent")
+        )
+        .group_by("meeting_id")
+        .agg(pl.col("concurrent").max().alias("max_participants"))
+        .collect()
+    )
+    return {row["meeting_id"]: int(row["max_participants"]) for row in df.to_dicts()}
+
+
 def _collect_markers(
-    events: pl.LazyFrame, meetings: list[dict[str, Any]]
+    events: pl.LazyFrame,
+    meetings: list[dict[str, Any]],
+    questions: pl.LazyFrame | None,
 ) -> dict[tuple[str, str], list[dict[str, Any]]]:
-    """Per-(display_name, meeting_id) list of challenge markers (percentages)."""
-    meeting_durations = pl.LazyFrame(
+    """Per-(display_name, meeting_id) list of challenge markers."""
+    durations = pl.LazyFrame(
         {
             "meeting_id": [m["meeting_id"] for m in meetings],
             "duration_ms": [int(m["duration_ms"]) for m in meetings],
         }
     )
 
-    df: pl.DataFrame = (  # type: ignore  # ty limitation
+    base = (
         _challenge_frame(events)
-        .join(meeting_durations, on="meeting_id", how="left")
+        .join(durations, on="meeting_id", how="left")
         .with_columns(
             (pl.col("issued_ms") / pl.col("duration_ms") * 100.0)
             .clip(0.0, 100.0)
             .alias("x_pct"),
             pl.col("state").fill_null("unanswered").alias("result"),
         )
-        .sort(["display_name", "meeting_id", "issued_ms"])
-        .collect()
     )
+
+    if questions is not None:
+        q = questions.select(
+            pl.col("question_id"),
+            pl.col("prompt").alias("question_prompt"),
+            pl.col("correct_answer").alias("question_correct_answer"),
+        ).unique(subset=["question_id"])
+        base = base.join(q, on="question_id", how="left")
+
+    df: pl.DataFrame = base.sort(  # type: ignore  # ty limitation
+        ["display_name", "meeting_id", "issued_ms"]
+    ).collect()
 
     out: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for row in df.to_dicts():
@@ -232,11 +335,16 @@ def _collect_markers(
         out.setdefault(key, []).append(
             {
                 "x_pct": float(row["x_pct"]),
-                "challenge_type": row["challenge_type"],
+                "challenge_type": row["challenge_type"] or "",
                 "result": row["result"],
                 "challenge_id": row["challenge_id"],
                 "question_id": row["question_id"],
                 "timestamp_ms": int(row["issued_ms"]),
+                "latency_ms": int(row["latency_ms"])
+                if row.get("latency_ms") is not None
+                else 0,
+                "prompt": row.get("question_prompt") or "",
+                "correct_answer": row.get("question_correct_answer") or "",
             }
         )
     return out
@@ -264,8 +372,11 @@ def _assemble_participants(
                         "meeting_id": mid,
                         "absent": False,
                         "presence_ratio": s["presence_ratio"],
+                        "presence_seconds": s["presence_seconds"],
                         "challenges_issued": s["challenges_issued"],
                         "challenges_correct": s["challenges_correct"],
+                        "challenges_incorrect": s["challenges_incorrect"],
+                        "challenges_unanswered": s["challenges_unanswered"],
                         "segments": segments.get(key, []),
                         "markers": markers.get(key, []),
                     }
@@ -276,8 +387,11 @@ def _assemble_participants(
                         "meeting_id": mid,
                         "absent": True,
                         "presence_ratio": 0.0,
+                        "presence_seconds": 0.0,
                         "challenges_issued": 0,
                         "challenges_correct": 0,
+                        "challenges_incorrect": 0,
+                        "challenges_unanswered": 0,
                         "segments": [],
                         "markers": [],
                     }

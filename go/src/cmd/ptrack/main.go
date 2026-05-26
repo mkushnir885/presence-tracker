@@ -264,7 +264,7 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 	internalMeetingID := uuid.Must(uuid.NewV7()).String()
 	startTime := time.Now()
 
-	store, err := eventstore.NewWriter(v.MeetingsDir, startTime, v.EventStore.Compression, v.EventStore.RowGroupSize)
+	store, err := eventstore.NewWriter(v.MeetingsDir, "", startTime, v.EventStore.Compression, v.EventStore.RowGroupSize)
 	if err != nil {
 		return fmt.Errorf("init event store: %w", err)
 	}

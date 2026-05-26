@@ -18,7 +18,7 @@ from pathlib import Path
 import polars as pl
 import typer
 
-from ptrack_analytics.load import LoadError, load_events
+from ptrack_analytics.load import LoadError, load_events, load_questions
 from ptrack_analytics.schema import EVENT_SCHEMA
 
 from .reports import generate_aggregate_csv, generate_csv
@@ -108,7 +108,13 @@ def stats(
         frames = [pl.scan_parquet(p, schema=pl.Schema(EVENT_SCHEMA)) for p in inputs]
         events = pl.concat(frames)
         mode = "meeting" if len(inputs) == 1 else "cross_meeting"
-        payload = generate_stats(events, mode=mode)
+        questions = _load_questions_for(inputs)
+        source_files = _build_source_file_map(inputs)
+        payload = generate_stats(events, mode=mode, questions=questions)
+        for meeting in payload["meetings"]:
+            src = source_files.get(meeting["meeting_id"])
+            if src:
+                meeting["source_file"] = src
     except (LoadError, OSError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
@@ -120,6 +126,50 @@ def stats(
         out = Path(output)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(text, encoding="utf-8")
+
+
+def _build_source_file_map(inputs: list[str]) -> dict[str, str]:
+    """Map each meeting_id to the parquet path it came from.
+
+    Lets the GUI display the actual filename even when it differs from
+    the meeting_id convention.
+    """
+    out: dict[str, str] = {}
+    for p in inputs:
+        df: pl.DataFrame = (  # type: ignore  # ty limitation: collect returns InProcessQuery union
+            pl.scan_parquet(p, schema=pl.Schema(EVENT_SCHEMA))
+            .select(pl.col("meeting_id").first().alias("meeting_id"))
+            .collect()
+        )
+        if df.height == 0:
+            continue
+        mid = df.row(0)[0]
+        if isinstance(mid, str) and mid:
+            out[mid] = p
+    return out
+
+
+def _load_questions_for(inputs: list[str]) -> pl.LazyFrame | None:
+    """Discover the questions/ sibling directory for the given parquet inputs.
+
+    Returns a concatenated LazyFrame of every JSONL file matching the
+    parquet basenames, or None if no questions are found. Mirrors the
+    convention used by `ptrack_analytics.load()`: questions live next to
+    the meetings directory under `../questions/<meeting_id>.jsonl`.
+    """
+    meeting_ids = [Path(p).stem for p in inputs]
+    seen: set[Path] = set()
+    frames: list[pl.LazyFrame] = []
+    for p in inputs:
+        qdir = Path(p).parent.parent / "questions"
+        if qdir in seen or not qdir.is_dir():
+            continue
+        seen.add(qdir)
+        sub = load_questions(str(qdir), meeting_ids)
+        frames.append(sub)
+    if not frames:
+        return None
+    return pl.concat(frames)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ import (
 )
 
 templ Status(data StatusData, locale Locale) {
-	@Layout("Live Status", locale) {
+	@Layout("Live Status", locale, nil) {
 		<div hx-get="/status" hx-trigger="every 5s" hx-target="body" hx-swap="outerHTML"></div>
 		<h1>Live Status — { data.MeetingID }</h1>
 		<div class="card" style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;">
@@ -27,6 +27,76 @@ templ Status(data StatusData, locale Locale) {
 					hx-push-url="/"
 				>{ locale.T("status.stop") }</button>
 			</form>
+		</div>
+		<div id="poll-card" class="card" hx-preserve="true">
+			<div class="text-muted" style="font-size:0.8rem;margin-bottom:0.5rem;">{ locale.T("status.poll.title") }</div>
+			<div class="poll-form">
+				<div class="poll-form-row">
+					<input
+						type="text"
+						id="poll-bank-path"
+						class="poll-bank-input"
+						placeholder={ locale.T("status.poll.placeholder") }
+						autocomplete="off"
+					/>
+					<input type="file" id="poll-bank-picker" accept=".yaml,.yml" hidden/>
+					<button
+						type="button"
+						class="btn"
+						onclick="document.getElementById('poll-bank-picker').click()"
+					>{ locale.T("status.poll.browse") }</button>
+				</div>
+				<div class="poll-form-row">
+					<button type="button" id="poll-start-btn" class="btn btn-primary">{ locale.T("status.poll.start") }</button>
+					<span id="poll-feedback" class="text-muted"></span>
+				</div>
+			</div>
+			<script>
+				(function() {
+					const input = document.getElementById('poll-bank-path');
+					const picker = document.getElementById('poll-bank-picker');
+					const startBtn = document.getElementById('poll-start-btn');
+					const feedback = document.getElementById('poll-feedback');
+					if (picker) {
+						picker.addEventListener('change', () => {
+							const f = picker.files && picker.files[0];
+							if (!f) return;
+							// Browsers do not expose absolute paths; prefill the file name
+							// and let the teacher prepend the directory if needed.
+							input.value = f.name;
+							input.focus();
+						});
+					}
+					if (startBtn) {
+						startBtn.addEventListener('click', () => {
+							const bank = (input.value || '').trim();
+							if (!bank) {
+								feedback.textContent = 'enter a bank path first';
+								return;
+							}
+							startBtn.disabled = true;
+							feedback.textContent = 'starting…';
+							fetch('/poll', {
+								method: 'POST',
+								headers: {'Content-Type': 'application/json'},
+								body: JSON.stringify({type: 'custom', bank_path: bank}),
+							}).then(async r => {
+								const body = await r.json().catch(() => ({}));
+								if (r.ok) {
+									feedback.textContent = 'scheduled ' + (body.scheduled_count ?? 0)
+										+ (body.skipped_count ? ' (skipped ' + body.skipped_count + ')' : '');
+								} else {
+									feedback.textContent = 'error: ' + (body.error || r.status);
+								}
+							}).catch(err => {
+								feedback.textContent = 'error: ' + err;
+							}).finally(() => {
+								startBtn.disabled = false;
+							});
+						});
+					}
+				})();
+			</script>
 		</div>
 		<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
 			<div class="card">

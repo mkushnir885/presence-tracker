@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -163,6 +165,39 @@ func (d StatsData) MeetingByID(id string) *stats.Meeting {
 		}
 	}
 	return nil
+}
+
+// FirstFileLabel returns the basename of the first input file, with the
+// .parquet suffix stripped. Used in the per-meeting header in place of
+// the opaque meeting ID.
+func (d StatsData) FirstFileLabel() string {
+	if len(d.Files) == 0 {
+		return ""
+	}
+	return strings.TrimSuffix(filepath.Base(d.Files[0]), ".parquet")
+}
+
+// FileLabelForMeeting returns the user-visible file name (basename
+// without `.parquet`) that produced this meeting's data. Prefers the
+// source_file emitted by Python; falls back to scanning Files by the
+// `<meeting_id>.parquet` naming convention, and finally to the meeting
+// ID itself.
+func (d StatsData) FileLabelForMeeting(meetingID string) string {
+	if d.Doc != nil {
+		for i := range d.Doc.Meetings {
+			if d.Doc.Meetings[i].MeetingID == meetingID && d.Doc.Meetings[i].SourceFile != "" {
+				return strings.TrimSuffix(filepath.Base(d.Doc.Meetings[i].SourceFile), ".parquet")
+			}
+		}
+	}
+	want := meetingID + ".parquet"
+	for _, f := range d.Files {
+		base := filepath.Base(f)
+		if base == want {
+			return strings.TrimSuffix(base, ".parquet")
+		}
+	}
+	return meetingID
 }
 
 // FilesQuery returns the file= query string (no leading ?) so templates

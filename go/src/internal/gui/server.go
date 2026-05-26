@@ -157,6 +157,7 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 
 	providerName := r.FormValue("provider")
 	meetingID := r.FormValue("meeting_id")
+	fileName := strings.TrimSpace(r.FormValue("file_name"))
 
 	if providerName == "" || meetingID == "" {
 		http.Error(w, "provider and meeting_id are required", http.StatusBadRequest)
@@ -188,9 +189,13 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 	internalMeetingID := uuid.Must(uuid.NewV7()).String()
 	startTime := time.Now()
 
-	store, err := eventstore.NewWriter(s.cfg.Get().MeetingsDir, startTime, s.cfg.Get().EventStore.Compression, s.cfg.Get().EventStore.RowGroupSize)
+	store, err := eventstore.NewWriter(s.cfg.Get().MeetingsDir, fileName, startTime, s.cfg.Get().EventStore.Compression, s.cfg.Get().EventStore.RowGroupSize)
 	if err != nil {
-		http.Error(w, "event store error: "+err.Error(), http.StatusInternalServerError)
+		status := http.StatusInternalServerError
+		if fileName != "" {
+			status = http.StatusBadRequest
+		}
+		http.Error(w, "event store error: "+err.Error(), status)
 		return
 	}
 
