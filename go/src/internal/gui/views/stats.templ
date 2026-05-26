@@ -1,0 +1,210 @@
+package views
+
+import (
+	"fmt"
+	"strings"
+
+	"presence-tracker/src/internal/stats"
+)
+
+// Stats is the single post-meeting analysis page. The data carries
+// either one meeting (per-meeting layout) or many (cross-meeting paged
+// container, one participant per page).
+templ Stats(data StatsData, locale Locale) {
+	@Layout("Stats", locale) {
+		<div class="stats-page" data-files={ data.FilesQuery() }>
+			if data.Mode() == "meeting" {
+				@statsMeeting(data, locale)
+			} else {
+				@statsCrossMeeting(data, locale)
+			}
+		</div>
+		<script src="/assets/stats.js"></script>
+	}
+}
+
+// ── per-meeting (one file) ──────────────────────────────────────────
+
+templ statsMeeting(data StatsData, locale Locale) {
+	if m := firstMeeting(data); m != nil {
+		<header class="stats-header">
+			<div class="stats-title">
+				<h1>{ locale.T("stats.meeting.title") }</h1>
+				<p class="text-muted">
+					{ m.MeetingID }
+					<span> · </span>
+					{ formatDuration(m.DurationSeconds) }
+				</p>
+			</div>
+			<a class="btn" href={ statsExportURL(data) }>{ locale.T("stats.export_csv") }</a>
+		</header>
+		if len(data.Doc.Participants) == 0 {
+			<p class="text-muted">{ locale.T("stats.empty") }</p>
+		} else {
+			<div class="participant-list">
+				for _, p := range data.Doc.Participants {
+					if row := participantRowFor(p, m.MeetingID); row != nil && !row.Absent {
+						@meetingRow(data, p.DisplayName, *row, 100.0, locale)
+					}
+				}
+			</div>
+		}
+	} else {
+		<p class="text-muted">{ locale.T("stats.empty") }</p>
+	}
+}
+
+// ── cross-meeting (multiple files) ──────────────────────────────────
+
+templ statsCrossMeeting(data StatsData, locale Locale) {
+	<header class="stats-header">
+		<div class="stats-pager">
+			<input
+				type="search"
+				id="stats-search"
+				placeholder={ locale.T("stats.search.placeholder") }
+				autocomplete="off"
+			/>
+			<ul id="stats-search-results" class="search-results"></ul>
+		</div>
+		<div class="stats-pager-controls">
+			<button type="button" id="stats-prev" class="btn icon-btn" aria-label={ locale.T("stats.pager.prev") }>‹</button>
+			<span id="stats-pager-label" class="text-muted"></span>
+			<button type="button" id="stats-next" class="btn icon-btn" aria-label={ locale.T("stats.pager.next") }>›</button>
+		</div>
+		<a class="btn" href={ statsExportURL(data) }>{ locale.T("stats.export_csv_all") }</a>
+	</header>
+	if len(data.Doc.Participants) == 0 {
+		<p class="text-muted">{ locale.T("stats.empty") }</p>
+	} else {
+		<div id="stats-participant-pages">
+			for idx, p := range data.Doc.Participants {
+				<article class="participant-card" data-page-index={ fmt.Sprintf("%d", idx) } data-display-name={ p.DisplayName } hidden>
+					<div class="participant-card-header">
+						<h2>{ p.DisplayName }</h2>
+						<button
+							type="button"
+							class="btn icon-btn"
+							data-action="rename"
+							data-display-name={ p.DisplayName }
+							title={ locale.T("stats.rename.tooltip") }
+						>{ locale.T("stats.rename.btn") }</button>
+					</div>
+					<div class="participant-meetings">
+						for _, row := range p.Rows {
+							if m := data.MeetingByID(row.MeetingID); m != nil {
+								@crossMeetingRow(data, *m, row, locale)
+							}
+						}
+					</div>
+				</article>
+			}
+		</div>
+	}
+}
+
+// ── shared row builders ─────────────────────────────────────────────
+
+templ meetingRow(data StatsData, displayName string, row stats.ParticipantRow, widthPct float64, locale Locale) {
+	<div class="participant-row">
+		<button
+			type="button"
+			class="btn icon-btn"
+			data-action="rename"
+			data-display-name={ displayName }
+			title={ locale.T("stats.rename.tooltip") }
+		>{ locale.T("stats.rename.btn") }</button>
+		<div class="participant-name">{ displayName }</div>
+		<div class="participant-stats text-muted">
+			{ fmt.Sprintf("%d%%", int(row.PresenceRatio*100)) }
+			<span> · </span>
+			{ fmt.Sprintf("%d/%d ✓", row.ChallengesCorrect, row.ChallengesIssued) }
+		</div>
+		<div class="band-wrap" style={ fmt.Sprintf("width:%.2f%%", widthPct) }>
+			@timelineBand(row)
+		</div>
+	</div>
+}
+
+templ crossMeetingRow(data StatsData, m stats.Meeting, row stats.ParticipantRow, locale Locale) {
+	<div class="participant-row">
+		<div class="participant-name">{ m.StartedAt }</div>
+		if row.Absent {
+			<div class="participant-stats text-muted">{ locale.T("stats.absent") }</div>
+			<div class="band-wrap" style={ fmt.Sprintf("width:%.2f%%", data.RowWidthPct(m)) }></div>
+		} else {
+			<div class="participant-stats text-muted">
+				{ fmt.Sprintf("%d%%", int(row.PresenceRatio*100)) }
+				<span> · </span>
+				{ fmt.Sprintf("%d/%d ✓", row.ChallengesCorrect, row.ChallengesIssued) }
+			</div>
+			<div class="band-wrap" style={ fmt.Sprintf("width:%.2f%%", data.RowWidthPct(m)) }>
+				@timelineBand(row)
+			</div>
+		}
+	</div>
+}
+
+// ── inline SVG band + markers ───────────────────────────────────────
+
+templ timelineBand(row stats.ParticipantRow) {
+	<svg class="band" viewBox="0 0 100 8" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+		<rect class="band-bg" x="0" y="0" width="100" height="8"></rect>
+		for _, seg := range row.Segments {
+			if seg.Present {
+				<rect class="band-present" x={ fmt.Sprintf("%.4f", seg.StartPct) } y="0" width={ fmt.Sprintf("%.4f", seg.WidthPct) } height="8"></rect>
+			}
+		}
+		for _, mk := range row.Markers {
+			<circle class={ markerClass(mk) } cx={ fmt.Sprintf("%.4f", mk.XPct) } cy="4" r="1.4"></circle>
+		}
+	</svg>
+}
+
+// ── helpers ─────────────────────────────────────────────────────────
+
+func firstMeeting(d StatsData) *stats.Meeting {
+	if d.Doc == nil || len(d.Doc.Meetings) == 0 {
+		return nil
+	}
+	return &d.Doc.Meetings[0]
+}
+
+func participantRowFor(p stats.Participant, meetingID string) *stats.ParticipantRow {
+	for i := range p.Rows {
+		if p.Rows[i].MeetingID == meetingID {
+			return &p.Rows[i]
+		}
+	}
+	return nil
+}
+
+func statsExportURL(d StatsData) templ.SafeURL {
+	return templ.SafeURL("/report?" + d.FilesQuery())
+}
+
+func formatDuration(seconds float64) string {
+	totalSecs := int(seconds + 0.5)
+	h := totalSecs / 3600
+	m := (totalSecs % 3600) / 60
+	s := totalSecs % 60
+	if h > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
+	}
+	return fmt.Sprintf("%d:%02d", m, s)
+}
+
+func markerClass(m stats.Marker) string {
+	parts := []string{"marker"}
+	switch m.Result {
+	case "correct":
+		parts = append(parts, "marker-correct")
+	case "incorrect":
+		parts = append(parts, "marker-incorrect")
+	case "unanswered":
+		parts = append(parts, "marker-unanswered")
+	default:
+		parts = append(parts, "marker-skipped")
+	}
+	return strings.Join(parts, " ")
+}

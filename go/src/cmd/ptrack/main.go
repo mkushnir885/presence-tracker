@@ -179,18 +179,28 @@ func reportCmd() *cobra.Command {
 }
 
 func runReport(ctx context.Context, input, output string) error {
-	csv, err := reporter.Generate(ctx, input)
+	files, err := filepath.Glob(input)
+	if err != nil {
+		return fmt.Errorf("report: glob %q: %w", input, err)
+	}
+	if len(files) == 0 {
+		// No glob match — pass the raw input through so the user sees a
+		// clean error from ptrack_py instead of a silent empty result.
+		files = []string{input}
+	}
+
+	csv, err := reporter.Generate(ctx, files)
 	if err != nil {
 		return err
 	}
 	if output == "-" {
-		_, err = fmt.Fprint(os.Stdout, csv)
+		_, err = os.Stdout.Write(csv)
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
 		return fmt.Errorf("report: create output directory: %w", err)
 	}
-	return os.WriteFile(output, []byte(csv), 0o644)
+	return os.WriteFile(output, csv, 0o644)
 }
 
 func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture string) error {

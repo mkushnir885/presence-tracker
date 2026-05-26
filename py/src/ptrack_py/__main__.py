@@ -52,16 +52,27 @@ def report(
 
 @app.command()
 def aggregate(
-    input: str = typer.Option(
-        ..., "--in", help="Glob pattern for meeting .parquet files"
+    inputs: list[str] = typer.Option(
+        ...,
+        "--in",
+        help=(
+            "Path to a meeting .parquet file. Repeat for multiple files. "
+            "(A single glob pattern is also accepted for back-compat.)"
+        ),
     ),
     output: str = typer.Option(..., "--out", help="Output CSV path, or - for stdout"),
 ) -> None:
     """Generate an aggregate CSV report over multiple meetings."""
     try:
-        events = load_events(input)
+        if len(inputs) == 1:
+            events = load_events(inputs[0])
+        else:
+            frames = [
+                pl.scan_parquet(p, schema=pl.Schema(EVENT_SCHEMA)) for p in inputs
+            ]
+            events = pl.concat(frames)
         csv_text = generate_aggregate_csv(events)
-    except LoadError as exc:
+    except (LoadError, OSError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 

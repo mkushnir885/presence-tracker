@@ -30,7 +30,7 @@ Rendered server-side with templ; interactive bits use htmx.
 | `GET /status`                                        | Meeting status dashboard (active meeting only)                                 |
 | `GET /status/unregistered`                           | htmx fragment: list of unregistered participants                               |
 | `GET /stats?file=<a>&file=<b>…`                      | Unified stats view. One `file` value → per-meeting timeband list; more than one → paged cross-meeting container (one participant per page, search bar). `file` values are basenames in `meetings_dir`. |
-| `GET /stats.csv?file=<a>[&file=<b>…]`                | Download the CSV equivalent of the same stats request (single-file or cross-meeting, decided by the number of `file` values). |
+| `GET /report?file=<a>[&file=<b>…]`                | Download the CSV equivalent of the same stats request (single-file or cross-meeting, decided by the number of `file` values). |
 | `PATCH /participants/{display_name}/display-name?file=<a>[&file=<b>…]&new=<name>` | Rewrite `display_name` from the URL path to `new` in every `file` listed in the query. `{display_name}` is URL-encoded. |
 | `GET /registry`                                      | Participant registry page — list all registered display-name entries           |
 | `DELETE /registry/{display_name}`                    | Remove one registry entry (URL-encoded display name)                           |
@@ -255,7 +255,7 @@ Meeting — 2026-05-01 23:44 – 2026-05-02 00:53    [↓ Export CSV]
 
 Title shows meeting start and end timestamps (ISO local time, no
 seconds). The "↓ Export CSV" button downloads
-`GET /stats.csv?file=<a.parquet>`.
+`GET /report?file=<a.parquet>`.
 
 Each participant row contains:
 
@@ -290,7 +290,7 @@ The cross-meeting page is a container around a single participant
   navigates to the matching entry on selection. No new HTTP request:
   search runs over the JSON already in memory.
 - **↓ Export CSV (all)** — downloads
-  `GET /stats.csv?file=<a>&file=<b>…`, the full cross-meeting CSV for
+  `GET /report?file=<a>&file=<b>…`, the full cross-meeting CSV for
   the same file set.
 
 Each participant card contains:
@@ -388,7 +388,7 @@ CSV generation is delegated to `ptrack_py`. Go obtains the CSV by
 calling `ptrack_py report --in <file> --format csv --out -` (or
 `ptrack_py aggregate --in '<glob>' --format csv --out -` for the
 multi-file case) and streams the result to the response. The stats
-view's `↓ Export CSV` buttons hit `GET /stats.csv?file=…` (one or more
+view's `↓ Export CSV` buttons hit `GET /report?file=…` (one or more
 `file` values), which dispatches to the correct `ptrack_py` subcommand
 based on the file count.
 

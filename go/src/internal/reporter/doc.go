@@ -1,3 +1,6 @@
-// Package reporter invokes the ptrack_py binary to generate CSV presence
-// reports from Parquet event files and parses the results for the GUI or CLI.
+// Package reporter shells out to the ptrack_py binary to produce CSV
+// presence reports for the /report HTTP endpoint and the `ptrack report`
+// CLI. It is a thin wrapper over internal/ptrackpy: with one file it
+// invokes the report subcommand, with more than one the aggregate
+// subcommand.
 package reporter

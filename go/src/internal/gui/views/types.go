@@ -3,6 +3,7 @@ package views
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"presence-tracker/src/internal/config"
 	"presence-tracker/src/internal/participants"
 	"presence-tracker/src/internal/session"
+	"presence-tracker/src/internal/stats"
 )
 
 // RegistryFilterInputs holds the raw, user-typed values from the
@@ -132,67 +134,71 @@ type LogEntry struct {
 	Attrs   string
 }
 
-// MeetingData is the data model for the meeting analysis page.
-type MeetingData struct {
-	MeetingID string
-	Info      MeetingInfo
+// StatsData is the data model for the unified /stats page. Files is
+// the file= query that produced Doc — held alongside so the template
+// can build self-referential links (rename PATCH, CSV export, paging
+// state) without re-parsing the URL.
+type StatsData struct {
+	Files []string
+	Doc   *stats.Document
 }
 
-// MeetingInfo contains the computed timeline data for one meeting.
-type MeetingInfo struct {
-	MeetingID string
-	StartTime time.Time
-	EndTime   time.Time
-	Duration  time.Duration
-	Rows      []ParticipantRow
+// Mode reports whether the page renders per-meeting (single file) or
+// cross-meeting (multiple) layout.
+func (d StatsData) Mode() string {
+	if d.Doc == nil {
+		return ""
+	}
+	return d.Doc.Mode
 }
 
-// ParticipantRow is the timeline data for one participant in a meeting.
-// DisplayName is the canonical registered name and the row's identity end
-// to end — there is no separate participant ID at the Parquet layer.
-type ParticipantRow struct {
-	DisplayName       string
-	PresenceRatio     float64
-	ChallengesIssued  int
-	ChallengesCorrect int
-	Segments          []Segment
-	Markers           []Marker
+// MeetingByID returns the meeting envelope for id, or nil when absent.
+func (d StatsData) MeetingByID(id string) *stats.Meeting {
+	if d.Doc == nil {
+		return nil
+	}
+	for i := range d.Doc.Meetings {
+		if d.Doc.Meetings[i].MeetingID == id {
+			return &d.Doc.Meetings[i]
+		}
+	}
+	return nil
 }
 
-// Segment is a contiguous present/absent span expressed as percentages.
-type Segment struct {
-	StartPct float64
-	WidthPct float64
-	Present  bool
+// FilesQuery returns the file= query string (no leading ?) so templates
+// can append it to outbound URLs.
+func (d StatsData) FilesQuery() string {
+	q := url.Values{}
+	for _, f := range d.Files {
+		q.Add("file", f)
+	}
+	return q.Encode()
 }
 
-// Marker is a challenge event at a position in the timeline.
-type Marker struct {
-	XPct          float64
-	ChallengeType string
-	Result        string
-	ChallengeID   string
-	QuestionID    string
-	TimestampMS   int64
+// MaxDuration returns the longest meeting duration in seconds across
+// every loaded meeting. The cross-meeting layout scales presence bands
+// relative to this so longer meetings get visually longer bands.
+func (d StatsData) MaxDuration() float64 {
+	if d.Doc == nil {
+		return 0
+	}
+	var max float64
+	for _, m := range d.Doc.Meetings {
+		if m.DurationSeconds > max {
+			max = m.DurationSeconds
+		}
+	}
+	return max
 }
 
-// ParticipantData is the data model for the cross-meeting participant view.
-type ParticipantData struct {
-	DisplayName string
-	Meetings    []ParticipantMeetingRow
-}
-
-// ParticipantMeetingRow is per-meeting data in the participant view.
-type ParticipantMeetingRow struct {
-	MeetingID         string
-	StartTime         time.Time
-	EndTime           time.Time
-	PresenceRatio     float64
-	ChallengesIssued  int
-	ChallengesCorrect int
-	Absent            bool
-	Segments          []Segment
-	MeetingDuration   time.Duration
+// RowWidthPct returns the relative width (0–100) for a per-meeting
+// band row inside the cross-meeting layout: 100 for the longest
+// meeting, proportionally less for shorter ones.
+func (d StatsData) RowWidthPct(m stats.Meeting) float64 {
+	if max := d.MaxDuration(); max > 0 {
+		return m.DurationSeconds / max * 100
+	}
+	return 100
 }
 
 // ConfigData is the data model for the config editor page. It carries the

@@ -30,6 +30,7 @@ import (
 	zoomprovider "presence-tracker/src/internal/providers/zoom"
 	"presence-tracker/src/internal/reporter"
 	"presence-tracker/src/internal/session"
+	"presence-tracker/src/internal/stats"
 )
 
 // Server is the GUI HTTP server for ptrack serve.
@@ -37,6 +38,7 @@ type Server struct {
 	cfg      *config.Config
 	registry participants.Registry
 	router   *messengers.Router
+	stats    *stats.Loader
 
 	mu     sync.RWMutex
 	active *activeSession
@@ -57,7 +59,12 @@ type activeSession struct {
 // that handles registrations; the Server installs the active session's
 // coordinator as the router's event handler while a session is running.
 func New(cfg *config.Config, registry participants.Registry, router *messengers.Router) *Server {
-	return &Server{cfg: cfg, registry: registry, router: router}
+	return &Server{
+		cfg:      cfg,
+		registry: registry,
+		router:   router,
+		stats:    stats.New(filepath.Join(config.CacheDir(), "stats")),
+	}
 }
 
 // RegisterRoutes attaches the GUI's HTML and htmx routes to mux. The HTTP
@@ -71,12 +78,9 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /session", s.handleStopSession)
 	mux.HandleFunc("GET /status", s.handleStatus)
 	mux.HandleFunc("GET /status/unregistered", s.handleUnregisteredFragment)
-	mux.HandleFunc("GET /meetings/{id}", s.handleMeeting)
-	mux.HandleFunc("GET /meetings/{id}/export.csv", s.handleMeetingCSV)
-	mux.HandleFunc("PATCH /meetings/{id}/participants/{p}/display-name", s.handleRenameParticipant)
-	mux.HandleFunc("GET /participants/export.csv", s.handleAllParticipantsCSV)
-	mux.HandleFunc("GET /participants/{p}", s.handleParticipant)
-	mux.HandleFunc("GET /participants/{p}/export.csv", s.handleParticipantCSV)
+	mux.HandleFunc("GET /stats", s.handleStats)
+	mux.HandleFunc("GET /report", s.handleReport)
+	mux.HandleFunc("PATCH /participants/{p}/display-name", s.handleRenameParticipant)
 	mux.HandleFunc("GET /registry", s.handleRegistry)
 	mux.HandleFunc("POST /registry/filter", s.handleFilterRegistry)
 	mux.HandleFunc("POST /registry/delete", s.handleDeleteRegistry)
@@ -319,185 +323,120 @@ func (s *Server) handleUnregisteredFragment(w http.ResponseWriter, r *http.Reque
 	_ = views.UnregisteredFragment(status.Unregistered, locale).Render(r.Context(), w)
 }
 
-// handleMeeting renders the meeting analysis page.
-func (s *Server) handleMeeting(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	parquetPath := filepath.Join(s.cfg.Get().MeetingsDir, id+".parquet")
-
-	records, err := eventstore.ReadAll(r.Context(), parquetPath)
+// handleStats renders the unified per-meeting / cross-meeting stats
+// page. The file= query carries one or more meeting-basename values;
+// stats.Loader fetches the JSON (from cache when fresh) and the templ
+// view picks the right layout based on file count.
+func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	files, basenames, err := s.collectStatsFiles(r)
 	if err != nil {
-		if os.IsNotExist(err) {
-			http.NotFound(w, r)
-			return
-		}
-		http.Error(w, "failed to read meeting: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	csvStr, genErr := reporter.Generate(r.Context(), parquetPath)
-	var csvRows []reporter.Row
-	if genErr == nil {
-		csvRows, _ = reporter.Parse(csvStr)
+	doc, err := s.stats.Load(r.Context(), files)
+	if err != nil {
+		http.Error(w, "stats: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	info := ComputeMeetingInfo(id, records, csvRows)
-
-	data := views.MeetingData{
-		MeetingID: id,
-		Info:      info,
-	}
-
+	data := views.StatsData{Files: basenames, Doc: doc}
 	locale := localeFromRequest(r)
-	_ = views.MeetingAnalysis(data, locale).Render(r.Context(), w)
+	_ = views.Stats(data, locale).Render(r.Context(), w)
 }
 
-// handleMeetingCSV serves the CSV report for a meeting as a download.
-func (s *Server) handleMeetingCSV(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	parquetPath := filepath.Join(s.cfg.Get().MeetingsDir, id+".parquet")
-
-	csvStr, err := reporter.Generate(r.Context(), parquetPath)
+// handleReport serves the CSV equivalent of the same file query that
+// /stats reads. With one file it returns the per-meeting CSV; with
+// more, the cross-meeting aggregate.
+func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
+	files, basenames, err := s.collectStatsFiles(r)
 	if err != nil {
-		http.Error(w, "report generation failed: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	csv, err := reporter.Generate(r.Context(), files)
+	if err != nil {
+		http.Error(w, "report: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+id+`.csv"`)
-	_, _ = w.Write([]byte(csvStr))
+	w.Header().Set("Content-Disposition", `attachment; filename="`+reportFilename(basenames)+`"`)
+	_, _ = w.Write(csv)
 }
 
-// handleRenameParticipant renames a participant in a single Parquet file.
-// The {p} path parameter is the current display name (URL-decoded by
-// net/http); the request body / HX-Prompt header carries the new name.
+// handleRenameParticipant rewrites every file= listed in the query so
+// that rows previously matching the path's {p} display name carry the
+// new= value instead. Files outside the request are not touched.
 func (s *Server) handleRenameParticipant(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
 	oldName := r.PathValue("p")
-	parquetPath := filepath.Join(s.cfg.Get().MeetingsDir, id+".parquet")
-
-	var newName string
-
-	ct := r.Header.Get("Content-Type")
-	if strings.Contains(ct, "application/json") {
+	newName := r.URL.Query().Get("new")
+	if newName == "" {
+		newName = r.Header.Get("HX-Prompt")
+	}
+	if newName == "" && strings.Contains(r.Header.Get("Content-Type"), "application/json") {
 		var body struct {
 			DisplayName string `json:"display_name"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, "bad JSON body", http.StatusBadRequest)
-			return
-		}
-		newName = body.DisplayName
-	} else {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "bad form data", http.StatusBadRequest)
-			return
-		}
-		newName = r.Header.Get("HX-Prompt")
-		if newName == "" {
-			newName = r.FormValue("display_name")
+		if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+			newName = body.DisplayName
 		}
 	}
-
 	if newName == "" {
-		http.Error(w, "display_name is required", http.StatusBadRequest)
+		http.Error(w, "new= (or display_name) is required", http.StatusBadRequest)
 		return
 	}
 
-	if err := eventstore.UpdateDisplayName(parquetPath, oldName, newName); err != nil {
-		http.Error(w, "rename failed: "+err.Error(), http.StatusInternalServerError)
+	files, _, err := s.collectStatsFiles(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	for _, path := range files {
+		if err := eventstore.UpdateDisplayName(path, oldName, newName); err != nil {
+			http.Error(w, "rename failed for "+filepath.Base(path)+": "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleParticipant renders the cross-meeting participant view.
-// The {p} path parameter is the display name (URL-decoded by net/http).
-func (s *Server) handleParticipant(w http.ResponseWriter, r *http.Request) {
-	displayName := r.PathValue("p")
-
-	pattern := filepath.Join(s.cfg.Get().MeetingsDir, "*.parquet")
-	files, err := filepath.Glob(pattern)
-	if err != nil {
-		http.Error(w, "glob error: "+err.Error(), http.StatusInternalServerError)
-		return
+// collectStatsFiles parses the file= query into validated absolute
+// paths under MeetingsDir. The basename list returned alongside is
+// the form templates use for self-referential links (it preserves the
+// caller's order).
+func (s *Server) collectStatsFiles(r *http.Request) (paths, basenames []string, err error) {
+	raw := r.URL.Query()["file"]
+	if len(raw) == 0 {
+		return nil, nil, errors.New("at least one file= query value is required")
 	}
 
-	var meetingRows []views.ParticipantMeetingRow
-
-	for _, path := range files {
-		meetingID := strings.TrimSuffix(filepath.Base(path), ".parquet")
-		records, err := eventstore.ReadAll(r.Context(), path)
-		if err != nil {
-			continue
+	dir := s.cfg.Get().MeetingsDir
+	for _, name := range raw {
+		if name == "" || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+			return nil, nil, fmt.Errorf("invalid file value %q", name)
 		}
-
-		info := ComputeMeetingInfo(meetingID, records, nil)
-
-		for _, row := range info.Rows {
-			if row.DisplayName == displayName {
-				meetingRows = append(meetingRows, views.ParticipantMeetingRow{
-					MeetingID:         meetingID,
-					StartTime:         info.StartTime,
-					EndTime:           info.EndTime,
-					PresenceRatio:     row.PresenceRatio,
-					ChallengesIssued:  row.ChallengesIssued,
-					ChallengesCorrect: row.ChallengesCorrect,
-					Absent:            false,
-					Segments:          row.Segments,
-					MeetingDuration:   info.Duration,
-				})
-				break
-			}
+		if !strings.HasSuffix(name, ".parquet") {
+			name += ".parquet"
 		}
+		full := filepath.Join(dir, name)
+		if _, statErr := os.Stat(full); statErr != nil {
+			return nil, nil, fmt.Errorf("file %q not found in meetings dir", name)
+		}
+		paths = append(paths, full)
+		basenames = append(basenames, name)
 	}
-
-	sort.Slice(meetingRows, func(i, j int) bool {
-		return meetingRows[i].StartTime.Before(meetingRows[j].StartTime)
-	})
-
-	data := views.ParticipantData{
-		DisplayName: displayName,
-		Meetings:    meetingRows,
-	}
-
-	locale := localeFromRequest(r)
-	_ = views.ParticipantView(data, locale).Render(r.Context(), w)
+	return paths, basenames, nil
 }
 
-// handleParticipantCSV serves CSV for all meetings of one participant.
-func (s *Server) handleParticipantCSV(w http.ResponseWriter, r *http.Request) {
-	displayName := r.PathValue("p")
-	pattern := filepath.Join(s.cfg.Get().MeetingsDir, "*.parquet")
-
-	csvStr, err := reporter.Generate(r.Context(), pattern)
-	if err != nil {
-		http.Error(w, "report failed: "+err.Error(), http.StatusInternalServerError)
-		return
+func reportFilename(basenames []string) string {
+	if len(basenames) == 1 {
+		return strings.TrimSuffix(basenames[0], ".parquet") + ".csv"
 	}
-
-	// TODO: filter rows to just `displayName` instead of returning the full
-	// aggregate. Today's reporter has no name filter.
-	_ = displayName
-
-	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="participant-`+displayName+`.csv"`)
-	_, _ = w.Write([]byte(csvStr))
-}
-
-// handleAllParticipantsCSV serves an aggregate CSV for all participants.
-func (s *Server) handleAllParticipantsCSV(w http.ResponseWriter, r *http.Request) {
-	pattern := filepath.Join(s.cfg.Get().MeetingsDir, "*.parquet")
-
-	csvStr, err := reporter.Generate(r.Context(), pattern)
-	if err != nil {
-		http.Error(w, "report failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="participants.csv"`)
-	_, _ = w.Write([]byte(csvStr))
+	return "report.csv"
 }
 
 // handleRegistry renders the registry page in its initial state — the
