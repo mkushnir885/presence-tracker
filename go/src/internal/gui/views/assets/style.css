@@ -315,25 +315,31 @@ details.menu .menu-list button.active svg { color: var(--accent); }
 
 /* ── Stats view ──────────────────────────────────────────────────── */
 .stats-page { display: flex; flex-direction: column; gap: 1rem; }
-.stats-header {
-    display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
-    padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);
+.stats-header { gap: 1rem; }
+.stats-title-line {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    min-width: 0;
 }
-.stats-header h1 { margin: 0; font-size: 1.25rem; }
-.stats-header h2 { margin: 0; font-size: 1.1rem; }
+.stats-title-line .stats-file-name,
+.stats-title-line .stats-current-name {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.stats-title-empty { color: var(--muted); font-weight: normal; }
+.stats-filter-empty {
+    text-align: center;
+    padding: 0.75rem 0;
+    margin: 0;
+}
 .stats-title { display: flex; flex-direction: column; gap: 0.25rem; }
 
 .stats-header-meeting {
     align-items: center;
     gap: 0.75rem;
-    padding-bottom: 0.4rem;
-}
-.stats-header-meeting .stats-file-name {
-    font-weight: 600; font-size: 1rem;
-    color: var(--fg);
-    flex: 0 1 auto;
-    min-width: 0;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .stats-filter-wrap {
     margin-left: auto;
@@ -353,12 +359,6 @@ details.menu .menu-list button.active svg { color: var(--accent); }
     gap: 0.6rem;
 }
 .stats-header-cross .icon-btn-sm { flex: 0 0 auto; }
-.stats-header-cross .stats-current-name {
-    margin: 0;
-    font-size: 1.05rem;
-    line-height: 1.2;
-    flex: 0 0 auto;
-}
 .stats-header-cross .stats-search-wrap {
     position: relative;
     flex: 1 1 220px;

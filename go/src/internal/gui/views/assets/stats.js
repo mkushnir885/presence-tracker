@@ -75,12 +75,14 @@
       });
     }
 
-    search.addEventListener('input', () => {
+    function update() {
       const q = search.value.trim().toLowerCase();
-      if (!q) { clearResults(); return; }
-      const matches = names.filter(n => n.name.toLowerCase().includes(q));
+      const matches = q ? names.filter(n => n.name.toLowerCase().includes(q)) : names;
       renderResults(matches);
-    });
+    }
+
+    search.addEventListener('input', update);
+    search.addEventListener('focus', update);
 
     search.addEventListener('keydown', (ev) => {
       const items = Array.from(results.children);
@@ -138,6 +140,7 @@
   const input = document.getElementById('stats-filter-input');
   if (!input) return;
   const results = document.getElementById('stats-filter-results');
+  const emptyEl = document.getElementById('stats-filter-empty');
   const rows = Array.from(document.querySelectorAll('.participant-list .participant-row'));
   if (rows.length === 0) return;
 
@@ -152,13 +155,18 @@
   function applyFilter() {
     const q = input.value.trim().toLowerCase();
     let lastVisible = null;
+    let visibleCount = 0;
     rows.forEach((r, i) => {
       const visible = !q || names[i].toLowerCase().includes(q);
       r.hidden = !visible;
       r.style.borderBottom = '';
-      if (visible) lastVisible = r;
+      if (visible) {
+        lastVisible = r;
+        visibleCount++;
+      }
     });
     if (lastVisible) lastVisible.style.borderBottom = 'none';
+    if (emptyEl) emptyEl.hidden = visibleCount > 0;
   }
 
   function renderResults() {

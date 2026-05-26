@@ -12,7 +12,7 @@ import (
 // either one meeting (per-meeting layout) or many (cross-meeting paged
 // container, one participant per page).
 templ Stats(data StatsData, locale Locale) {
-	@Layout("Stats", locale, statsNavExtras(data, locale)) {
+	@Layout("Stats", locale, nil) {
 		<div class="stats-page" data-files={ data.FilesQuery() }>
 			if data.Mode() == "meeting" {
 				@statsMeeting(data, locale)
@@ -24,31 +24,20 @@ templ Stats(data StatsData, locale Locale) {
 	}
 }
 
-// statsNavExtras is the Export CSV button rendered in the nav for both
-// stats modes. It points at /report?file=… with the same files query
-// the page is rendering.
-templ statsNavExtras(data StatsData, locale Locale) {
-	<a
-		class="icon-btn"
-		href={ statsExportURL(data) }
-		data-tooltip={ locale.T("stats.export_csv_tooltip") }
-		aria-label={ locale.T("stats.export_csv_tooltip") }
-	>
-		@iconDownload()
-	</a>
-}
-
 // ── per-meeting (one file) ──────────────────────────────────────────
 templ statsMeeting(data StatsData, locale Locale) {
 	if m := firstMeeting(data); m != nil {
-		<header class="stats-header stats-header-meeting">
-			<button
-				type="button"
-				class="popover-trigger stats-file-name"
-				data-popover={ meetingDetailsTooltip(*m, locale) }
-				data-tooltip={ locale.T("stats.tooltip.meeting_details") }
-				aria-label={ locale.T("stats.tooltip.meeting_details") }
-			>{ data.FirstFileLabel() }</button>
+		<header class="page-header stats-header stats-header-meeting">
+			<h1 class="stats-title-line">
+				<span class="stats-title-prefix">{ locale.T("stats.title_prefix") }</span>
+				<button
+					type="button"
+					class="popover-trigger stats-file-name"
+					data-popover={ meetingDetailsTooltip(*m, locale) }
+					data-tooltip={ locale.T("stats.tooltip.meeting_details") }
+					aria-label={ locale.T("stats.tooltip.meeting_details") }
+				>{ data.FirstFileLabel() }</button>
+			</h1>
 			<div class="stats-search-wrap stats-filter-wrap">
 				<input
 					type="search"
@@ -60,7 +49,7 @@ templ statsMeeting(data StatsData, locale Locale) {
 			</div>
 		</header>
 		if len(data.Doc.Participants) == 0 {
-			<p class="text-muted">{ locale.T("stats.empty") }</p>
+			<p class="text-muted">{ locale.T("stats.empty_meeting") }</p>
 		} else {
 			<div class="participant-list">
 				for _, p := range data.Doc.Participants {
@@ -68,45 +57,55 @@ templ statsMeeting(data StatsData, locale Locale) {
 						@meetingRow(p.DisplayName, *row, *m, locale)
 					}
 				}
+				<p id="stats-filter-empty" class="text-muted stats-filter-empty" hidden>{ locale.T("stats.filter_no_matches") }</p>
 			</div>
 		}
 	} else {
-		<p class="text-muted">{ locale.T("stats.empty") }</p>
+		<p class="text-muted">{ locale.T("stats.empty_meeting") }</p>
 	}
 }
 
 // ── cross-meeting (multiple files) ──────────────────────────────────
 templ statsCrossMeeting(data StatsData, locale Locale) {
-	<header class="stats-header stats-header-cross">
-		<button
-			type="button"
-			class="icon-btn icon-btn-sm"
-			id="stats-rename-btn"
-			data-action="rename"
-			data-display-name={ firstParticipantName(data) }
-			data-tooltip={ locale.T("stats.rename.tooltip") }
-			aria-label={ locale.T("stats.rename.tooltip") }
-		>
-			@iconPencil()
-		</button>
-		<h2 id="stats-current-name" class="stats-current-name">{ firstParticipantName(data) }</h2>
-		<div class="stats-search-wrap">
-			<input
-				type="search"
-				id="stats-search"
-				placeholder={ locale.T("stats.search.placeholder") }
-				autocomplete="off"
-			/>
-			<ul id="stats-search-results" class="search-results"></ul>
-		</div>
-		<div class="stats-pager-controls">
-			<button type="button" id="stats-prev" class="btn icon-btn" aria-label={ locale.T("stats.pager.prev") }>‹</button>
-			<span id="stats-pager-label" class="text-muted"></span>
-			<button type="button" id="stats-next" class="btn icon-btn" aria-label={ locale.T("stats.pager.next") }>›</button>
-		</div>
+	<header class="page-header stats-header stats-header-cross">
+		<h1 class="stats-title-line">
+			<span class="stats-title-prefix">{ locale.T("stats.title_prefix") }</span>
+			if len(data.Doc.Participants) == 0 {
+				<span id="stats-current-name" class="stats-current-name stats-title-empty">{ locale.T("stats.title_nobody") }</span>
+			} else {
+				<span id="stats-current-name" class="stats-current-name">{ firstParticipantName(data) }</span>
+			}
+		</h1>
+		if len(data.Doc.Participants) > 0 {
+			<button
+				type="button"
+				class="icon-btn icon-btn-sm"
+				id="stats-rename-btn"
+				data-action="rename"
+				data-display-name={ firstParticipantName(data) }
+				data-tooltip={ locale.T("stats.rename.tooltip") }
+				aria-label={ locale.T("stats.rename.tooltip") }
+			>
+				@iconPencil()
+			</button>
+			<div class="stats-search-wrap">
+				<input
+					type="search"
+					id="stats-search"
+					placeholder={ locale.T("stats.search.placeholder") }
+					autocomplete="off"
+				/>
+				<ul id="stats-search-results" class="search-results"></ul>
+			</div>
+			<div class="stats-pager-controls">
+				<button type="button" id="stats-prev" class="btn icon-btn" aria-label={ locale.T("stats.pager.prev") }>‹</button>
+				<span id="stats-pager-label" class="text-muted"></span>
+				<button type="button" id="stats-next" class="btn icon-btn" aria-label={ locale.T("stats.pager.next") }>›</button>
+			</div>
+		}
 	</header>
 	if len(data.Doc.Participants) == 0 {
-		<p class="text-muted">{ locale.T("stats.empty") }</p>
+		<p class="text-muted">{ locale.T("stats.empty_cross") }</p>
 	} else {
 		<div id="stats-participant-pages">
 			for idx, p := range data.Doc.Participants {
@@ -282,10 +281,6 @@ func participantRowFor(p stats.Participant, meetingID string) *stats.Participant
 		}
 	}
 	return nil
-}
-
-func statsExportURL(d StatsData) templ.SafeURL {
-	return templ.SafeURL("/report?" + d.FilesQuery())
 }
 
 func formatDuration(seconds float64) string {
