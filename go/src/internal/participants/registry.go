@@ -28,9 +28,10 @@ type RegistryEntry struct {
 // field is optional; the zero value matches every entry. Set fields
 // combine with AND.
 type Filter struct {
-	// DisplayName matches an entry's canonical display name exactly
-	// (whitespace-trimmed, case-sensitive — same rule as Resolve).
-	DisplayName string
+	// DisplayNames matches any entry whose canonical display name
+	// (whitespace-trimmed, case-sensitive — same rule as Resolve)
+	// appears in the list. An empty slice imposes no constraint.
+	DisplayNames []string
 
 	// DisplayNameContains matches entries whose display name contains
 	// this substring, case-insensitive.
@@ -54,15 +55,25 @@ type Filter struct {
 // IsZero reports whether f has every field at its zero value (i.e.
 // matches every entry).
 func (f Filter) IsZero() bool {
-	return f.DisplayName == "" && f.DisplayNameContains == "" &&
+	return len(f.DisplayNames) == 0 && f.DisplayNameContains == "" &&
 		f.MessengerName == "" && f.Handle == "" &&
 		f.RegisteredFrom.IsZero() && f.RegisteredTo.IsZero()
 }
 
 // Match reports whether e satisfies every set field of f.
 func (f Filter) Match(e RegistryEntry) bool {
-	if f.DisplayName != "" && normName(e.DisplayName) != normName(f.DisplayName) {
-		return false
+	if len(f.DisplayNames) > 0 {
+		want := normName(e.DisplayName)
+		var ok bool
+		for _, n := range f.DisplayNames {
+			if normName(n) == want {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return false
+		}
 	}
 	if f.DisplayNameContains != "" &&
 		!strings.Contains(strings.ToLower(e.DisplayName), strings.ToLower(f.DisplayNameContains)) {

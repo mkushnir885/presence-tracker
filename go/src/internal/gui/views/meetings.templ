@@ -193,7 +193,7 @@ templ Meetings(data MeetingsData, locale Locale) {
 						all.checked = visible.length > 0 && n === visible.length;
 						all.indeterminate = n > 0 && n < visible.length;
 						all.disabled = visible.length === 0;
-						if (csvBtn) csvBtn.style.visibility = n < 2 ? 'hidden' : 'visible';
+						if (csvBtn) csvBtn.style.visibility = n < 1 ? 'hidden' : 'visible';
 					}
 					function applyFilter() {
 						const q = (filter.value || '').trim().toLowerCase();

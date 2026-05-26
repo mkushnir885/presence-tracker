@@ -472,8 +472,10 @@ func (s *Server) handleRegistry(w http.ResponseWriter, r *http.Request) {
 
 // handleFilterRegistry executes the user's filter against the registry
 // and returns just the results fragment (htmx swaps it into the
-// #registry-results container). On validation errors the fragment
-// carries empty entries plus the error messages.
+// #registry-results container) plus an OOB swap that refreshes the
+// match-count line. On validation errors only the count line is
+// updated — retargeted to #registry-info so the participants table is
+// left untouched.
 func (s *Server) handleFilterRegistry(w http.ResponseWriter, r *http.Request) {
 	req, err := parseRegistryRequest(r)
 	if err != nil {
@@ -483,7 +485,9 @@ func (s *Server) handleFilterRegistry(w http.ResponseWriter, r *http.Request) {
 	locale := localeFromRequest(r)
 	filter, vErrs := validateInputs(req.Filter)
 	if len(vErrs) > 0 {
-		_ = views.RegistryResults(nil, vErrs, locale).Render(r.Context(), w)
+		w.Header().Set("HX-Retarget", "#registry-info")
+		w.Header().Set("HX-Reswap", "outerHTML")
+		_ = views.RegistryInfo(0, vErrs, locale, false).Render(r.Context(), w)
 		return
 	}
 	entries, err := s.registry.Find(r.Context(), filter)
@@ -491,20 +495,24 @@ func (s *Server) handleFilterRegistry(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "find: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	_ = views.RegistryResults(entries, nil, locale).Render(r.Context(), w)
+	_ = views.RegistryResults(entries, locale).Render(r.Context(), w)
+	_ = views.RegistryInfo(len(entries), nil, locale, true).Render(r.Context(), w)
 }
 
 // handleDeleteRegistry removes registry entries. The body decides the
 // scope:
 //
-//   - If exact_name is set, that one entry is removed and the response
-//     is an empty 200 so the caller's per-row hx-target can swap it
-//     out. The filter form is not consulted in this branch — the per-row
-//     icon button is for "drop just this person".
-//   - Otherwise the bulk-delete button is in play: the filter inputs
-//     are validated and every matching entry is removed, then the
-//     refreshed results fragment is returned. An empty filter clears
-//     every registration.
+//   - If display_name values are present, exactly those entries are
+//     removed. Used by both the per-row trash icon (one name) and the
+//     header's bulk-selection trash (many names). The filter form is
+//     not consulted in this branch.
+//   - Otherwise the filter form drives the delete: the filter inputs
+//     are validated and every matching entry is removed. An empty
+//     filter clears every registration.
+//
+// In either branch, when the registry becomes empty as a result the
+// response carries HX-Refresh so the GET handler can rerender the
+// empty-state layout (no filter form, no table).
 func (s *Server) handleDeleteRegistry(w http.ResponseWriter, r *http.Request) {
 	req, err := parseRegistryRequest(r)
 	if err != nil {
@@ -513,30 +521,58 @@ func (s *Server) handleDeleteRegistry(w http.ResponseWriter, r *http.Request) {
 	}
 	locale := localeFromRequest(r)
 
-	if req.ExactName != "" {
-		if _, err := s.registry.Delete(r.Context(), participants.Filter{DisplayName: req.ExactName}); err != nil {
-			http.Error(w, "delete: "+err.Error(), http.StatusInternalServerError)
+	var filter participants.Filter
+	if len(req.DisplayNames) > 0 {
+		filter = participants.Filter{DisplayNames: req.DisplayNames}
+	} else {
+		f, vErrs := validateInputs(req.Filter)
+		if len(vErrs) > 0 {
+			w.Header().Set("HX-Retarget", "#registry-info")
+			w.Header().Set("HX-Reswap", "outerHTML")
+			_ = views.RegistryInfo(0, vErrs, locale, false).Render(r.Context(), w)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	filter, vErrs := validateInputs(req.Filter)
-	if len(vErrs) > 0 {
-		_ = views.RegistryResults(nil, vErrs, locale).Render(r.Context(), w)
-		return
+		filter = f
 	}
 	if _, err := s.registry.Delete(r.Context(), filter); err != nil {
 		http.Error(w, "delete: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	entries, err := s.registry.Find(r.Context(), filter)
+
+	total, err := s.registry.Find(r.Context(), participants.Filter{})
 	if err != nil {
 		http.Error(w, "find: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	_ = views.RegistryResults(entries, nil, locale).Render(r.Context(), w)
+	if len(total) == 0 {
+		w.Header().Set("HX-Refresh", "true")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Re-apply the current filter so the participants list reflects the
+	// post-deletion state under whatever narrowing the user had active.
+	visible := total
+	if len(req.DisplayNames) == 0 {
+		visible, err = s.registry.Find(r.Context(), filter)
+		if err != nil {
+			http.Error(w, "find: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	} else {
+		// Bulk-by-name delete: respect the filter form values that came
+		// along on the request so the user's current view stays applied.
+		f, vErrs := validateInputs(req.Filter)
+		if len(vErrs) == 0 {
+			visible, err = s.registry.Find(r.Context(), f)
+			if err != nil {
+				http.Error(w, "find: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+	}
+	_ = views.RegistryResults(visible, locale).Render(r.Context(), w)
+	_ = views.RegistryInfo(len(visible), nil, locale, true).Render(r.Context(), w)
 }
 
 // handleQuestion returns a question record as JSON.

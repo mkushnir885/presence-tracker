@@ -82,11 +82,21 @@ func RegistryFilterErrorMessage(fieldKey, errorKey string, locale Locale) string
 }
 
 // RegistryExactDeleteVals encodes the hx-vals payload that the per-row
-// delete icon sends. It posts only exact_name so the handler removes
-// that single entry without consulting the filter form.
+// delete icon sends. It posts a single display_name value so the
+// handler removes just that one entry; the multi-select header trash
+// uses the same field via hx-include over the row checkboxes.
 func RegistryExactDeleteVals(displayName string) string {
-	b, _ := json.Marshal(map[string]string{"exact_name": displayName}) //nolint:errchkjson // a single string field cannot fail to marshal
+	b, _ := json.Marshal(map[string]string{"display_name": displayName}) //nolint:errchkjson // a single string field cannot fail to marshal
 	return string(b)
+}
+
+// registryInfoClass picks the class applied to the #registry-info span
+// based on whether the filter form parsed cleanly.
+func registryInfoClass(errors RegistryFilterErrors) string {
+	if len(errors) > 0 {
+		return "registry-info has-error"
+	}
+	return "registry-info"
 }
 
 // Locale carries the active language and a translation lookup function.

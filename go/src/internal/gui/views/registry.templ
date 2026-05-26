@@ -1,8 +1,8 @@
 package views
 
 import (
+	"fmt"
 	"net/url"
-	"strconv"
 
 	"presence-tracker/src/internal/participants"
 )
@@ -12,81 +12,125 @@ templ Registry(data RegistryData, locale Locale) {
 		@pageHeader(locale.T("registry.title")) {
 		}
 		if !data.HasAny {
-			<div class="card">
-				<p>{ locale.T("registry.empty") }</p>
-				<p class="text-muted">{ locale.T("registry.empty_hint") }</p>
-			</div>
+			<p class="text-muted">{ locale.T("registry.empty") }</p>
 		} else {
-			@registryFilters(data, locale)
+			@registryFilters(data, len(data.Entries), locale)
 			<div id="registry-results">
-				@RegistryResults(data.Entries, nil, locale)
+				@RegistryResults(data.Entries, locale)
 			</div>
+			@registryScript()
 		}
 	}
 }
 
 // RegistryResults renders the table fragment swapped into
-// #registry-results by the filter and delete endpoints. When the
-// submitted filter failed validation, errors is non-empty and we
-// render the messages here (in red) instead of a results table — the
-// invalid-filter feedback lives in the same container as the data so
-// the user is never split-attentioned between two places.
-templ RegistryResults(entries []participants.RegistryEntry, errors RegistryFilterErrors, locale Locale) {
-	if len(errors) > 0 {
-		<div class="card filter-errors">
-			for _, e := range errors.Ordered() {
-				<p class="field-error">{ RegistryFilterErrorMessage(e.Field, e.Key, locale) }</p>
-			}
-		</div>
-	} else if len(entries) == 0 {
-		<div class="card">
-			<p>{ locale.T("registry.no_matches") }</p>
-		</div>
-	} else {
-		<div class="card" style="overflow-x:auto;">
-			<table class="registry-table">
-				<thead>
-					<tr>
-						<th style="width:2.5rem;text-align:right;">{ locale.T("registry.col_num") }</th>
-						<th>{ locale.T("registry.col_display_name") }</th>
-						<th>{ locale.T("registry.col_messenger") }</th>
-						<th>{ locale.T("registry.col_account") }</th>
-						<th>{ locale.T("registry.col_registered") }</th>
-						<th></th>
+// #registry-results by the filter and bulk-delete endpoints. The
+// validation-error path no longer renders here — errors land in the
+// #registry-info span next to the Apply button via an OOB swap, and
+// the table is left untouched. An empty result set keeps the table
+// structure intact and surfaces the "no matches" message in a single
+// centered row, so the column layout does not jump between states.
+templ RegistryResults(entries []participants.RegistryEntry, locale Locale) {
+	<table class="registry-table">
+		<thead>
+			<tr>
+				<th><input type="checkbox" id="registry-select-all" aria-label={ locale.T("registry.select_all") }/></th>
+				<th>{ locale.T("registry.col_display_name") }</th>
+				<th>{ locale.T("registry.col_messenger") }</th>
+				<th>{ locale.T("registry.col_account") }</th>
+				<th>{ locale.T("registry.col_registered") }</th>
+				<th class="registry-action-cell">
+					<button
+						type="button"
+						id="registry-bulk-delete"
+						class="icon-btn icon-btn-sm icon-btn-danger"
+						data-tooltip={ locale.T("registry.delete_selected_tooltip") }
+						aria-label={ locale.T("registry.delete_selected_tooltip") }
+						hx-post="/registry/delete"
+						hx-include=".registry-select:checked, #registry-filter-form"
+						hx-target="#registry-results"
+						hx-confirm={ locale.T("registry.delete_selected_confirm") }
+						style="visibility:hidden"
+					>
+						@iconTrash()
+					</button>
+				</th>
+			</tr>
+		</thead>
+		<tbody>
+			if len(entries) == 0 {
+				<tr id="registry-empty-row">
+					<td colspan="6" class="text-muted registry-empty-row">{ locale.T("registry.no_matches") }</td>
+				</tr>
+			} else {
+				for _, e := range entries {
+					<tr id={ "entry-" + url.PathEscape(e.DisplayName) }>
+						<td>
+							<input
+								type="checkbox"
+								class="registry-select"
+								name="display_name"
+								value={ e.DisplayName }
+								aria-label={ e.DisplayName }
+							/>
+						</td>
+						<td>{ e.DisplayName }</td>
+						<td>{ e.MessengerName }</td>
+						<td>{ e.MessengerLabel }</td>
+						<td class="text-muted">{ e.RegisteredAt.Format("2006-01-02 15:04") }</td>
+						<td class="registry-action-cell">
+							<button
+								type="button"
+								class="icon-btn icon-btn-sm icon-btn-danger"
+								data-tooltip={ locale.T("registry.delete_tooltip") }
+								aria-label={ locale.T("registry.delete_tooltip") }
+								hx-post="/registry/delete"
+								hx-vals={ RegistryExactDeleteVals(e.DisplayName) }
+								hx-include="#registry-filter-form"
+								hx-target="#registry-results"
+								hx-confirm={ locale.T("registry.delete_confirm") }
+							>
+								@iconTrash()
+							</button>
+						</td>
 					</tr>
-				</thead>
-				<tbody>
-					for i, e := range entries {
-						<tr id={ "entry-" + url.PathEscape(e.DisplayName) }>
-							<td style="text-align:right;" class="text-muted">{ strconv.Itoa(i + 1) }</td>
-							<td>{ e.DisplayName }</td>
-							<td>{ e.MessengerName }</td>
-							<td>{ e.MessengerLabel }</td>
-							<td class="text-muted">{ e.RegisteredAt.Format("2006-01-02 15:04") }</td>
-							<td style="text-align:right;">
-								<button
-									type="button"
-									class="icon-btn icon-btn-danger"
-									data-tooltip={ locale.T("registry.delete_tooltip") }
-									aria-label={ locale.T("registry.delete_tooltip") }
-									hx-post="/registry/delete"
-									hx-vals={ RegistryExactDeleteVals(e.DisplayName) }
-									hx-confirm={ locale.T("registry.delete_confirm") }
-									hx-target={ "#entry-" + url.PathEscape(e.DisplayName) }
-									hx-swap="outerHTML"
-								>
-									@iconTrash()
-								</button>
-							</td>
-						</tr>
-					}
-				</tbody>
-			</table>
-		</div>
+				}
+			}
+		</tbody>
+	</table>
+}
+
+// RegistryInfo renders the status line that sits on the filter action
+// row, after the Reset button. It carries either the current match
+// count or the per-field validation errors. When oob is true, the
+// element is emitted as an htmx OOB swap so the same fragment can
+// update the line on the page without touching the participants list.
+templ RegistryInfo(count int, errors RegistryFilterErrors, locale Locale, oob bool) {
+	if oob {
+		<span id="registry-info" class={ registryInfoClass(errors) } hx-swap-oob="true">
+			@registryInfoBody(count, errors, locale)
+		</span>
+	} else {
+		<span id="registry-info" class={ registryInfoClass(errors) }>
+			@registryInfoBody(count, errors, locale)
+		</span>
 	}
 }
 
-templ registryFilters(data RegistryData, locale Locale) {
+templ registryInfoBody(count int, errors RegistryFilterErrors, locale Locale) {
+	if len(errors) > 0 {
+		for i, e := range errors.Ordered() {
+			if i > 0 {
+				<br/>
+			}
+			{ RegistryFilterErrorMessage(e.Field, e.Key, locale) }
+		}
+	} else {
+		{ fmt.Sprintf(locale.T("registry.filter.found"), count) }
+	}
+}
+
+templ registryFilters(data RegistryData, count int, locale Locale) {
 	<div class="card">
 		<form
 			id="registry-filter-form"
@@ -145,6 +189,7 @@ templ registryFilters(data RegistryData, locale Locale) {
 					class="btn"
 					onclick="(function(f){f.reset();htmx.trigger(f,'submit');})(this.form)"
 				>{ locale.T("registry.filter.reset") }</button>
+				@RegistryInfo(count, nil, locale, false)
 				<button
 					type="button"
 					class="icon-btn icon-btn-danger"
@@ -160,6 +205,48 @@ templ registryFilters(data RegistryData, locale Locale) {
 			</div>
 		</form>
 	</div>
+}
+
+// registryScript wires the select-all and bulk-delete behavior. It
+// listens on the document so it survives htmx swaps of
+// #registry-results (the rows live there); the bulk-delete button is
+// also part of the swapped fragment, which is fine because the
+// listener delegates by id.
+templ registryScript() {
+	<script>
+		(function() {
+			const bulkBtn = () => document.getElementById('registry-bulk-delete');
+			const selectAll = () => document.getElementById('registry-select-all');
+			function rowChecks() {
+				return Array.from(document.querySelectorAll('.registry-select'));
+			}
+			function refresh() {
+				const rows = rowChecks();
+				const checked = rows.filter(r => r.checked).length;
+				const all = selectAll();
+				if (all) {
+					all.checked = rows.length > 0 && checked === rows.length;
+					all.indeterminate = checked > 0 && checked < rows.length;
+					all.disabled = rows.length === 0;
+				}
+				const btn = bulkBtn();
+				if (btn) btn.style.visibility = checked < 1 ? 'hidden' : 'visible';
+			}
+			document.addEventListener('change', (e) => {
+				const t = e.target;
+				if (t && t.id === 'registry-select-all') {
+					rowChecks().forEach(r => r.checked = t.checked);
+					refresh();
+				} else if (t && t.classList && t.classList.contains('registry-select')) {
+					refresh();
+				}
+			});
+			document.body.addEventListener('htmx:afterSwap', (e) => {
+				if (e.target && e.target.id === 'registry-results') refresh();
+			});
+			refresh();
+		})();
+	</script>
 }
 
 templ iconTrash() {

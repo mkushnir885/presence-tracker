@@ -255,17 +255,36 @@ details.menu .menu-list button.active svg { color: var(--accent); }
     gap: 0.5rem;
     flex-wrap: wrap;
 }
-.registry-filter-actions .icon-btn-danger { margin-left: auto; }
+.registry-info {
+    flex: 1;
+    min-width: 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+.registry-info.has-error { color: var(--danger); }
 
-.registry-table { border-collapse: collapse; }
-.registry-table th, .registry-table td { padding: 0.5rem; border-bottom: 1px solid var(--border); }
+.registry-table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+.registry-table th, .registry-table td {
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    white-space: nowrap;
+}
 .registry-table tbody tr:last-child td { border-bottom: none; }
+.registry-table input[type=checkbox] { transform: translateY(2px); }
+.registry-table th:nth-child(1), .registry-table td:nth-child(1) { width: 2.25rem; }
+.registry-table th:nth-child(2), .registry-table td:nth-child(2) { white-space: normal; }
+.registry-table th:nth-child(3), .registry-table td:nth-child(3) { width: 7rem; }
+.registry-table th:nth-child(4), .registry-table td:nth-child(4) { width: 12rem; }
+.registry-table th:nth-child(5), .registry-table td:nth-child(5) { width: 11rem; }
+.registry-table th:nth-child(6), .registry-table td:nth-child(6) { width: 3rem; }
+.registry-table .registry-action-cell { text-align: right; }
+.registry-table .registry-empty-row { text-align: center; padding: 0.75rem !important; white-space: normal; }
 
 .field-error {
     color: var(--danger);
     margin: 0;
 }
-.filter-errors .field-error + .field-error { margin-top: 0.35rem; }
 
 @media (max-width: 600px) {
   .registry-filters { grid-template-columns: 1fr 1fr; }

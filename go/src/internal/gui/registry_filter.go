@@ -89,14 +89,15 @@ func readBodyForm(r *http.Request) (url.Values, error) {
 }
 
 // registryRequest is the parsed body of a POST /registry/filter or
-// POST /registry/delete request. ExactName carries a single-row
-// deletion target (set by the per-row icon button); when present the
-// delete handler ignores Filter and removes just that one entry. The
-// filter and delete endpoints share this shape so a single helper
-// parses the body once.
+// POST /registry/delete request. DisplayNames carries an explicit list
+// of deletion targets (set by the per-row icon button and by the
+// header's bulk-selection button); when non-empty the delete handler
+// ignores Filter and removes exactly those entries. The filter and
+// delete endpoints share this shape so a single helper parses the
+// body once.
 type registryRequest struct {
-	Filter    views.RegistryFilterInputs
-	ExactName string
+	Filter       views.RegistryFilterInputs
+	DisplayNames []string
 }
 
 // parseRegistryRequest reads the request body once and pulls every
@@ -106,6 +107,12 @@ func parseRegistryRequest(r *http.Request) (registryRequest, error) {
 	if err != nil {
 		return registryRequest{}, err
 	}
+	var names []string
+	for _, n := range form["display_name"] {
+		if t := strings.TrimSpace(n); t != "" {
+			names = append(names, t)
+		}
+	}
 	return registryRequest{
 		Filter: views.RegistryFilterInputs{
 			Name:      strings.TrimSpace(form.Get("name")),
@@ -113,7 +120,7 @@ func parseRegistryRequest(r *http.Request) (registryRequest, error) {
 			From:      strings.TrimSpace(form.Get("from")),
 			To:        strings.TrimSpace(form.Get("to")),
 		},
-		ExactName: strings.TrimSpace(form.Get("exact_name")),
+		DisplayNames: names,
 	}, nil
 }
 
