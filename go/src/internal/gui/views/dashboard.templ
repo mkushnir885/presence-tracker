@@ -2,6 +2,62 @@ package views
 
 import "fmt"
 
+func nextSortOrder(currentField, currentOrder, field string) string {
+	if currentField == field && currentOrder == "desc" {
+		return "asc"
+	}
+	if currentField == field && currentOrder == "asc" {
+		return "desc"
+	}
+	if field == "name" {
+		return "asc"
+	}
+	return "desc"
+}
+
+func sortIndicator(currentField, currentOrder, field string) string {
+	if currentField != field {
+		return "none"
+	}
+	return currentOrder
+}
+
+templ sortHeader(label, field, currentField, currentOrder string) {
+	<a
+		class={ "meetings-sort", "meetings-sort-" + sortIndicator(currentField, currentOrder, field) }
+		href={ templ.SafeURL("/?sort=" + field + "&order=" + nextSortOrder(currentField, currentOrder, field)) }
+	>
+		<span>{ label }</span>
+		switch sortIndicator(currentField, currentOrder, field) {
+			case "asc":
+				@iconSortAsc()
+			case "desc":
+				@iconSortDesc()
+			default:
+				@iconSortNone()
+		}
+	</a>
+}
+
+templ iconSortAsc() {
+	<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+		<polyline points="6 15 12 9 18 15"></polyline>
+	</svg>
+}
+
+templ iconSortDesc() {
+	<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+		<polyline points="6 9 12 15 18 9"></polyline>
+	</svg>
+}
+
+templ iconSortNone() {
+	<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+		<polyline points="8 9 12 5 16 9"></polyline>
+		<polyline points="8 15 12 19 16 15"></polyline>
+	</svg>
+}
+
 templ Dashboard(data DashboardData, locale Locale) {
 	@Layout("Dashboard", locale, nil) {
 		<h1>{ locale.T("nav.dashboard") }</h1>
@@ -61,6 +117,14 @@ templ Dashboard(data DashboardData, locale Locale) {
 		} else {
 			<div class="meetings-heading">
 				<h2>{ locale.T("dashboard.meetings.title") }</h2>
+				<button
+					type="submit"
+					form="meetings-form"
+					id="view-stats-btn"
+					class="btn btn-primary"
+					data-tooltip-template={ locale.T("dashboard.meetings.view_stats_tooltip") }
+					data-empty="1"
+				>{ locale.T("dashboard.meetings.view_stats") }</button>
 				<input
 					id="meetings-filter-input"
 					type="search"
@@ -74,18 +138,21 @@ templ Dashboard(data DashboardData, locale Locale) {
 					<thead>
 						<tr>
 							<th><input type="checkbox" id="meetings-select-all" aria-label={ locale.T("dashboard.meetings.select_all") }/></th>
-							<th>{ locale.T("dashboard.meetings.col_id") }</th>
-							<th>{ locale.T("dashboard.meetings.col_modified") }</th>
-							<th>{ locale.T("dashboard.meetings.col_size") }</th>
+							<th>@sortHeader(locale.T("dashboard.meetings.col_id"), "name", data.SortField, data.SortOrder)</th>
+							<th>@sortHeader(locale.T("dashboard.meetings.col_modified"), "modified", data.SortField, data.SortOrder)</th>
+							<th>@sortHeader(locale.T("dashboard.meetings.col_size"), "size", data.SortField, data.SortOrder)</th>
 							<th class="meetings-csv-cell">
 								<button
 									type="submit"
 									formaction="/report"
 									id="csv-cross-btn"
-									class="btn"
-									title={ locale.T("dashboard.meetings.export_cross_csv") }
+									class="icon-btn icon-btn-sm"
+									data-tooltip={ locale.T("dashboard.meetings.export_cross_csv") }
+									aria-label={ locale.T("dashboard.meetings.export_cross_csv") }
 									style="visibility:hidden"
-								>CSV</button>
+								>
+									@iconDownload()
+								</button>
 							</th>
 						</tr>
 					</thead>
@@ -97,23 +164,26 @@ templ Dashboard(data DashboardData, locale Locale) {
 								<td class="text-muted">{ m.ModTime.Format("2006-01-02 15:04") }</td>
 								<td class="text-muted">{ fmt.Sprintf("%d KB", m.SizeKB) }</td>
 								<td>
-									<a class="btn" href={ templ.SafeURL("/report?file=" + m.ID + ".parquet") }>CSV</a>
+									<a
+										class="icon-btn icon-btn-sm"
+										href={ templ.SafeURL("/report?file=" + m.ID + ".parquet") }
+										data-tooltip={ locale.T("dashboard.meetings.export_csv") }
+										aria-label={ locale.T("dashboard.meetings.export_csv") }
+									>
+										@iconDownload()
+									</a>
 								</td>
 							</tr>
 						}
 					</tbody>
 				</table>
-				<div class="meetings-actions">
-					<button type="submit" class="btn btn-primary" id="view-stats-btn" disabled>{ locale.T("dashboard.meetings.view_stats") }</button>
-					<span class="text-muted" id="meetings-selected-count"></span>
-				</div>
 			</form>
 			<script>
 				(function() {
 					const all = document.getElementById('meetings-select-all');
 					const rows = document.querySelectorAll('input.meetings-select');
 					const btn = document.getElementById('view-stats-btn');
-					const count = document.getElementById('meetings-selected-count');
+					const tooltipTpl = btn ? btn.getAttribute('data-tooltip-template') || '' : '';
 					const filter = document.getElementById('meetings-filter-input');
 					const empty = document.getElementById('meetings-filter-empty');
 					const csvBtn = document.getElementById('csv-cross-btn');
@@ -123,8 +193,13 @@ templ Dashboard(data DashboardData, locale Locale) {
 					function refresh() {
 						const visible = visibleRows();
 						const n = visible.filter(r => r.checked).length;
-						btn.disabled = n === 0;
-						count.textContent = n > 0 ? n + ' selected' : '';
+						if (n === 0) {
+							btn.setAttribute('data-empty', '1');
+							btn.removeAttribute('data-tooltip');
+						} else {
+							btn.removeAttribute('data-empty');
+							btn.setAttribute('data-tooltip', tooltipTpl.replace('%d', n));
+						}
 						all.checked = visible.length > 0 && n === visible.length;
 						all.indeterminate = n > 0 && n < visible.length;
 						all.disabled = visible.length === 0;

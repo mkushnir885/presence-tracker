@@ -112,8 +112,8 @@ templ themeMenu(locale Locale) {
 
 templ langMenu(locale Locale) {
 	<details class="menu" data-lang-menu>
-		<summary class="icon-btn lang-btn" data-tooltip={ locale.T("nav.lang_aria") } aria-label={ locale.T("nav.lang_aria") }>
-			<span class="lang-code">{ langDisplay(locale.Lang) }</span>
+		<summary class="icon-btn" data-tooltip={ locale.T("nav.lang_aria") } aria-label={ locale.T("nav.lang_aria") }>
+			@iconGlobe()
 		</summary>
 		<ul class="menu-list lang-list">
 			<li>
@@ -187,6 +187,14 @@ templ iconDownload() {
 	</svg>
 }
 
+templ iconGlobe() {
+	<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+		<circle cx="12" cy="12" r="10"></circle>
+		<line x1="2" y1="12" x2="22" y2="12"></line>
+		<path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+	</svg>
+}
+
 templ iconMonitor() {
 	<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 		<rect x="2" y="4" width="20" height="13" rx="2"></rect>
@@ -199,13 +207,6 @@ func langActive(current, target string) string {
 		return "active"
 	}
 	return ""
-}
-
-func langDisplay(lang string) string {
-	if lang == "ua" {
-		return "UA"
-	}
-	return "US"
 }
 
 // htmlLang maps internal locale codes to BCP 47 language tags for the

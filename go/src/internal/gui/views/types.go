@@ -101,6 +101,8 @@ type DashboardData struct {
 	EnabledProviders []ProviderOption
 	ActiveSession    bool
 	ActiveMeetingID  string
+	SortField        string // "name", "modified", "size"
+	SortOrder        string // "asc" or "desc"
 }
 
 // ProviderOption is one option in the Connect form's provider dropdown.

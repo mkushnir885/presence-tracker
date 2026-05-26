@@ -126,10 +126,8 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Sort newest first.
-	sort.Slice(meetings, func(i, j int) bool {
-		return meetings[i].ModTime.After(meetings[j].ModTime)
-	})
+	sortField, sortOrder := dashboardSort(r.URL.Query().Get("sort"), r.URL.Query().Get("order"))
+	sortMeetings(meetings, sortField, sortOrder)
 
 	s.mu.RLock()
 	act := s.active
@@ -138,6 +136,8 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	data := views.DashboardData{
 		Meetings:         meetings,
 		EnabledProviders: enabledProviderOptions(s.cfg.Get().Providers),
+		SortField:        sortField,
+		SortOrder:        sortOrder,
 	}
 	if act != nil {
 		data.ActiveSession = true
@@ -667,6 +667,42 @@ func buildServeProvider(name string, cfg *config.Config) (providers.Provider, er
 	default:
 		return nil, fmt.Errorf("unknown provider %q; supported: bbb, meet, zoom", name)
 	}
+}
+
+// dashboardSort normalizes the sort query parameters from the dashboard
+// URL. Unknown values fall back to ("modified", "desc"), which is the
+// default ordering — newest meetings first.
+func dashboardSort(field, order string) (string, string) {
+	switch field {
+	case "name", "modified", "size":
+	default:
+		field = "modified"
+	}
+	if order != "asc" && order != "desc" {
+		order = "desc"
+	}
+	return field, order
+}
+
+// sortMeetings sorts the meetings slice in place by the given field and
+// order. dashboardSort is responsible for validating the inputs.
+func sortMeetings(meetings []views.MeetingFile, field, order string) {
+	less := func(i, j int) bool {
+		switch field {
+		case "name":
+			return meetings[i].ID < meetings[j].ID
+		case "size":
+			return meetings[i].SizeKB < meetings[j].SizeKB
+		default:
+			return meetings[i].ModTime.Before(meetings[j].ModTime)
+		}
+	}
+	sort.Slice(meetings, func(i, j int) bool {
+		if order == "asc" {
+			return less(i, j)
+		}
+		return less(j, i)
+	})
 }
 
 // enabledProviderOptions returns the list of providers the teacher has
