@@ -5,6 +5,7 @@
   "nav.config": "Settings",
   "nav.theme": "Theme",
   "nav.stop_confirm": "Stop the tracking session?",
+  "nav.scroll_top": "Scroll to top",
 
   "dashboard.connect.title": "Connect to a meeting",
   "dashboard.connect.provider": "Provider",

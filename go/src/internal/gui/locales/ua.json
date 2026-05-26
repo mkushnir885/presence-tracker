@@ -5,6 +5,7 @@
   "nav.config": "Налаштування",
   "nav.theme": "Тема",
   "nav.stop_confirm": "Зупинити сесію відстеження?",
+  "nav.scroll_top": "Прокрутити вгору",
 
   "dashboard.connect.title": "Підключитись до зустрічі",
   "dashboard.connect.provider": "Провайдер",

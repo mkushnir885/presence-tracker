@@ -622,6 +622,42 @@ details.menu .menu-list button.active svg { color: var(--accent); }
 }
 .config-error { color: var(--danger); font-size: 0.9rem; }
 
+.scroll-top {
+    position: fixed;
+    bottom: 1.25rem;
+    right: 1.25rem;
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    color: var(--fg);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 150ms ease, transform 150ms ease, color 120ms, border-color 120ms;
+    pointer-events: none;
+    z-index: 100;
+}
+.scroll-top.visible {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+}
+.scroll-top:hover { border-color: var(--accent); color: var(--accent); }
+.scroll-top:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.scroll-top[data-tooltip]:hover::after {
+    top: 50%;
+    left: auto;
+    right: calc(100% + 8px);
+    transform: translateY(-50%);
+}
+
 .poll-form { display: flex; flex-direction: column; gap: 0.5rem; }
 .poll-form-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .poll-bank-input {
