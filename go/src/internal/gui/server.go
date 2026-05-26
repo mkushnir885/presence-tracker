@@ -616,13 +616,15 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 // cfg.Apply, which runs the shared validate → prune → write pipeline.
 // Secrets marked writeOnly in the schema keep their existing value when
 // the corresponding form field is empty (the form never echoes them).
+// On validation/write failure the editor is re-rendered with the
+// submitted values preserved and an inline error next to the Save button.
 func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form data", http.StatusBadRequest)
 		return
 	}
 	form := r.PostForm
-	err := s.cfg.Apply(func(v *config.Values) {
+	mutator := func(v *config.Values) {
 		v.MeetingsDir = form.Get("meetings_dir")
 		v.QuestionsDir = form.Get("questions_dir")
 		v.ReportsDir = form.Get("reports_dir")
@@ -663,9 +665,26 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 		v.Logging.Level = form.Get("logging.level")
 		v.Logging.Format = form.Get("logging.format")
 		v.Logging.File = form.Get("logging.file")
-	})
-	if err != nil {
-		http.Error(w, "save failed: "+err.Error(), http.StatusBadRequest)
+	}
+	if err := s.cfg.Apply(mutator); err != nil {
+		schema, sErr := config.Schema()
+		if sErr != nil {
+			http.Error(w, "config schema: "+sErr.Error(), http.StatusInternalServerError)
+			return
+		}
+		submitted := s.cfg.Get()
+		mutator(&submitted)
+		data := views.ConfigData{
+			V:          submitted,
+			Schema:     schema,
+			DataDir:    config.DataDir(),
+			CacheDir:   config.CacheDir(),
+			ConfigPath: s.cfg.Path(),
+			Error:      err.Error(),
+		}
+		locale := localeFromRequest(r)
+		w.WriteHeader(http.StatusBadRequest)
+		_ = views.ConfigEditor(data, locale).Render(r.Context(), w)
 		return
 	}
 	http.Redirect(w, r, "/config", http.StatusSeeOther)

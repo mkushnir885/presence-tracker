@@ -144,7 +144,7 @@
   "registry.filter.error.template": "Error in filter \"%s\": %s.",
   "registry.filter.error.bad_datetime": "invalid datetime format",
 
-  "config.title": "Configuration",
+  "config.title": "Settings",
   "config.general": "General",
   "config.meetings_dir": "Meetings directory",
   "config.questions_dir": "Questions directory",
@@ -181,7 +181,7 @@
   "config.event_store": "Event Store",
   "config.compression": "Compression",
   "config.row_group_size": "Row group size",
-  "config.save": "Save Config",
+  "config.save": "Save",
   "config.secret_hint": "Leave blank to keep current value.",
   "config.danger_zone": "Danger Zone",
   "config.clear_participants": "Clear Registered Participants",

@@ -100,8 +100,28 @@ h2 { font-size: 1.1rem; margin: 1.25rem 0 0.5rem; }
     line-height: 1.5;
 }
 .btn:hover { background: var(--hover-bg); border-color: var(--accent); text-decoration: none; }
+.btn:disabled, .btn[disabled] {
+    cursor: not-allowed;
+    opacity: 0.55;
+    filter: grayscale(0.4);
+}
+.btn:disabled:hover, .btn[disabled]:hover {
+    background: var(--card-bg);
+    border-color: var(--border);
+    filter: grayscale(0.4);
+}
 .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
 .btn-primary:hover { background: var(--accent); border-color: var(--accent); filter: brightness(0.92); }
+.btn-primary:disabled, .btn-primary[disabled] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+.btn-primary:disabled:hover, .btn-primary[disabled]:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    filter: grayscale(0.4);
+}
 .btn-danger { background: var(--danger); color: #fff; border-color: var(--danger); }
 .btn-danger:hover { background: var(--danger); border-color: var(--danger); filter: brightness(0.92); }
 .btn-sm  { padding: 0.2rem 0.55rem; font-size: 0.8rem; }
@@ -585,6 +605,22 @@ details.menu .menu-list button.active svg { color: var(--accent); }
 .meetings-sort:hover svg { opacity: 0.85; }
 .meetings-sort-asc svg, .meetings-sort-desc svg { opacity: 1; color: var(--accent); }
 .meetings-sort-asc, .meetings-sort-desc { color: var(--accent); }
+
+.config-paths {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: 0.5rem;
+    row-gap: 0.2rem;
+    align-items: baseline;
+}
+.config-actions {
+    margin-top: 1rem;
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.config-error { color: var(--danger); font-size: 0.9rem; }
 
 .poll-form { display: flex; flex-direction: column; gap: 0.5rem; }
 .poll-form-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }

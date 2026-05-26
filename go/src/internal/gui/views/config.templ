@@ -6,12 +6,15 @@ templ ConfigEditor(data ConfigData, locale Locale) {
 	@Layout(locale.T("config.title"), locale, nil) {
 		@pageHeader(locale.T("config.title")) {
 		}
-		<div class="card text-muted" style="font-size:0.85rem;">
-			<div><strong>{ locale.T("config.config_path") }</strong> <code>{ data.ConfigPath }</code></div>
-			<div><strong>{ locale.T("config.data_dir") }</strong> <code>{ data.DataDir }</code></div>
-			<div><strong>{ locale.T("config.cache_dir") }</strong> <code>{ data.CacheDir }</code></div>
+		<div class="card text-muted config-paths" style="font-size:0.85rem;">
+			<strong>{ locale.T("config.config_path") }</strong>
+			<code>{ data.ConfigPath }</code>
+			<strong>{ locale.T("config.data_dir") }</strong>
+			<code>{ data.DataDir }</code>
+			<strong>{ locale.T("config.cache_dir") }</strong>
+			<code>{ data.CacheDir }</code>
 		</div>
-		<form method="POST" action="/config">
+		<form id="config-form" method="POST" action="/config">
 			<details>
 				<summary>{ locale.T("config.general") }</summary>
 				<div class="card">
@@ -89,10 +92,33 @@ templ ConfigEditor(data ConfigData, locale Locale) {
 					@textField(data, "logging.file", locale.T("config.log_file"), data.V.Logging.File)
 				</div>
 			</details>
-			<div style="margin-top:1rem;display:flex;gap:0.75rem;align-items:center;">
-				<button type="submit" class="btn btn-primary">{ locale.T("config.save") }</button>
+			<div class="config-actions">
+				<button id="config-save" type="submit" class="btn btn-primary">{ locale.T("config.save") }</button>
+				if data.Error != "" {
+					<span class="config-error" role="alert">{ data.Error }</span>
+				}
 			</div>
 		</form>
+		<script>
+			(function() {
+				var form = document.getElementById('config-form');
+				if (!form) return;
+				var btn = document.getElementById('config-save');
+				if (!btn) return;
+				var hasError = form.querySelector('.config-error') !== null;
+				function snapshot() {
+					return new URLSearchParams(new FormData(form)).toString();
+				}
+				var initial = snapshot();
+				btn.disabled = !hasError;
+				function check() {
+					if (hasError) { btn.disabled = false; return; }
+					btn.disabled = snapshot() === initial;
+				}
+				form.addEventListener('input', check);
+				form.addEventListener('change', check);
+			})();
+		</script>
 	}
 }
 

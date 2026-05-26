@@ -260,6 +260,10 @@ type ConfigData struct {
 	DataDir    string
 	CacheDir   string
 	ConfigPath string
+	// Error is a human-readable message rendered next to the Save
+	// button when the most recent save attempt failed (schema
+	// validation, write error, ...). Empty on the initial load.
+	Error string
 }
 
 // at walks Schema.Properties along path and returns the leaf schema, or
