@@ -97,12 +97,14 @@ type Locale struct {
 
 // DashboardData is the data model for the dashboard page.
 type DashboardData struct {
-	Meetings         []MeetingFile
 	EnabledProviders []ProviderOption
 	ActiveSession    bool
 	ActiveMeetingID  string
-	SortField        string // "name", "modified", "size"
-	SortOrder        string // "asc" or "desc"
+}
+
+// MeetingsData is the data model for the Meeting files page.
+type MeetingsData struct {
+	Meetings []MeetingFile
 }
 
 // ProviderOption is one option in the Connect form's provider dropdown.

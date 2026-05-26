@@ -4,7 +4,8 @@ import "strconv"
 
 templ ConfigEditor(data ConfigData, locale Locale) {
 	@Layout(locale.T("config.title"), locale, nil) {
-		<h1>{ locale.T("config.title") }</h1>
+		@pageHeader(locale.T("config.title")) {
+		}
 		<div class="card text-muted" style="font-size:0.85rem;">
 			<div><strong>{ locale.T("config.config_path") }</strong> <code>{ data.ConfigPath }</code></div>
 			<div><strong>{ locale.T("config.data_dir") }</strong> <code>{ data.DataDir }</code></div>

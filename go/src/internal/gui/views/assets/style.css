@@ -49,15 +49,19 @@ body {
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 nav {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
     gap: 1.5rem;
     padding: 0.75rem 1.5rem;
     border-bottom: 1px solid var(--border);
     background: var(--card-bg);
 }
-nav .brand { font-weight: 600; font-size: 1rem; color: var(--fg); }
-nav .spacer { flex: 1; }
+nav .brand { font-weight: 600; font-size: 1rem; color: var(--fg); justify-self: start; }
+nav .nav-locations { display: flex; align-items: center; gap: 2.5rem; justify-self: center; }
+nav .nav-link { font-weight: 400; font-size: 0.9rem; color: var(--fg); text-decoration: none; }
+nav .brand:hover, nav .nav-link:hover { color: var(--accent); text-decoration: none; }
+nav .nav-tools { display: flex; align-items: center; gap: 0.5rem; justify-self: end; }
 nav button.theme-toggle {
     background: none;
     border: 1px solid var(--border);
@@ -68,6 +72,13 @@ nav button.theme-toggle {
     font-size: 0.85rem;
 }
 main { padding: 1.5rem; max-width: 1100px; margin: 0 auto; }
+
+.page-header {
+    display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+    margin: 0 0 1.25rem;
+    min-height: 2.5rem;
+}
+.page-header h1 { margin: 0; font-size: 1.5rem; line-height: 1.2; }
 h1 { font-size: 1.4rem; margin: 0 0 1rem; }
 h2 { font-size: 1.1rem; margin: 1.25rem 0 0.5rem; }
 .card {
@@ -258,7 +269,8 @@ details.menu .menu-list button.active svg { color: var(--accent); }
 
 @media (max-width: 600px) {
   .registry-filters { grid-template-columns: 1fr 1fr; }
-  nav { flex-wrap: wrap; gap: 0.75rem; }
+  nav { grid-template-columns: auto 1fr auto; gap: 0.75rem; padding: 0.6rem 0.9rem; }
+  nav .nav-locations { justify-self: center; }
   main { padding: 1rem; }
 }
 
@@ -514,14 +526,9 @@ details.menu .menu-list button.active svg { color: var(--accent); }
     .participant-row > :nth-child(4) { grid-area: band; width: 100% !important; }
 }
 
-.meetings-heading {
-    display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem;
-    margin: 1rem 0 0.5rem;
-}
-.meetings-heading h2 { margin: 0; }
-.meetings-heading #view-stats-btn { margin-left: auto; }
-.meetings-heading #view-stats-btn[data-empty="1"] { visibility: hidden; }
-.meetings-heading input[type=search] {
+.page-header #view-stats-btn { margin-left: auto; }
+.page-header #view-stats-btn[data-empty="1"] { visibility: hidden; }
+.page-header input[type=search] {
     min-width: 180px; max-width: 320px;
     padding: 0.4rem 0.6rem;
     border: 1px solid var(--border); border-radius: 6px;
@@ -530,15 +537,31 @@ details.menu .menu-list button.active svg { color: var(--accent); }
 
 .meetings-table { border-collapse: collapse; width: 100%; }
 .meetings-table th, .meetings-table td { padding: 0.5rem; border-bottom: 1px solid var(--border); text-align: left; }
-.meetings-table tbody tr:last-child td { border-bottom: none; }
+.meetings-table tbody tr:last-child td,
+.meetings-table tbody tr:nth-last-child(2) td { border-bottom: none; }
 .meetings-table input[type=checkbox] { transform: translateY(2px); }
+.meetings-table .meetings-empty-row { text-align: center; padding: 0.75rem !important; }
+/* Pin every column but "File name" to a fixed width so filtering or
+   sorting can't reflow header positions. */
+.meetings-table th, .meetings-table td { white-space: nowrap; }
+.meetings-table th:nth-child(2), .meetings-table td:nth-child(2) { white-space: normal; }
+.meetings-table th:nth-child(1), .meetings-table td:nth-child(1) { width: 2.25rem; }
+.meetings-table th:nth-child(3), .meetings-table td:nth-child(3) { width: 13rem; }
+.meetings-table th:nth-child(4), .meetings-table td:nth-child(4) { width: 8rem; }
+.meetings-table th:nth-child(5), .meetings-table td:nth-child(5) { width: 3rem; }
 
 .meetings-sort {
     display: inline-flex; align-items: center; gap: 0.3rem;
     color: var(--fg); text-decoration: none;
     cursor: pointer;
+    background: none; border: 0; padding: 0;
+    font: inherit;
 }
 .meetings-sort:hover { color: var(--accent); text-decoration: none; }
+.meetings-sort .sort-arrow { display: none; align-items: center; }
+.meetings-sort-asc  .sort-arrow-asc,
+.meetings-sort-desc .sort-arrow-desc,
+.meetings-sort-none .sort-arrow-none { display: inline-flex; }
 .meetings-sort svg { display: block; opacity: 0.45; transition: opacity 120ms; }
 .meetings-sort:hover svg { opacity: 0.85; }
 .meetings-sort-asc svg, .meetings-sort-desc svg { opacity: 1; color: var(--accent); }

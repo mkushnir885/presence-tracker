@@ -8,7 +8,8 @@ import (
 templ Status(data StatusData, locale Locale) {
 	@Layout("Live Status", locale, nil) {
 		<div hx-get="/status" hx-trigger="every 5s" hx-target="body" hx-swap="outerHTML"></div>
-		<h1>Live Status — { data.MeetingID }</h1>
+		@pageHeader("Live Status — " + data.MeetingID) {
+		}
 		<div class="card" style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;">
 			<div>
 				<span class="text-muted">{ locale.T("status.provider") }</span> { data.ProviderName }

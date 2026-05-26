@@ -1,0 +1,225 @@
+package views
+
+import "fmt"
+
+// initialSortClass returns the active-state class for a sort header on
+// initial render. The server hands the meetings rows back already
+// sorted by modification time descending, so only the "modified"
+// header starts active.
+func initialSortClass(field string) string {
+	if field == "modified" {
+		return "meetings-sort-desc"
+	}
+	return "meetings-sort-none"
+}
+
+templ sortHeader(label, field string) {
+	<button
+		type="button"
+		class={ "meetings-sort", initialSortClass(field) }
+		data-field={ field }
+	>
+		<span>{ label }</span>
+		<span class="sort-arrow sort-arrow-asc">
+			@iconSortAsc()
+		</span>
+		<span class="sort-arrow sort-arrow-desc">
+			@iconSortDesc()
+		</span>
+		<span class="sort-arrow sort-arrow-none">
+			@iconSortNone()
+		</span>
+	</button>
+}
+
+templ iconSortAsc() {
+	<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+		<polyline points="6 15 12 9 18 15"></polyline>
+	</svg>
+}
+
+templ iconSortDesc() {
+	<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+		<polyline points="6 9 12 15 18 9"></polyline>
+	</svg>
+}
+
+templ iconSortNone() {
+	<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+		<polyline points="8 9 12 5 16 9"></polyline>
+		<polyline points="8 15 12 19 16 15"></polyline>
+	</svg>
+}
+
+templ Meetings(data MeetingsData, locale Locale) {
+	@Layout(locale.T("meetings.title"), locale, nil) {
+		if len(data.Meetings) == 0 {
+			@pageHeader(locale.T("meetings.title")) {
+			}
+			<p class="text-muted">{ locale.T("meetings.empty") }</p>
+		} else {
+			@pageHeader(locale.T("meetings.title")) {
+				<button
+					type="submit"
+					form="meetings-form"
+					id="view-stats-btn"
+					class="btn btn-primary"
+					data-tooltip-template={ locale.T("meetings.view_stats_tooltip") }
+					data-empty="1"
+				>{ locale.T("meetings.view_stats") }</button>
+				<input
+					id="meetings-filter-input"
+					type="search"
+					placeholder={ locale.T("meetings.filter_placeholder") }
+					aria-label={ locale.T("meetings.filter_placeholder") }
+				/>
+			}
+			<form id="meetings-form" action="/stats" method="GET">
+				<table class="meetings-table">
+					<thead>
+						<tr>
+							<th><input type="checkbox" id="meetings-select-all" aria-label={ locale.T("meetings.select_all") }/></th>
+							<th>@sortHeader(locale.T("meetings.col_id"), "name")</th>
+							<th>@sortHeader(locale.T("meetings.col_modified"), "modified")</th>
+							<th>@sortHeader(locale.T("meetings.col_size"), "size")</th>
+							<th class="meetings-csv-cell">
+								<button
+									type="submit"
+									formaction="/report"
+									id="csv-cross-btn"
+									class="icon-btn icon-btn-sm"
+									data-tooltip={ locale.T("meetings.export_cross_csv") }
+									aria-label={ locale.T("meetings.export_cross_csv") }
+									style="visibility:hidden"
+								>
+									@iconDownload()
+								</button>
+							</th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, m := range data.Meetings {
+							<tr
+								data-name={ m.ID }
+								data-modified={ fmt.Sprintf("%d", m.ModTime.Unix()) }
+								data-size={ fmt.Sprintf("%d", m.SizeKB) }
+							>
+								<td><input type="checkbox" name="file" value={ m.ID + ".parquet" } class="meetings-select" aria-label={ m.ID }/></td>
+								<td><a href={ templ.SafeURL("/stats?file=" + m.ID + ".parquet") }>{ m.ID }</a></td>
+								<td class="text-muted">{ m.ModTime.Format("2006-01-02 15:04") }</td>
+								<td class="text-muted">{ fmt.Sprintf("%d KB", m.SizeKB) }</td>
+								<td>
+									<a
+										class="icon-btn icon-btn-sm"
+										href={ templ.SafeURL("/report?file=" + m.ID + ".parquet") }
+										data-tooltip={ locale.T("meetings.export_csv") }
+										aria-label={ locale.T("meetings.export_csv") }
+									>
+										@iconDownload()
+									</a>
+								</td>
+							</tr>
+						}
+						<tr id="meetings-filter-empty" hidden>
+							<td colspan="5" class="text-muted meetings-empty-row">{ locale.T("meetings.filter_no_matches") }</td>
+						</tr>
+					</tbody>
+				</table>
+			</form>
+			<script>
+				(function() {
+					const headers = document.querySelectorAll('.meetings-sort');
+					const tbody = document.querySelector('.meetings-table tbody');
+					const emptyRow = document.getElementById('meetings-filter-empty');
+					function activeSort() {
+						for (const h of headers) {
+							if (h.classList.contains('meetings-sort-asc')) return { field: h.dataset.field, order: 'asc' };
+							if (h.classList.contains('meetings-sort-desc')) return { field: h.dataset.field, order: 'desc' };
+						}
+						return { field: 'modified', order: 'desc' };
+					}
+					function applySort(field, order) {
+						headers.forEach(h => {
+							const isMe = h.dataset.field === field;
+							h.classList.toggle('meetings-sort-asc', isMe && order === 'asc');
+							h.classList.toggle('meetings-sort-desc', isMe && order === 'desc');
+							h.classList.toggle('meetings-sort-none', !isMe);
+						});
+						const rows = Array.from(tbody.querySelectorAll('tr[data-name]'));
+						rows.sort((a, b) => {
+							if (field === 'name') {
+								const av = a.dataset.name || '';
+								const bv = b.dataset.name || '';
+								return order === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+							}
+							const av = parseInt(a.dataset[field] || '0', 10);
+							const bv = parseInt(b.dataset[field] || '0', 10);
+							return order === 'asc' ? av - bv : bv - av;
+						});
+						rows.forEach(r => tbody.appendChild(r));
+						if (emptyRow) tbody.appendChild(emptyRow);
+					}
+					headers.forEach(h => {
+						h.addEventListener('click', () => {
+							const cur = activeSort();
+							const field = h.dataset.field;
+							let order;
+							if (cur.field === field) order = cur.order === 'asc' ? 'desc' : 'asc';
+							else order = field === 'name' ? 'asc' : 'desc';
+							applySort(field, order);
+						});
+					});
+
+					const all = document.getElementById('meetings-select-all');
+					const rows = document.querySelectorAll('input.meetings-select');
+					const btn = document.getElementById('view-stats-btn');
+					const tooltipTpl = btn ? btn.getAttribute('data-tooltip-template') || '' : '';
+					const filter = document.getElementById('meetings-filter-input');
+					const empty = document.getElementById('meetings-filter-empty');
+					const csvBtn = document.getElementById('csv-cross-btn');
+					function visibleRows() {
+						return Array.from(rows).filter(r => !r.closest('tr').hidden);
+					}
+					function refresh() {
+						const visible = visibleRows();
+						const n = visible.filter(r => r.checked).length;
+						if (n === 0) {
+							btn.setAttribute('data-empty', '1');
+							btn.removeAttribute('data-tooltip');
+						} else {
+							btn.removeAttribute('data-empty');
+							btn.setAttribute('data-tooltip', tooltipTpl.replace('%d', n));
+						}
+						all.checked = visible.length > 0 && n === visible.length;
+						all.indeterminate = n > 0 && n < visible.length;
+						all.disabled = visible.length === 0;
+						if (csvBtn) csvBtn.style.visibility = n < 2 ? 'hidden' : 'visible';
+					}
+					function applyFilter() {
+						const q = (filter.value || '').trim().toLowerCase();
+						let shown = 0;
+						rows.forEach(r => {
+							const tr = r.closest('tr');
+							const name = (r.value || '').toLowerCase();
+							const match = q === '' || name.indexOf(q) !== -1;
+							tr.hidden = !match;
+							if (!match) r.checked = false;
+							if (match) shown++;
+						});
+						empty.hidden = shown !== 0;
+						refresh();
+					}
+					all.addEventListener('change', () => {
+						visibleRows().forEach(r => r.checked = all.checked);
+						refresh();
+					});
+					rows.forEach(r => r.addEventListener('change', refresh));
+					if (filter) {
+						filter.addEventListener('input', applyFilter);
+					}
+					applyFilter();
+				})();
+			</script>
+		}
+	}
+}
