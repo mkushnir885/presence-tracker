@@ -133,27 +133,28 @@ menu with two options:
 
 - **Custom bank…** opens a file picker (browser-native), pre-validates
   the chosen YAML, and on confirmation submits
-  `POST /poll` with `{"type": "custom", "bank_path": "<chosen>"}`.
-  Equivalent to running `ptrack poll --type=custom <bank>` from a shell.
+  `POST /poll` with `{"auto_submitted": false, "bank_path": "<chosen>"}`.
+  Equivalent to running `ptrack poll <bank>` from a shell.
 - **Auto-generated** is enabled only when `GET /poll/pending` returns a
   non-empty file. The label shows the file's age. Clicking it submits
   `POST /poll` with
-  `{"type": "combined", "bank_path": "<pending-file>"}`. A small
-  **[view]** affordance next to the option opens the YAML in a modal
-  for inline preview/edit before submission (backed by
-  `GET /poll/pending/preview`); the edited copy is saved back to the
-  same path before the poll is dispatched. On successful submission the
-  file is removed from `review_dir`.
+  `{"auto_submitted": false, "bank_path": "<pending-file>"}` (the
+  teacher reviewed the bank). A small **[view]** affordance next to
+  the option opens the YAML in a modal for inline preview/edit before
+  submission (backed by `GET /poll/pending/preview`); the edited copy
+  is saved back to the same path before the poll is dispatched. On
+  successful submission the file is removed from `review_dir`.
 
 If auto-generation is configured with `auto_submit: true`, the
 in-process challenger dispatches its own polls (with
-`type=aigenerated`) without ever populating the menu — the
+`auto_submitted=true`) without ever populating the menu — the
 **Auto-generated** option appears only when the teacher's intervention
 is expected.
 
-The "Last poll" card shows the most recent poll's `type`, dispatch
-time, and result counts (delivered / correct / incorrect / unanswered),
-plus a cooldown indicator (`min_gap_between_challenges_seconds`).
+The "Last poll" card shows whether the most recent poll was
+auto-submitted, its dispatch time, and result counts (delivered /
+correct / incorrect / unanswered), plus a cooldown indicator
+(`min_gap_between_challenges_seconds`).
 
 Inline edit fields for `auto_generation.poll_interval_seconds` and
 `auto_generation.questions_per_poll` are shown when auto-generation is

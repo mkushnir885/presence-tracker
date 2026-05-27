@@ -56,7 +56,7 @@ def load_questions(questions_dir: str, meeting_ids: list[str]) -> pl.LazyFrame:
         return pl.LazyFrame(
             schema={
                 "question_id": pl.String,
-                "challenge_type": pl.String,
+                "auto_submitted": pl.Boolean,
                 "question_type": pl.String,
                 "prompt": pl.String,
                 "choices": pl.List(pl.String),

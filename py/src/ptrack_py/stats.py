@@ -283,9 +283,7 @@ def _collect_max_participants(events: pl.LazyFrame) -> dict[str, int]:
     df: pl.DataFrame = (  # type: ignore  # ty limitation
         pl.concat([joined, left])
         .sort(["meeting_id", "t", "delta"], descending=[False, False, True])
-        .with_columns(
-            pl.col("delta").cum_sum().over("meeting_id").alias("concurrent")
-        )
+        .with_columns(pl.col("delta").cum_sum().over("meeting_id").alias("concurrent"))
         .group_by("meeting_id")
         .agg(pl.col("concurrent").max().alias("max_participants"))
         .collect()
@@ -335,7 +333,7 @@ def _collect_markers(
         out.setdefault(key, []).append(
             {
                 "x_pct": float(row["x_pct"]),
-                "challenge_type": row["challenge_type"] or "",
+                "auto_submitted": bool(row["auto_submitted"]),
                 "result": row["result"],
                 "challenge_id": row["challenge_id"],
                 "question_id": row["question_id"],

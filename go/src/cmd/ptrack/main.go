@@ -88,10 +88,10 @@ func trackCmd() *cobra.Command {
 // pollCmd is a thin HTTP client to the running daemon.
 func pollCmd() *cobra.Command {
 	var (
-		cfgPath   string
-		typeLabel string
-		port      int
-		serverURL string
+		cfgPath       string
+		autoSubmitted bool
+		port          int
+		serverURL     string
 	)
 
 	cmd := &cobra.Command{
@@ -99,12 +99,12 @@ func pollCmd() *cobra.Command {
 		Short: "Trigger a challenge poll on the running ptrack daemon",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPoll(cmd.Context(), cfgPath, serverURL, typeLabel, port, args[0])
+			return runPoll(cmd.Context(), cfgPath, serverURL, autoSubmitted, port, args[0])
 		},
 	}
 
 	cmd.Flags().StringVar(&cfgPath, "config", "", "path to config.yaml (used only to discover the daemon port when PTRACK_PORTS is unset)")
-	cmd.Flags().StringVar(&typeLabel, "type", "custom", "free-form producer label stored on every challenge_issued event")
+	cmd.Flags().BoolVar(&autoSubmitted, "auto-submitted", false, "mark the poll as dispatched without teacher review")
 	cmd.Flags().IntVar(&port, "port", 0, "daemon port; required when several ptrack processes are running")
 	cmd.Flags().StringVar(&serverURL, "server", "", "override the daemon URL (e.g. http://127.0.0.1:8080)")
 
@@ -333,8 +333,8 @@ func runHTTPServer(ctx context.Context, ln net.Listener, mux *http.ServeMux) {
 // pollRequest / pollResponse / pollErrorResponse are the wire types shared
 // between the daemon's POST /poll endpoint and ptrack poll.
 type pollRequest struct {
-	Type     string `json:"type"`
-	BankPath string `json:"bank_path"`
+	AutoSubmitted bool   `json:"auto_submitted"`
+	BankPath      string `json:"bank_path"`
 }
 
 type pollResponse struct {
@@ -360,9 +360,6 @@ func mountPollHandler(mux *http.ServeMux, coordFn func() *session.Coordinator) {
 			writePollError(w, http.StatusBadRequest, "bank_path is required")
 			return
 		}
-		if req.Type == "" {
-			req.Type = "custom"
-		}
 
 		coord := coordFn()
 		if coord == nil {
@@ -370,7 +367,7 @@ func mountPollHandler(mux *http.ServeMux, coordFn func() *session.Coordinator) {
 			return
 		}
 
-		result, err := coord.RunPoll(r.Context(), req.BankPath, req.Type)
+		result, err := coord.RunPoll(r.Context(), req.BankPath, req.AutoSubmitted)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				writePollError(w, http.StatusNotFound, err.Error())
@@ -456,7 +453,7 @@ func appendCurrentPort(port int) error {
 }
 
 // runPoll posts to the running daemon's POST /poll endpoint.
-func runPoll(ctx context.Context, cfgPath, serverURL, typeLabel string, port int, bankPath string) error {
+func runPoll(ctx context.Context, cfgPath, serverURL string, autoSubmitted bool, port int, bankPath string) error {
 	abs, err := filepath.Abs(bankPath)
 	if err != nil {
 		return fmt.Errorf("resolve bank path: %w", err)
@@ -467,7 +464,7 @@ func runPoll(ctx context.Context, cfgPath, serverURL, typeLabel string, port int
 		return err
 	}
 
-	body, _ := json.Marshal(map[string]string{"type": typeLabel, "bank_path": abs})
+	body, _ := json.Marshal(pollRequest{AutoSubmitted: autoSubmitted, BankPath: abs})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/poll", bytes.NewReader(body))
 	if err != nil {
 		return err

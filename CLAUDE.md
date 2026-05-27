@@ -167,7 +167,7 @@ the Parquet log. The pipeline does not care where the YAML came from.
 Sending a poll always goes through the single CLI subcommand
 
 ```
-ptrack poll [--type=<label>] [--port=<port>] [--wait] <path-to-bank.yaml>
+ptrack poll [--auto-submitted] [--port=<port>] [--wait] <path-to-bank.yaml>
 ```
 
 which is a thin HTTP client to the running `ptrack serve` / `ptrack track`
@@ -176,17 +176,17 @@ daemon (see "Control plane" in `@docs/ARCHITECTURE.md`). The GUI's
 this endpoint. The in-process auto-generator, when `auto_submit` is on,
 calls the same pipeline directly (no CLI, no HTTP).
 
-`--type` is a free-form label that is stored verbatim on every
-`challenge_issued` event for the round. The system does not constrain
-its values. Conventions used by the built-in producers:
+`--auto-submitted` is a boolean marker stored on every
+`challenge_issued` event for the round. It is set only when the bank
+reaches the pipeline without teacher review:
 
-- `custom` — teacher's own bank file. Default for bare `ptrack poll`.
-- `combined` — auto-generated YAML that the teacher reviewed/edited and
-  dispatched manually from the GUI.
-- `aigenerated` — auto-generated YAML dispatched automatically by the
-  in-process challenger.
+- Teacher's own bank file (`ptrack poll <bank>`) — flag unset.
+- Auto-generated YAML the teacher reviewed and dispatched from the
+  GUI — flag unset.
+- Auto-generated YAML dispatched automatically by the in-process
+  challenger when `auto_submit` is on — flag set.
 
-`--type` never appears inside the YAML — the YAML stays a clean,
+The flag never appears inside the YAML — the YAML stays a clean,
 producer-agnostic bank format.
 
 Three result states are recorded per challenge:
@@ -367,7 +367,7 @@ For releases: PyInstaller single-file binary (`ptrack_py`).
 | Run a fixture end-to-end        | `./bin/ptrack track --provider=mock --fixture=test/fixtures/bbb/lesson1` |
 | Track without GUI (headless)    | `./bin/ptrack track --provider=bbb --meeting=<id>`                       |
 | Start GUI (connect via browser) | `./bin/ptrack serve --port=8080` — use the Connect form on the dashboard |
-| Trigger a poll (any producer)   | `./bin/ptrack poll --type=custom path/to/bank.yaml`                      |
+| Trigger a poll (any producer)   | `./bin/ptrack poll path/to/bank.yaml`                                    |
 | Trigger a poll, wait for result | `./bin/ptrack poll --wait path/to/bank.yaml`                             |
 | Reload config in running daemon | `./bin/ptrack reload`                                                    |
 | Export CSV report for a meeting | `./bin/ptrack report --in meeting.parquet --out report.csv`              |

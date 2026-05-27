@@ -59,7 +59,7 @@ def challenge_results(events: pl.LazyFrame) -> pl.LazyFrame:
     One row per challenge_issued event, annotated with its final state.
 
     Columns: display_name, meeting_id, challenge_id, question_id,
-             challenge_type, issued_ms, state, latency_ms.
+             auto_submitted, issued_ms, state, latency_ms.
     issued_ms is a ms offset from the meeting start.
     """
     issued = events.filter(pl.col("event_type") == "challenge_issued").select(
@@ -69,8 +69,9 @@ def challenge_results(events: pl.LazyFrame) -> pl.LazyFrame:
         pl.col("challenge_id"),
         pl.col("question_id"),
         pl.col("metadata")
-        .str.json_path_match("$.challenge_type")
-        .alias("challenge_type"),
+        .str.json_path_match("$.auto_submitted")
+        .eq("true")
+        .alias("auto_submitted"),
     )
 
     result_events = events.filter(

@@ -43,29 +43,30 @@ recipients of this round — is backed by its own fresh API call.
 The interesting variability sits **outside** the system: how the YAML
 file was produced. Three producer roles are recognized:
 
-| Producer            | Convention `--type=` label | Notes                                                                            |
-|---------------------|----------------------------|----------------------------------------------------------------------------------|
-| Teacher, by hand    | `custom` (default)         | The teacher prepares a YAML bank in their editor and selects it from the GUI or shell. |
-| Auto-generator      | `aigenerated`              | The in-process Go challenger dispatches the generated bank through the challenge pipeline directly, in memory (when `auto_submit` is on). Nothing is written to disk. |
-| Reviewed auto-gen   | `combined`                 | The Go challenger writes the generated YAML to `challenges.auto_generation.review_dir` and stops; the teacher reviews/edits it and triggers the poll via the GUI menu (when `auto_submit` is off). |
-| User scripts        | any other label            | Any tool that produces a valid YAML bank can call `ptrack poll --type=<anything> <path>`. The label is free-form; the system stores it verbatim on every `challenge_issued` event. |
+| Producer            | `--auto-submitted` | Notes                                                                            |
+|---------------------|--------------------|----------------------------------------------------------------------------------|
+| Teacher, by hand    | not set (false)    | The teacher prepares a YAML bank in their editor and selects it from the GUI or shell. |
+| Auto-generator      | set (true)         | The in-process Go challenger dispatches the generated bank through the challenge pipeline directly, in memory (when `auto_submit` is on). Nothing is written to disk. |
+| Reviewed auto-gen   | not set (false)    | The Go challenger writes the generated YAML to `challenges.auto_generation.review_dir` and stops; the teacher reviews/edits it and triggers the poll via the GUI menu (when `auto_submit` is off). Once dispatched manually it counts as teacher-reviewed. |
+| User scripts        | caller's choice    | Any tool that produces a valid YAML bank can call `ptrack poll [--auto-submitted] <path>`. Set the flag only when no human reviewed the bank before dispatch. |
 
-The `--type` label is purely a CLI/transport-side tag. It is **never**
-written inside the YAML file itself — the YAML stays a clean,
+The `--auto-submitted` flag is a CLI/transport-side marker. It is
+**never** written inside the YAML file itself — the YAML stays a clean,
 producer-agnostic bank format.
 
 ## The poll trigger: `ptrack poll`
 
 ```
-ptrack poll [--type=<label>] [--port=<port>] [--wait] <path-to-bank.yaml>
+ptrack poll [--auto-submitted] [--port=<port>] [--wait] <path-to-bank.yaml>
 ```
 
 `ptrack poll` is a **thin client** to the running `ptrack` daemon. It
 contains no challenge logic of its own: it resolves the daemon URL,
 opens a localhost HTTP connection, and posts the poll request.
 
-- `--type` defaults to `custom`. Any string is accepted; the conventions
-  above are recommendations, not constraints.
+- `--auto-submitted` marks the poll as dispatched without teacher
+  review. Defaults to false; pass it only from automated producers that
+  bypass the teacher.
 - `--port` selects a daemon when several `ptrack` processes are running
   in parallel (one meeting per process). When exactly one daemon is
   reachable via `PTRACK_PORTS`, `--port` is optional.
@@ -108,7 +109,7 @@ POST /poll
 Request body:
 
 ```json
-{ "type": "custom", "bank_path": "/abs/path/to/bank.yaml" }
+{ "auto_submitted": false, "bank_path": "/abs/path/to/bank.yaml" }
 ```
 
 Response (immediate, 200 OK):
@@ -142,7 +143,7 @@ Files in this directory are short-lived:
 
 - The GUI's **Trigger poll** menu enables the **Auto-generated** option
   only when at least one YAML is present here. On selection, the menu
-  calls `ptrack poll --type=combined <path>`.
+  dispatches the bank with `auto_submitted=false` (the teacher acted).
 - A YAML in this directory is removed in either of two events:
   1. It has been submitted via the GUI (the file is consumed on
      successful dispatch).
@@ -206,8 +207,8 @@ When a poll runs, every issued question is appended to the meeting's
 `<meeting_id>.jsonl` file in `questions_dir`. Each line is one JSON
 object with the full question content plus a UUIDv4 `question_id`.
 `challenge_issued` events in the Parquet file reference the same
-`question_id`. The `--type` label of the poll is **not** written here —
-it lives on the event row in Parquet (`challenge_type` column).
+`question_id`. The `auto_submitted` marker is **not** written here —
+it lives on the event row in Parquet (`auto_submitted` metadata key).
 
 JSON Lines is chosen over YAML because Polars loads it natively
 (`pl.read_ndjson()`), variable fields per question type work naturally
@@ -270,12 +271,12 @@ The challenger:
    and validates the response.
 3. If `challenges.auto_generation.auto_submit` is true, it dispatches
    the bank directly through the in-process challenge pipeline with
-   `--type=aigenerated`. **Nothing is written to disk.**
+   `auto_submitted=true`. **Nothing is written to disk.**
 4. If `auto_submit` is false, it writes the YAML to the configured
    `review_dir` (see "Review directory" above) and stops. The GUI
    surfaces the file in the **Auto-generated** option of the Trigger
-   poll menu; the teacher submits it (with `--type=combined`) after
-   optionally reviewing or editing it.
+   poll menu; the teacher submits it (with `auto_submitted=false`)
+   after optionally reviewing or editing it.
 
 Malformed generator output is dropped silently at debug log level. A
 failed generation emits a `challenge_generator_failed` event so the
@@ -398,7 +399,7 @@ Additional diagnostic events (not counted in challenge stats):
 ## Adding a new producer
 
 Producers do not need to be registered anywhere. Anything that can
-write a valid YAML bank and invoke `ptrack poll` is a producer. To
-distinguish a new producer's output in analytics, pick a stable
-`--type=<label>` and document it in the team's own notes — the system
-records the label verbatim and does not constrain its value.
+write a valid YAML bank and invoke `ptrack poll` is a producer. Pass
+`--auto-submitted` only when the bank reaches the pipeline without a
+human reviewing it; that is the single bit analytics use to set apart
+unreviewed questions from everything else.

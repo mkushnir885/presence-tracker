@@ -42,7 +42,7 @@ it.
    into the session coordinator. Chat is not monitored — participant
    pairing is handled entirely via the Telegram bot (see "Participant
    identity" in `CLAUDE.md`).
-3. A poll is dispatched by calling `ptrack poll --type=<label> <bank>`
+3. A poll is dispatched by calling `ptrack poll [--auto-submitted] <bank>`
    (from the GUI's Trigger poll menu, from the user's terminal, or from
    any external script). The in-process auto-generator, when
    `auto_submit` is on, calls the same pipeline directly without going
@@ -197,15 +197,15 @@ The challenge package is a single concrete pipeline:
   (`validate.go`).
 - `Score(q Question, submitted Answer) ScoreResult` — score one answer
   against one question.
-- `RunPoll(ctx, session, bank, typeLabel)` — pick eligible participants,
-  assign questions, append `.jsonl` records, dispatch through the
-  `Messenger`, listen for answers, emit events. Called by the daemon's
-  `POST /poll` HTTP endpoint.
+- `RunPoll(ctx, session, bank, autoSubmitted)` — pick eligible
+  participants, assign questions, append `.jsonl` records, dispatch
+  through the `Messenger`, listen for answers, emit events. Called by
+  the daemon's `POST /poll` HTTP endpoint.
 
-The `typeLabel` string is a free-form tag attached to every
-`challenge_issued` event for this poll round. The system never inspects
-it; it exists for analytics and human-readable distinction between
-producers.
+The `autoSubmitted` boolean is attached to every `challenge_issued`
+event for this poll round. The system never inspects it; it exists so
+analytics can separate unreviewed challenger output from
+teacher-driven polls.
 
 How a YAML reaches `RunPoll` is *not* the challenge package's concern —
 that is the control plane's concern. See "Control plane" below.
@@ -312,13 +312,14 @@ right daemon.
 ### `ptrack poll` CLI (thin client)
 
 ```
-ptrack poll [--type=<label>] [--port=<port>] [--wait] <path-to-bank.yaml>
+ptrack poll [--auto-submitted] [--port=<port>] [--wait] <path-to-bank.yaml>
 ```
 
 `ptrack poll` contains no challenge logic — it resolves the daemon URL,
-POSTs to `http://127.0.0.1:<port>/poll`, and exits. Default `--type` is
-`custom`. See `@docs/CHALLENGES.md` for the endpoint body and the
-error codes.
+POSTs to `http://127.0.0.1:<port>/poll`, and exits. `--auto-submitted`
+defaults to false; pass it only from automated producers that dispatch
+without teacher review. See `@docs/CHALLENGES.md` for the endpoint body
+and the error codes.
 
 Port resolution priority: `--server=URL` flag, `--port=<port>` flag,
 single entry in `PTRACK_PORTS`, config.yaml `gui.port`, `8080`. If

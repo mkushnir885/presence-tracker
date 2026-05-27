@@ -41,7 +41,7 @@ type Result struct {
 // Dispatcher hands a generated bank to the running session's challenge
 // pipeline. Implemented by *session.Coordinator's in-memory poll entry.
 type Dispatcher interface {
-	RunPollBank(ctx context.Context, bank challenges.Bank, typeLabel string) (challenges.PollResult, error)
+	RunPollBank(ctx context.Context, bank challenges.Bank, autoSubmitted bool) (challenges.PollResult, error)
 }
 
 // EventSink records the diagnostic events the challenger emits when
@@ -173,7 +173,7 @@ func (s *Service) Generate(ctx context.Context, audio io.Reader, mime string) (R
 		if s.dispatcher == nil {
 			return Result{Status: StatusFailed, Reason: "dispatch_error"}, nil
 		}
-		if _, err := s.dispatcher.RunPollBank(ctx, bank, "aigenerated"); err != nil {
+		if _, err := s.dispatcher.RunPollBank(ctx, bank, true); err != nil {
 			s.failed(ctx, "dispatch_error", err)
 			return Result{Status: StatusFailed, Reason: "dispatch_error"}, nil
 		}

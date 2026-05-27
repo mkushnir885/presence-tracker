@@ -11,7 +11,7 @@ import (
 // Fields match docs/CHALLENGES.md § "Question record fields".
 type QuestionRecord struct {
 	QuestionID    string   `json:"question_id"`
-	ChallengeType string   `json:"challenge_type"`
+	AutoSubmitted bool     `json:"auto_submitted"`
 	QuestionType  string   `json:"question_type"`
 	Prompt        string   `json:"prompt"`
 	Choices       []string `json:"choices,omitempty"`

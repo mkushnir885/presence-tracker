@@ -23,13 +23,13 @@ type EligibleParticipant struct {
 
 // IssuedChallenge records one delivered challenge.
 type IssuedChallenge struct {
-	ChallengeID string
-	DisplayName string
-	TypeLabel   string
-	Question    Question
-	Handle      string
-	MessageRef  string
-	IssuedAt    time.Time
+	ChallengeID   string
+	DisplayName   string
+	AutoSubmitted bool
+	Question      Question
+	Handle        string
+	MessageRef    string
+	IssuedAt      time.Time
 }
 
 // EventSink receives scored challenge results and side effects. Implemented
@@ -86,7 +86,7 @@ func NewPipeline(sink EventSink, answerWindow time.Duration) *Pipeline {
 func (p *Pipeline) RunPoll(
 	ctx context.Context,
 	bank Bank,
-	typeLabel string,
+	autoSubmitted bool,
 	eligible []EligibleParticipant,
 	send SendFn,
 	questionsDir, meetingID string,
@@ -125,7 +125,7 @@ func (p *Pipeline) RunPoll(
 		q := assignments[i]
 		cid := uuid.Must(uuid.NewV7()).String()
 		wg.Go(func() {
-			results[i].delivered = p.deliver(ctx, ep, cid, q, typeLabel, issuedAt, send)
+			results[i].delivered = p.deliver(ctx, ep, cid, q, autoSubmitted, issuedAt, send)
 		})
 	}
 	wg.Wait()
@@ -139,19 +139,19 @@ func (p *Pipeline) RunPoll(
 	}
 
 	if questionsDir != "" && meetingID != "" {
-		p.saveQuestions(assignments, typeLabel, questionsDir, meetingID, issuedAt)
+		p.saveQuestions(assignments, autoSubmitted, questionsDir, meetingID, issuedAt)
 	}
 
 	return res, nil
 }
 
-func (p *Pipeline) saveQuestions(questions []Question, typeLabel, questionsDir, meetingID string, issuedAt time.Time) {
+func (p *Pipeline) saveQuestions(questions []Question, autoSubmitted bool, questionsDir, meetingID string, issuedAt time.Time) {
 	ts := issuedAt.Format(time.RFC3339)
 	records := make([]eventstore.QuestionRecord, 0, len(questions))
 	for _, q := range questions {
 		records = append(records, eventstore.QuestionRecord{
 			QuestionID:    q.QuestionID,
-			ChallengeType: typeLabel,
+			AutoSubmitted: autoSubmitted,
 			QuestionType:  string(q.QuestionType),
 			Prompt:        q.Prompt,
 			Choices:       q.Choices,
@@ -171,7 +171,7 @@ func (p *Pipeline) deliver(
 	ep EligibleParticipant,
 	cid string,
 	q Question,
-	typeLabel string,
+	autoSubmitted bool,
 	issuedAt time.Time,
 	send SendFn,
 ) bool {
@@ -183,13 +183,13 @@ func (p *Pipeline) deliver(
 	}
 
 	issued := IssuedChallenge{
-		ChallengeID: cid,
-		DisplayName: ep.DisplayName,
-		TypeLabel:   typeLabel,
-		Question:    q,
-		Handle:      ep.Handle,
-		MessageRef:  ref,
-		IssuedAt:    issuedAt,
+		ChallengeID:   cid,
+		DisplayName:   ep.DisplayName,
+		AutoSubmitted: autoSubmitted,
+		Question:      q,
+		Handle:        ep.Handle,
+		MessageRef:    ref,
+		IssuedAt:      issuedAt,
 	}
 	if err := p.sink.RecordChallengeIssued(ctx, issued); err != nil {
 		slog.Error("challenges: record issued", "err", err)

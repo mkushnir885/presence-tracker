@@ -73,12 +73,12 @@ event-type-specific metadata.
 
 | Event type                     | `display_name` | `challenge_id` | `question_id` | Key metadata fields              |
 |--------------------------------|----------------|----------------|---------------|----------------------------------|
-| `challenge_issued`             | set            | set            | set           | `challenge_type`, `answer_window_s` |
+| `challenge_issued`             | set            | set            | set           | `auto_submitted`, `answer_window_s` |
 | `challenge_answered_correct`   | null           | set            | null          | `latency_ms`                     |
 | `challenge_answered_incorrect` | null           | set            | null          | `latency_ms`, `submitted_hash`   |
 | `challenge_unanswered`         | null           | set            | null          | —                                |
-| `challenge_skipped_offline`    | set            | set            | null          | `challenge_type`, `delivery_error` |
-| `challenge_generator_failed`   | null           | null           | null          | `challenge_type`, `error_class`  |
+| `challenge_skipped_offline`    | set            | set            | null          | `auto_submitted`, `delivery_error` |
+| `challenge_generator_failed`   | null           | null           | null          | `error_class`                    |
 
 `challenge_id` threads the lifecycle events for one participant's
 challenge together. Result events (`_correct`, `_incorrect`,
@@ -87,13 +87,13 @@ the participant via `challenge_id` from the `challenge_issued` row.
 Multiple `challenge_issued` events (different participants, same poll)
 may share a `question_id`.
 
-`challenge_type` is a free-form label set by the producer of the poll —
-the `--type=<label>` value passed to `ptrack poll`. The system does not
-constrain its values. Conventions used by the built-in producers are
-`custom` (teacher's own bank, the default for `ptrack poll`),
-`combined` (auto-generated YAML submitted manually after review), and
-`aigenerated` (auto-generated YAML submitted automatically by the
-challenger). User scripts may use any other label.
+`auto_submitted` is a boolean (`"true"` / `"false"`) that records
+whether the poll was dispatched by the in-process challenger without
+teacher review. The CLI's `--auto-submitted` flag and the equivalent
+field on `POST /poll` set this value; the GUI's **Custom bank…** and
+**Auto-generated** menu options always submit `"false"` because the
+teacher selected the bank. Analytics use this flag to distinguish
+unreviewed questions from the rest.
 
 `question_id` is a UUIDv4 referencing a record in the meeting's
 `<meeting_id>.jsonl` file in `questions_dir`. To retrieve the full

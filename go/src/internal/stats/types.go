@@ -63,7 +63,7 @@ type Segment struct {
 // when one exists; they're empty strings when the file is missing.
 type Marker struct {
 	XPct          float64 `json:"x_pct"`
-	ChallengeType string  `json:"challenge_type"`
+	AutoSubmitted bool    `json:"auto_submitted"`
 	Result        string  `json:"result"`
 	ChallengeID   string  `json:"challenge_id"`
 	QuestionID    string  `json:"question_id"`

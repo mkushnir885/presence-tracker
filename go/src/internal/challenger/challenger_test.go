@@ -15,17 +15,17 @@ import (
 )
 
 type fakeDispatcher struct {
-	mu      sync.Mutex
-	calls   []challenges.Bank
-	labels  []string
-	failErr error
+	mu            sync.Mutex
+	calls         []challenges.Bank
+	autoSubmitted []bool
+	failErr       error
 }
 
-func (f *fakeDispatcher) RunPollBank(_ context.Context, bank challenges.Bank, label string) (challenges.PollResult, error) {
+func (f *fakeDispatcher) RunPollBank(_ context.Context, bank challenges.Bank, autoSubmitted bool) (challenges.PollResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, bank)
-	f.labels = append(f.labels, label)
+	f.autoSubmitted = append(f.autoSubmitted, autoSubmitted)
 	if f.failErr != nil {
 		return challenges.PollResult{}, f.failErr
 	}
@@ -89,8 +89,8 @@ func TestGenerateDispatchesOnAutoSubmit(t *testing.T) {
 	if len(disp.calls) != 1 {
 		t.Fatalf("dispatch calls = %d", len(disp.calls))
 	}
-	if disp.labels[0] != "aigenerated" {
-		t.Errorf("label = %q", disp.labels[0])
+	if !disp.autoSubmitted[0] {
+		t.Errorf("auto_submitted = false, want true")
 	}
 	if len(sink.events) != 0 {
 		t.Errorf("unexpected failure events: %v", sink.events)

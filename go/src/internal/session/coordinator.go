@@ -444,25 +444,26 @@ func (c *Coordinator) onRegistration(ctx context.Context, evt messengers.Event) 
 }
 
 // RunPoll loads a question bank from disk and dispatches one poll round
-// to the eligible participants currently in the meeting. typeLabel is the
-// free-form producer tag stamped onto every challenge_issued event for
-// this round (e.g. "custom", "combined", "aigenerated").
-func (c *Coordinator) RunPoll(ctx context.Context, bankPath, typeLabel string) (challenges.PollResult, error) {
+// to the eligible participants currently in the meeting. autoSubmitted
+// is stamped onto every challenge_issued event for this round; it is
+// true only when the in-process challenger dispatched the bank without
+// teacher review.
+func (c *Coordinator) RunPoll(ctx context.Context, bankPath string, autoSubmitted bool) (challenges.PollResult, error) {
 	bank, err := challenges.Load(bankPath)
 	if err != nil {
 		return challenges.PollResult{}, err
 	}
-	return c.runPollBank(ctx, bank, typeLabel)
+	return c.runPollBank(ctx, bank, autoSubmitted)
 }
 
 // RunPollBank dispatches an in-memory bank through the same pipeline as
 // RunPoll. Used by the in-process auto-generator on the auto_submit
 // path so the generated bank never touches disk.
-func (c *Coordinator) RunPollBank(ctx context.Context, bank challenges.Bank, typeLabel string) (challenges.PollResult, error) {
-	return c.runPollBank(ctx, bank, typeLabel)
+func (c *Coordinator) RunPollBank(ctx context.Context, bank challenges.Bank, autoSubmitted bool) (challenges.PollResult, error) {
+	return c.runPollBank(ctx, bank, autoSubmitted)
 }
 
-func (c *Coordinator) runPollBank(ctx context.Context, bank challenges.Bank, typeLabel string) (challenges.PollResult, error) {
+func (c *Coordinator) runPollBank(ctx context.Context, bank challenges.Bank, autoSubmitted bool) (challenges.PollResult, error) {
 	eligible := c.eligibleParticipants()
 
 	sendFn := func(ctx context.Context, handle, challengeID string, q challenges.Question) (string, error) {
@@ -479,7 +480,7 @@ func (c *Coordinator) runPollBank(ctx context.Context, bank challenges.Bank, typ
 		}
 		return ref.Opaque, nil
 	}
-	return c.pipeline.RunPoll(ctx, bank, typeLabel, eligible, sendFn, c.cfg.QuestionsDir, c.cfg.MeetingID)
+	return c.pipeline.RunPoll(ctx, bank, autoSubmitted, eligible, sendFn, c.cfg.QuestionsDir, c.cfg.MeetingID)
 }
 
 // RecordGeneratorFailed records a challenger generator failure so the
@@ -536,7 +537,7 @@ func (c *Coordinator) RecordChallengeIssued(_ context.Context, issued challenges
 		ChallengeID: issued.ChallengeID,
 		QuestionID:  issued.Question.QuestionID,
 		Metadata: map[string]string{
-			"challenge_type":  issued.TypeLabel,
+			"auto_submitted":  strconv.FormatBool(issued.AutoSubmitted),
 			"answer_window_s": strconv.Itoa(c.cfg.AnswerWindowSecs),
 		},
 	})

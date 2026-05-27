@@ -31,7 +31,7 @@ participants: pl.LazyFrame # one row per display_name seen across the loaded fil
 from ptrack_analytics import presence, challenges, questions
 
 presence: pl.LazyFrame     # (display_name, meeting_id, presence_seconds, ...)
-challenges: pl.LazyFrame   # (display_name, meeting_id, challenge_id, challenge_type, state, latency_ms)
+challenges: pl.LazyFrame   # (display_name, meeting_id, challenge_id, auto_submitted, state, latency_ms)
 questions: pl.LazyFrame    # loaded from .jsonl files: (question_id, prompt, question_type, choices, ...)
 ```
 
@@ -41,11 +41,11 @@ absent fields for irrelevant question types become nulls. Join with the
 `challenges` frame on `question_id` to access question text alongside
 challenge results.
 
-`challenge_type` on the `challenges` frame is the free-form producer
-label captured at poll time (`custom`, `combined`, `aigenerated`, or any
-user-defined value — see `@docs/CHALLENGES.md` and
-`@docs/EVENT_SCHEMA.md`). It is useful for filtering or grouping
-challenges by where the questions came from.
+`auto_submitted` on the `challenges` frame is a boolean recording
+whether the poll was dispatched without teacher review — set only when
+the in-process challenger fires the bank itself (see
+`@docs/CHALLENGES.md` and `@docs/EVENT_SCHEMA.md`). Filter by it to
+separate unreviewed questions from teacher-driven ones.
 
 ### Example session
 
