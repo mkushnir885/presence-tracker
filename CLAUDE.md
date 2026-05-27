@@ -212,10 +212,13 @@ system. When a poll runs, questions are written to the meeting's
 `.jsonl` file; the original bank YAML is the teacher's responsibility
 to keep.
 
-Auto-generated banks land in a short-lived pending directory
-(`/tmp/ptrack/` on Linux, `%TEMP%\ptrack\` on Windows) and are removed
-once dispatched or once a newer file replaces them. Audio for the
-generator is captured by the **browser** through
+When `auto_submit` is true the generated bank is dispatched in-process
+and never touches disk. When `auto_submit` is false the bank is written
+to a user-configurable review directory
+(`challenges.auto_generation.review_dir`, defaults under
+`~/Documents/ptrack/pending-banks/`); older auto-generated files in that
+directory are swept on each new write so only the latest pending bank
+exists. Audio for the generator is captured by the **browser** through
 `navigator.mediaDevices.getUserMedia` (with a mute toggle and the
 browser's native device picker) and streamed to the daemon over a
 WebSocket — mobile-friendly, including Android-on-Termux. The

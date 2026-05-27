@@ -46,8 +46,8 @@ file was produced. Three producer roles are recognized:
 | Producer            | Convention `--type=` label | Notes                                                                            |
 |---------------------|----------------------------|----------------------------------------------------------------------------------|
 | Teacher, by hand    | `custom` (default)         | The teacher prepares a YAML bank in their editor and selects it from the GUI or shell. |
-| Auto-generator      | `aigenerated`              | The in-process Go challenger writes a YAML to the pending directory and immediately dispatches it through the challenge pipeline (when `auto_submit` is on). |
-| Reviewed auto-gen   | `combined`                 | The Go challenger writes a YAML to the pending directory and stops; the teacher reviews/edits it and triggers the poll via the GUI menu (when `auto_submit` is off). |
+| Auto-generator      | `aigenerated`              | The in-process Go challenger dispatches the generated bank through the challenge pipeline directly, in memory (when `auto_submit` is on). Nothing is written to disk. |
+| Reviewed auto-gen   | `combined`                 | The Go challenger writes the generated YAML to `challenges.auto_generation.review_dir` and stops; the teacher reviews/edits it and triggers the poll via the GUI menu (when `auto_submit` is off). |
 | User scripts        | any other label            | Any tool that produces a valid YAML bank can call `ptrack poll --type=<anything> <path>`. The label is free-form; the system stores it verbatim on every `challenge_issued` event. |
 
 The `--type` label is purely a CLI/transport-side tag. It is **never**
@@ -126,31 +126,34 @@ Error codes used by the poll endpoint:
 | 422  | YAML is invalid (response body lists errors with JSON pointers) |
 | 503  | Messenger is currently unavailable                            |
 
-## Pending directory
+## Review directory
 
-Auto-generated YAMLs land in a known temp directory:
+The review directory is only used when
+`challenges.auto_generation.auto_submit = false`. It holds pending
+auto-generated YAMLs that the teacher will inspect and dispatch
+manually.
 
-| OS      | Path                                                       |
-|---------|------------------------------------------------------------|
-| Linux   | `/tmp/ptrack/`                                             |
-| Windows | `%TEMP%\ptrack\`                                           |
+- **Configured by** `challenges.auto_generation.review_dir`. Default:
+  `~/Documents/ptrack/pending-banks/` on Unix,
+  `%USERPROFILE%\Documents\ptrack\pending-banks\` on Windows.
+- The directory is created on first write if it does not exist.
 
 Files in this directory are short-lived:
 
 - The GUI's **Trigger poll** menu enables the **Auto-generated** option
   only when at least one YAML is present here. On selection, the menu
   calls `ptrack poll --type=combined <path>`.
-- When `auto_submit` is on, the in-process challenger dispatches the
-  YAML directly through the same pipeline immediately after writing it
-  (logically equivalent to `ptrack poll --type=aigenerated <path>` but
-  with no CLI or HTTP hop).
 - A YAML in this directory is removed in either of two events:
-  1. It has been submitted (whether via GUI or auto-submit).
+  1. It has been submitted via the GUI (the file is consumed on
+     successful dispatch).
   2. A new YAML has been generated to replace it (only the most recent
      pending file is ever kept).
+- The directory is swept on session start so stale files from a prior
+  session do not leak into the new one.
 
-The directory is local-only and never contains data older than the
-current session.
+When `auto_submit = true`, the challenger never writes to disk at all:
+the generated bank is passed in-memory directly to the challenge
+pipeline.
 
 ## Question bank format (YAML)
 
@@ -263,16 +266,16 @@ The challenger:
 2. When the configured `poll_interval_seconds` elapses (or an
    early-regen condition fires), it builds a prompt from the current
    transcript window, calls the LLM's chat-completions endpoint asking
-   for `questions_per_poll` questions in YAML bank format, validates
-   the response, and writes the result to the pending directory
-   (`/tmp/ptrack/` on Linux, `%TEMP%\ptrack\` on Windows).
+   for up to `max_questions_per_poll` questions in YAML bank format,
+   and validates the response.
 3. If `challenges.auto_generation.auto_submit` is true, it dispatches
    the bank directly through the in-process challenge pipeline with
-   `--type=aigenerated`. No CLI re-entry, no HTTP hop.
-4. If `auto_submit` is false, it stops there. The GUI surfaces the file
-   in the **Auto-generated** option of the Trigger poll menu; the
-   teacher submits it (with `--type=combined`) after optionally
-   reviewing or editing it.
+   `--type=aigenerated`. **Nothing is written to disk.**
+4. If `auto_submit` is false, it writes the YAML to the configured
+   `review_dir` (see "Review directory" above) and stops. The GUI
+   surfaces the file in the **Auto-generated** option of the Trigger
+   poll menu; the teacher submits it (with `--type=combined`) after
+   optionally reviewing or editing it.
 
 Malformed generator output is dropped silently at debug log level. A
 failed generation emits a `challenge_generator_failed` event so the

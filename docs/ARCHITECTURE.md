@@ -451,9 +451,6 @@ symlink to the default location. The user-facing directories
 ├── meet_oauth.json                     # OAuth tokens
 └── zoom_oauth.json
 
-/tmp/ptrack/                            # pending auto-generated YAML banks
-└── auto-2026-04-21T10-15.yaml
-
 ~/Documents/ptrack/                     # user-facing — settable
 ├── meetings/                           # meetings_dir
 │   ├── 2026-04-21-algebra.parquet
@@ -461,6 +458,8 @@ symlink to the default location. The user-facing directories
 ├── questions/                          # questions_dir
 │   ├── 2026-04-21-algebra.jsonl
 │   └── 2026-04-23-algebra.jsonl
+├── pending-banks/                      # challenges.auto_generation.review_dir (only used when auto_submit = false)
+│   └── auto-2026-04-21T10-15.yaml
 └── 2026-04-21-algebra.csv              # reports_dir (root of ~/Documents/ptrack)
 ```
 
@@ -476,11 +475,10 @@ symlink to the default location. The user-facing directories
 ├── meet_oauth.json
 └── zoom_oauth.json
 
-%TEMP%\ptrack\                          # pending auto-generated YAML banks
-
 %USERPROFILE%\Documents\ptrack\         # user-facing — settable
 ├── meetings\
 ├── questions\
+├── pending-banks\                      # challenges.auto_generation.review_dir (only used when auto_submit = false)
 └── 2026-04-21-algebra.csv
 ```
 

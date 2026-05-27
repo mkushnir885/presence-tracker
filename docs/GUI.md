@@ -143,7 +143,7 @@ menu with two options:
   for inline preview/edit before submission (backed by
   `GET /poll/pending/preview`); the edited copy is saved back to the
   same path before the poll is dispatched. On successful submission the
-  file is removed from the pending directory.
+  file is removed from `review_dir`.
 
 If auto-generation is configured with `auto_submit: true`, the
 in-process challenger dispatches its own polls (with

@@ -37,10 +37,10 @@ transmit, or export participant data.
 | Raw meeting events          | `meetings/*.parquet`          | 180 days          | Purged by background job                                       |
 | Participant registry        | `participants.db`             | Indefinite        | Teacher-managed; GUI can remove entries                        |
 | Question content            | `questions/<id>.jsonl`        | Same as meetings  | Purged alongside the corresponding meeting Parquet file          |
-| Audio frames (AI-gen)       | Browser → Go → Python; in-memory only | Seconds   | Captured via `getUserMedia`, streamed over WebSocket, consumed by ASR. Never written to disk by Go or Python. |
-| Transcript (AI-gen)         | In-memory rolling window only | 20 min            | Never written to disk. Violating this is a design error        |
+| Audio frames (AI-gen)       | Browser → Go (in-memory) → external ASR endpoint (HTTP body) | Seconds | Captured via `getUserMedia`, POSTed per poll interval. Never written to disk by the browser or Go. The ASR backend's handling of the request body is its own concern. |
+| Transcript (AI-gen)         | In-memory accumulator only    | Until next successful generation | Never written to disk. Cleared on session end. Violating this is a design error |
 | Screen-share frames (AI-gen)| In-memory for 1–2 frames only | Seconds           | Discarded after OCR; never persisted                           |
-| Auto-generated YAML banks   | `/tmp/ptrack/` (or `%TEMP%\ptrack\`) | Until submitted or superseded | Removed when the bank is dispatched as a poll, or when a newer bank replaces it |
+| Auto-generated YAML banks   | `challenges.auto_generation.review_dir` (only when `auto_submit = false`) | Until submitted or superseded | When `auto_submit = true` the bank is dispatched in-memory and never touches disk. Otherwise the file is removed on dispatch or when a newer bank replaces it. |
 | Generated CSV reports       | `reports/*.csv`               | Until deleted     | Teacher's responsibility                                       |
 | Secrets (tokens, keys)      | `secrets.yaml` (protected)    | Until rotated     | Never copied into the event log                                |
 
