@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,7 +17,14 @@ import (
 	"presence-tracker/src/internal/i18n"
 	"presence-tracker/src/internal/messengers"
 	"presence-tracker/src/internal/participants"
+	"presence-tracker/src/internal/util"
 )
+
+// registerPromptTTL is how long an outstanding /register ForceReply
+// prompt waits before being auto-deleted. Picked to be long enough for
+// a slow typer on mobile, short enough that an abandoned prompt
+// disappears within the same lesson.
+const registerPromptTTL = 60 * time.Second
 
 // Name is the canonical identifier this adapter reports through
 // Messenger.Name and registers under in the messengers catalog.
@@ -42,7 +50,12 @@ type Adapter struct {
 	mu         sync.Mutex
 	pending    map[pendingKey]string // {chatID, questionMsgID} → challengeID
 	pendingInv map[string]pendingKey // challengeID → pendingKey (for cleanup on timeout)
-	chatLang   map[int64]string      // chatID → catalog language, cached from incoming updates
+
+	// registerPrompts tracks the message ID of an outstanding /register
+	// ForceReply prompt per chat. Entries expire after registerPromptTTL;
+	// the prompt message is auto-deleted by the onExpire callback so an
+	// abandoned dialog does not linger.
+	registerPrompts *util.TTLMap[int64, int]
 }
 
 // New creates a Telegram adapter.
@@ -52,39 +65,45 @@ func New(token string, registry participants.Registry) (*Adapter, error) {
 	if err != nil {
 		return nil, fmt.Errorf("telegram: init bot: %w", err)
 	}
-	return &Adapter{
+	a := &Adapter{
 		bot:        bot,
 		registry:   registry,
 		events:     make(chan messengers.Event, 64),
 		catalog:    newCatalog(),
 		pending:    make(map[pendingKey]string),
 		pendingInv: make(map[string]pendingKey),
-		chatLang:   make(map[int64]string),
-	}, nil
-}
-
-// rememberLang caches the language hint reported by an incoming
-// Telegram user. Subsequent server-initiated sends (join confirmation,
-// challenge prompts) use the cached value so the user keeps seeing the
-// same language they have been writing in.
-func (a *Adapter) rememberLang(chatID int64, code string) {
-	lang := languageFromCode(code)
-	a.mu.Lock()
-	a.chatLang[chatID] = lang
-	a.mu.Unlock()
-}
-
-// locale returns the Locale to use for chatID. Falls back to English
-// when no incoming update from this chat has been seen yet —
-// practically rare since users must /start before joining any meeting.
-func (a *Adapter) locale(chatID int64) i18n.Locale {
-	a.mu.Lock()
-	lang, ok := a.chatLang[chatID]
-	a.mu.Unlock()
-	if !ok {
-		lang = "en"
 	}
-	return a.catalog.Locale(lang)
+	a.registerPrompts = util.NewTTLMap(a.expireRegisterPrompt)
+	return a, nil
+}
+
+// expireRegisterPrompt deletes the stale /register prompt message in
+// chatID. Best-effort: the message may already be gone (user dismissed
+// or replied just as the TTL fired), and either way the entry is
+// already removed from the map by util.TTLMap before this callback
+// runs.
+func (a *Adapter) expireRegisterPrompt(chatID int64, messageID int) {
+	del := tgbotapi.NewDeleteMessage(chatID, messageID)
+	if _, err := a.bot.Request(del); err != nil {
+		slog.Debug("telegram: delete expired register prompt", "chat_id", chatID, "msg_id", messageID, "err", err)
+	}
+}
+
+// locale returns the Locale for chatID. The registry-persisted
+// preference always wins so a user's explicit /language choice is
+// never overridden by their device's UI language. When no entry
+// exists (an unregistered user typing /start) hint — typically the
+// inbound message's language_code — is used; if hint is empty too,
+// fall back to English.
+func (a *Adapter) locale(chatID int64, hint string) i18n.Locale {
+	handle := strconv.FormatInt(chatID, 10)
+	if entry, ok := a.registry.LookupByHandle(a.Name(), handle); ok && entry.Language != "" {
+		return a.catalog.Locale(entry.Language)
+	}
+	if hint != "" {
+		return a.catalog.Locale(languageFromCode(hint))
+	}
+	return a.catalog.Locale("en")
 }
 
 func (a *Adapter) Name() string { return Name }
@@ -92,6 +111,8 @@ func (a *Adapter) Name() string { return Name }
 // Start begins polling the Telegram API for updates. The returned channel is
 // closed when ctx is cancelled.
 func (a *Adapter) Start(ctx context.Context) (<-chan messengers.Event, error) {
+	a.publishCommands()
+
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 30
 	updates := a.bot.GetUpdatesChan(u)
@@ -121,21 +142,49 @@ func (a *Adapter) Stop(_ context.Context) error {
 	return nil
 }
 
-func (a *Adapter) handleUpdate(ctx context.Context, upd tgbotapi.Update) {
-	if from := updateSender(upd); from != nil {
-		a.rememberLang(senderChatID(upd), from.LanguageCode)
+// publishCommands registers the bot's command list with Telegram so
+// the in-app slash-menu autocompletes /register, /whoami, /unregister
+// with localized descriptions. Telegram persists the list server-side
+// per (scope, language), so this is sent once at startup. Failures are
+// cosmetic — the bot still works without the menu — so they are logged
+// rather than propagated.
+func (a *Adapter) publishCommands() {
+	// Telegram language code → catalog language. The empty Telegram
+	// code is the default fallback for any client whose interface
+	// language is not explicitly registered below.
+	targets := map[string]string{
+		"":   "en",
+		"uk": "uk",
 	}
+	for tgLang, catLang := range targets {
+		loc := a.catalog.Locale(catLang)
+		cfg := tgbotapi.NewSetMyCommandsWithScopeAndLanguage(
+			tgbotapi.NewBotCommandScopeDefault(), tgLang,
+			tgbotapi.BotCommand{Command: "register", Description: loc.T("messenger.telegram.commands.register")},
+			tgbotapi.BotCommand{Command: "whoami", Description: loc.T("messenger.telegram.commands.whoami")},
+			tgbotapi.BotCommand{Command: "unregister", Description: loc.T("messenger.telegram.commands.unregister")},
+			tgbotapi.BotCommand{Command: "language", Description: loc.T("messenger.telegram.commands.language")},
+		)
+		if _, err := a.bot.Request(cfg); err != nil {
+			slog.Warn("telegram: publish commands", "lang", tgLang, "err", err)
+		}
+	}
+}
+
+func (a *Adapter) handleUpdate(ctx context.Context, upd tgbotapi.Update) {
 	switch {
 	case upd.Message != nil && upd.Message.IsCommand() && upd.Message.Command() == "start":
 		a.handleStart(upd.Message)
 	case upd.Message != nil && upd.Message.IsCommand() && upd.Message.Command() == "register":
-		a.handleRegister(ctx, upd.Message)
+		a.handleRegister(upd.Message)
 	case upd.Message != nil && upd.Message.IsCommand() && upd.Message.Command() == "unregister":
 		a.handleUnregister(ctx, upd.Message)
 	case upd.Message != nil && upd.Message.IsCommand() && upd.Message.Command() == "whoami":
-		a.handleWhoami(upd.Message.Chat.ID)
+		a.handleWhoami(upd.Message)
+	case upd.Message != nil && upd.Message.IsCommand() && upd.Message.Command() == "language":
+		a.handleLanguage(upd.Message)
 	case upd.Message != nil && upd.Message.Text != "":
-		a.handleTextMessage(upd.Message)
+		a.handleTextMessage(ctx, upd.Message)
 	case upd.CallbackQuery != nil:
 		a.handleCallback(upd.CallbackQuery)
 	}
@@ -143,23 +192,44 @@ func (a *Adapter) handleUpdate(ctx context.Context, upd tgbotapi.Update) {
 
 func (a *Adapter) handleStart(msg *tgbotapi.Message) {
 	chatID := msg.Chat.ID
-	locale := a.locale(chatID)
+	locale := a.locale(chatID, msg.From.LanguageCode)
 	_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, locale.T("messenger.telegram.start")))
 }
 
-func (a *Adapter) handleRegister(ctx context.Context, msg *tgbotapi.Message) {
+// handleRegister always opens the ForceReply prompt; the display name
+// is collected from the user's reply, never from inline arguments.
+func (a *Adapter) handleRegister(msg *tgbotapi.Message) {
+	a.promptRegister(msg.Chat.ID, msg.From.LanguageCode)
+}
+
+// promptRegister sends a ForceReply prompt asking the user for their
+// display name. Telegram focuses the input as a reply to this message,
+// so the user types only the name. The prompt's message ID is tracked
+// per chat; the next reply to it is dispatched as a registration.
+func (a *Adapter) promptRegister(chatID int64, langHint string) {
+	locale := a.locale(chatID, langHint)
+	prompt := tgbotapi.NewMessage(chatID, locale.T("messenger.telegram.register.prompt"))
+	prompt.ReplyMarkup = tgbotapi.ForceReply{
+		ForceReply:            true,
+		InputFieldPlaceholder: locale.T("messenger.telegram.register.placeholder"),
+		Selective:             true,
+	}
+	sent, err := a.bot.Send(prompt)
+	if err != nil {
+		slog.Warn("telegram: send register prompt", "err", err)
+		return
+	}
+	a.registerPrompts.Put(chatID, sent.MessageID, registerPromptTTL)
+}
+
+func (a *Adapter) registerDisplayName(ctx context.Context, msg *tgbotapi.Message, displayName string) {
 	chatID := msg.Chat.ID
 	handle := strconv.FormatInt(chatID, 10)
 	label := userLabel(msg.From)
-	locale := a.locale(chatID)
+	language := languageFromCode(msg.From.LanguageCode)
+	locale := a.locale(chatID, msg.From.LanguageCode)
 
-	displayName := strings.TrimSpace(msg.CommandArguments())
-	if displayName == "" {
-		a.handleWhoami(chatID)
-		return
-	}
-
-	err := a.registry.Register(ctx, a.Name(), handle, label, displayName)
+	err := a.registry.Register(ctx, a.Name(), handle, label, displayName, language)
 	switch {
 	case errors.Is(err, participants.ErrNameTaken):
 		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf(
@@ -188,7 +258,7 @@ func (a *Adapter) handleRegister(ctx context.Context, msg *tgbotapi.Message) {
 func (a *Adapter) handleUnregister(ctx context.Context, msg *tgbotapi.Message) {
 	chatID := msg.Chat.ID
 	handle := strconv.FormatInt(chatID, 10)
-	locale := a.locale(chatID)
+	locale := a.locale(chatID, msg.From.LanguageCode)
 
 	n, err := a.registry.Delete(ctx, participants.Filter{MessengerName: a.Name(), Handle: handle})
 	switch {
@@ -203,9 +273,70 @@ func (a *Adapter) handleUnregister(ctx context.Context, msg *tgbotapi.Message) {
 	}
 }
 
-func (a *Adapter) handleWhoami(chatID int64) {
+// supportedLanguages lists the catalog languages users can switch to,
+// in the order they appear in the inline keyboard. The display label
+// is each language's own endonym so the picker is readable regardless
+// of which language is currently active.
+var supportedLanguages = []struct {
+	code  string
+	label string
+}{
+	{"en", "English"},
+	{"uk", "Українська"},
+}
+
+func (a *Adapter) handleLanguage(msg *tgbotapi.Message) {
+	chatID := msg.Chat.ID
+	locale := a.locale(chatID, msg.From.LanguageCode)
+	prompt := tgbotapi.NewMessage(chatID, locale.T("messenger.telegram.language.prompt"))
+	row := make([]tgbotapi.InlineKeyboardButton, 0, len(supportedLanguages))
+	for _, l := range supportedLanguages {
+		row = append(row, tgbotapi.NewInlineKeyboardButtonData(l.label, "lang:"+l.code))
+	}
+	prompt.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(row)
+	_, _ = a.bot.Send(prompt)
+}
+
+func (a *Adapter) handleLanguageCallback(cq *tgbotapi.CallbackQuery) {
+	chosen := strings.TrimPrefix(cq.Data, "lang:")
+	chatID := cq.From.ID
 	handle := strconv.FormatInt(chatID, 10)
-	locale := a.locale(chatID)
+
+	ack := tgbotapi.NewCallback(cq.ID, "")
+	_, _ = a.bot.Request(ack)
+
+	updated, err := a.registry.SetLanguage(context.Background(), a.Name(), handle, chosen)
+	if err != nil {
+		slog.Warn("telegram: set language", "chat_id", chatID, "lang", chosen, "err", err)
+		return
+	}
+	if !updated {
+		// Not registered yet; reply in the user's currently effective language.
+		locale := a.locale(chatID, cq.From.LanguageCode)
+		if cq.Message != nil {
+			edit := tgbotapi.NewEditMessageText(chatID, cq.Message.MessageID,
+				locale.T("messenger.telegram.language.unregistered"))
+			empty := tgbotapi.NewInlineKeyboardMarkup()
+			edit.ReplyMarkup = &empty
+			_, _ = a.bot.Send(edit)
+		}
+		return
+	}
+
+	if cq.Message != nil {
+		newLocale := a.catalog.Locale(chosen)
+		edit := tgbotapi.NewEditMessageText(chatID, cq.Message.MessageID,
+			newLocale.T("messenger.telegram.language.confirm"))
+		empty := tgbotapi.NewInlineKeyboardMarkup()
+		edit.ReplyMarkup = &empty
+		_, _ = a.bot.Send(edit)
+	}
+}
+
+func (a *Adapter) handleWhoami(msg *tgbotapi.Message) {
+	chatID := msg.Chat.ID
+	handle := strconv.FormatInt(chatID, 10)
+	locale := a.locale(chatID, msg.From.LanguageCode)
 	entry, ok := a.registry.LookupByHandle(a.Name(), handle)
 	if !ok {
 		_, _ = a.bot.Send(tgbotapi.NewMessage(chatID,
@@ -217,13 +348,27 @@ func (a *Adapter) handleWhoami(chatID int64) {
 			locale.T("messenger.telegram.whoami.current_hint")))
 }
 
-func (a *Adapter) handleTextMessage(msg *tgbotapi.Message) {
-	// Only replies to a question message are accepted as answers.
+func (a *Adapter) handleTextMessage(ctx context.Context, msg *tgbotapi.Message) {
+	// Only replies are meaningful — either to a /register prompt or to a question message.
 	if msg.ReplyToMessage == nil {
 		return
 	}
 
-	key := pendingKey{chatID: msg.Chat.ID, messageID: msg.ReplyToMessage.MessageID}
+	chatID := msg.Chat.ID
+	replyTo := msg.ReplyToMessage.MessageID
+
+	if promptID, ok := a.registerPrompts.Get(chatID); ok && replyTo == promptID {
+		a.registerPrompts.Delete(chatID)
+		name := strings.TrimSpace(msg.Text)
+		if name == "" {
+			a.promptRegister(chatID, msg.From.LanguageCode)
+			return
+		}
+		a.registerDisplayName(ctx, msg, name)
+		return
+	}
+
+	key := pendingKey{chatID: chatID, messageID: replyTo}
 
 	a.mu.Lock()
 	cid, hasPending := a.pending[key]
@@ -252,11 +397,14 @@ func (a *Adapter) handleTextMessage(msg *tgbotapi.Message) {
 }
 
 func (a *Adapter) handleCallback(cq *tgbotapi.CallbackQuery) {
-	if strings.HasPrefix(cq.Data, "join:") {
+	switch {
+	case strings.HasPrefix(cq.Data, "join:"):
 		a.handleConfirmationCallback(cq)
-		return
+	case strings.HasPrefix(cq.Data, "lang:"):
+		a.handleLanguageCallback(cq)
+	default:
+		a.handleChallengeCallback(cq)
 	}
-	a.handleChallengeCallback(cq)
 }
 
 func (a *Adapter) handleChallengeCallback(cq *tgbotapi.CallbackQuery) {
@@ -292,7 +440,7 @@ func (a *Adapter) handleConfirmationCallback(cq *tgbotapi.CallbackQuery) {
 
 	var confirmRef messengers.MessageRef
 	if cq.Message != nil {
-		locale := a.locale(chatID)
+		locale := a.locale(chatID, cq.From.LanguageCode)
 		key := "messenger.join_confirm.no_result"
 		if confirmed {
 			key = "messenger.join_confirm.yes_result"
@@ -323,7 +471,7 @@ func (a *Adapter) SendJoinConfirmation(_ context.Context, handle, meetingID, pla
 		return messengers.MessageRef{}, fmt.Errorf("telegram: invalid handle %q: %w", handle, err)
 	}
 
-	locale := a.locale(chatID)
+	locale := a.locale(chatID, "")
 	text := fmt.Sprintf(locale.T("messenger.join_confirm.prompt"), meetingID, platform)
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
@@ -351,7 +499,7 @@ func (a *Adapter) SendChallenge(ctx context.Context, handle string, c messengers
 		return messengers.MessageRef{}, fmt.Errorf("telegram: invalid handle %q: %w", handle, err)
 	}
 
-	locale := a.locale(chatID)
+	locale := a.locale(chatID, "")
 	var msg tgbotapi.MessageConfig
 	if c.QuestionType == string(challenges.MultipleChoice) && len(c.Choices) > 0 {
 		msg = buildMCQMessage(chatID, c)
@@ -425,30 +573,6 @@ func (a *Adapter) DeleteMessage(_ context.Context, ref messengers.MessageRef) er
 type telegramRef struct {
 	ChatID    int64 `json:"chat_id"`
 	MessageID int   `json:"message_id"`
-}
-
-// updateSender returns the originating Telegram user for an update, or
-// nil when none of the supported update kinds apply.
-func updateSender(upd tgbotapi.Update) *tgbotapi.User {
-	switch {
-	case upd.Message != nil:
-		return upd.Message.From
-	case upd.CallbackQuery != nil:
-		return upd.CallbackQuery.From
-	}
-	return nil
-}
-
-// senderChatID returns the chat ID associated with an update for
-// language-cache lookup.
-func senderChatID(upd tgbotapi.Update) int64 {
-	switch {
-	case upd.Message != nil:
-		return upd.Message.Chat.ID
-	case upd.CallbackQuery != nil:
-		return upd.CallbackQuery.From.ID
-	}
-	return 0
 }
 
 // userLabel builds a human-readable Telegram label for the registry.

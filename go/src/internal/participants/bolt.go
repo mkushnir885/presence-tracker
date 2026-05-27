@@ -93,7 +93,7 @@ func (r *BoltRegistry) Resolve(displayName string) (RegistryEntry, bool) {
 	return entry, found
 }
 
-func (r *BoltRegistry) Register(_ context.Context, messengerName, handle, messengerLabel, displayName string) error {
+func (r *BoltRegistry) Register(_ context.Context, messengerName, handle, messengerLabel, displayName, language string) error {
 	nameKey := []byte(normName(displayName))
 
 	return r.db.Update(func(tx *bolt.Tx) error {
@@ -106,13 +106,22 @@ func (r *BoltRegistry) Register(_ context.Context, messengerName, handle, messen
 				return ErrNameTaken
 			}
 			// Same handle re-registering the same name: refresh label/casing.
+			// Language stays as-is unless the caller supplies a new value, so
+			// the user's explicit /language choice survives a re-register.
 			entry.DisplayName = displayName
 			entry.MessengerLabel = messengerLabel
+			if language != "" {
+				entry.Language = language
+			}
 			return putEntry(b, nameKey, entry)
 		}
 
-		// New name. If the handle already owns a different registration, drop it.
-		if prevKey, _, ok := findByHandle(b, messengerName, handle); ok {
+		// New name. If the handle already owns a different registration,
+		// carry its language preference over to the new entry and drop the old one.
+		if prevKey, prev, ok := findByHandle(b, messengerName, handle); ok {
+			if language == "" {
+				language = prev.Language
+			}
 			if err := b.Delete(prevKey); err != nil {
 				return err
 			}
@@ -123,9 +132,25 @@ func (r *BoltRegistry) Register(_ context.Context, messengerName, handle, messen
 			MessengerName:  messengerName,
 			Handle:         handle,
 			MessengerLabel: messengerLabel,
+			Language:       language,
 			RegisteredAt:   time.Now().UTC(),
 		})
 	})
+}
+
+func (r *BoltRegistry) SetLanguage(_ context.Context, messengerName, handle, language string) (bool, error) {
+	var updated bool
+	err := r.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketParticipants)
+		key, entry, ok := findByHandle(b, messengerName, handle)
+		if !ok {
+			return nil
+		}
+		entry.Language = language
+		updated = true
+		return putEntry(b, key, entry)
+	})
+	return updated, err
 }
 
 func putEntry(b *bolt.Bucket, key []byte, entry RegistryEntry) error {

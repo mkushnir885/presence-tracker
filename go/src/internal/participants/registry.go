@@ -21,6 +21,7 @@ type RegistryEntry struct {
 	MessengerName  string // stable identifier reported by the Messenger (e.g. "telegram")
 	Handle         string // messenger-specific persistent contact identifier
 	MessengerLabel string // human-readable: Telegram @username or first name
+	Language       string // preferred catalog language (e.g. "en", "uk"); empty means "fall back"
 	RegisteredAt   time.Time
 }
 
@@ -105,10 +106,18 @@ type Registry interface {
 	Resolve(displayName string) (RegistryEntry, bool)
 
 	// Register stores a displayName → handle binding persistently.
-	// Returns ErrNameTaken if the name is already claimed by a different
-	// handle. If the handle already has a registration under a different
-	// name, the previous entry is replaced atomically.
-	Register(ctx context.Context, messengerName, handle, messengerLabel, displayName string) error
+	// language is the catalog language captured at the moment of
+	// registration (e.g. from a messenger's user.language_code hint);
+	// pass "" if unknown. Returns ErrNameTaken if the name is already
+	// claimed by a different handle. If the handle already has a
+	// registration under a different name, the previous entry is
+	// replaced atomically.
+	Register(ctx context.Context, messengerName, handle, messengerLabel, displayName, language string) error
+
+	// SetLanguage updates the persisted language preference for the
+	// entry owned by (messengerName, handle). Returns false if no such
+	// entry exists; the registry is not modified in that case.
+	SetLanguage(ctx context.Context, messengerName, handle, language string) (bool, error)
 
 	// HandleForName returns the messenger handle bound to displayName,
 	// when the registration uses messengerName. Used by the session

@@ -1,5 +1,14 @@
 {
-  "messenger.telegram.start": "Вітаємо у Presence Tracker!\n\nЩоб отримувати запитання для перевірки присутності, зареєструйте ваше відображуване ім'я:\n\n/register <ваше ім'я>\n\nПриклад: /register Іван Петренко\n\nКожен обліковий запис може мати лише одну реєстрацію. Повторне /register замінює попередню. /whoami показує поточну реєстрацію, /unregister скасовує її.",
-  "messenger.telegram.whoami.none_hint": "\n\nВикористайте /register <ім'я>, щоб зареєструватись.",
-  "messenger.telegram.whoami.current_hint": " /register <ім'я> змінює запис, /unregister скасовує його."
+  "messenger.telegram.start": "Вітаємо у Presence Tracker!\n\nЩоб отримувати запитання для перевірки присутності, надішліть /register і у відповідь напишіть ваше ім'я зі списку учасників.\n\nКожен обліковий запис може мати лише одну реєстрацію. /whoami показує поточну реєстрацію, /unregister скасовує її, /language змінює мову бота.",
+  "messenger.telegram.whoami.none_hint": "\n\nВикористайте /register, щоб зареєструватись.",
+  "messenger.telegram.whoami.current_hint": " /register змінює запис, /unregister скасовує його.",
+  "messenger.telegram.commands.register": "Зареєструвати відображуване ім'я",
+  "messenger.telegram.commands.whoami": "Показати поточну реєстрацію",
+  "messenger.telegram.commands.unregister": "Скасувати реєстрацію",
+  "messenger.telegram.commands.language": "Обрати мову повідомлень бота",
+  "messenger.telegram.register.prompt": "Надішліть у відповідь ваше ім'я зі списку учасників (наприклад, Іван Петренко).",
+  "messenger.telegram.register.placeholder": "Ваше відображуване ім'я",
+  "messenger.telegram.language.prompt": "Оберіть мову:",
+  "messenger.telegram.language.confirm": "Мову встановлено: українська.",
+  "messenger.telegram.language.unregistered": "Спершу зареєструйтесь за допомогою /register; мовні налаштування зберігаються разом із реєстрацією."
 }
