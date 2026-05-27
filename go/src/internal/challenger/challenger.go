@@ -74,12 +74,12 @@ type Service struct {
 func New(cfg config.AutoGenerationConfig, dispatcher Dispatcher, sink EventSink) *Service {
 	s := &Service{
 		cfg:        cfg,
-		asr:        NewASRClient(cfg.ASR),
+		asr:        NewASRClient(cfg.ASR, cfg.Language),
 		llm:        NewLLMClient(cfg.LLM),
 		dispatcher: dispatcher,
 		sink:       sink,
 	}
-	s.producer = NewProducer(s.llm)
+	s.producer = NewProducer(s.llm, cfg.Language)
 	if !cfg.AutoSubmit {
 		s.review = NewReviewDir(cfg.ReviewDir)
 	}

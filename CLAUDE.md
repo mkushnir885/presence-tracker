@@ -404,8 +404,13 @@ audio capture, and the BBB/Zoom polling rewrite are still pending.
   all routes from the older `docs/GUI.md`, in-process session
   management, templ + htmx templates (dashboard, live status, meeting
   analysis with SVG timeline, cross-meeting participant view, config
-  editor), CSS in `views/assets/`, English/Ukrainian i18n via
-  `gui/locales/*.json` and a cookie-based locale selector. Parquet
+  editor), CSS in `views/assets/`, English/Ukrainian i18n via the
+  shared `internal/i18n` package and `gui/locales/*.json`, with a
+  cookie-based locale selector. Telegram bot messages are translated
+  through the same resolver, using shared keys in
+  `internal/messengers/locales/*.json` plus Telegram-specific overrides
+  in `internal/messengers/telegram/locales/*.json`; language follows
+  the user's Telegram `language_code`. Parquet
   reader (`eventstore.ReadAll`) and display-name rewrite
   (`eventstore.UpdateDisplayName`) also implemented. `cmd/ptrack`
   builds the mux and mounts the shared `POST /poll` handler alongside

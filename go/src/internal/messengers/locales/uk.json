@@ -1,0 +1,16 @@
+{
+  "messenger.register.success": "✅ Зареєстровано як %q. Коли ви приєднаєтесь до зустрічі під цим іменем, вам надійде повідомлення для підтвердження.",
+  "messenger.register.name_taken": "⚠️ Ім'я %q вже зайнято іншим обліковим записом. Попросіть викладача видалити наявний запис на сторінці реєстру та спробуйте знову.",
+  "messenger.register.failed": "Не вдалося зареєструватись: %s",
+  "messenger.whoami.none": "У вас немає активної реєстрації.",
+  "messenger.whoami.current": "Ви зареєстровані як %q.",
+  "messenger.unregister.removed": "✅ Реєстрацію скасовано.",
+  "messenger.unregister.error": "Не вдалося скасувати реєстрацію: %s",
+  "messenger.join_confirm.prompt": "📍 Ви щойно приєднались до зустрічі *%s* на платформі *%s*?",
+  "messenger.join_confirm.btn.yes": "Так, це я",
+  "messenger.join_confirm.btn.no": "Ні",
+  "messenger.join_confirm.yes_result": "✅ Підтверджено! Протягом цієї зустрічі вам надсилатимуться запитання.",
+  "messenger.join_confirm.no_result": "Не підтверджено. Протягом цієї сесії запитання вам не надсилатимуться.",
+  "messenger.challenge.reply_hint.text": "\n\nВідповідь надішліть як reply на це повідомлення.",
+  "messenger.challenge.reply_hint.numeric": "\n\nВідповідь надішліть як reply на це повідомлення (числом)."
+}

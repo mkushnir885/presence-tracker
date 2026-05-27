@@ -86,14 +86,20 @@ type PollConfig struct {
 }
 
 type AutoGenerationConfig struct {
-	Enabled             bool            `json:"enabled,omitempty"`
-	AutoSubmit          bool            `json:"auto_submit,omitempty"`
-	PollIntervalSeconds int             `json:"poll_interval_seconds,omitempty"`
-	MinWordsPerQuestion int             `json:"min_words_per_question,omitempty"`
-	MaxQuestionsPerPoll int             `json:"max_questions_per_poll,omitempty"`
-	ReviewDir           string          `json:"review_dir,omitempty"`
-	ASR                 AIBackendConfig `json:"asr,omitzero"`
-	LLM                 AIBackendConfig `json:"llm,omitzero"`
+	Enabled             bool   `json:"enabled,omitempty"`
+	AutoSubmit          bool   `json:"auto_submit,omitempty"`
+	PollIntervalSeconds int    `json:"poll_interval_seconds,omitempty"`
+	MinWordsPerQuestion int    `json:"min_words_per_question,omitempty"`
+	MaxQuestionsPerPoll int    `json:"max_questions_per_poll,omitempty"`
+	ReviewDir           string `json:"review_dir,omitempty"`
+	// Language is the spoken lesson language as a BCP-47 / ISO 639-1
+	// short tag (e.g. "en", "uk"). Drives both ASR accuracy (Whisper's
+	// language hint) and the LLM prompt's output-language instruction.
+	// The sentinel "auto" disables both hints and lets the ASR backend
+	// detect the language while the LLM matches the transcript.
+	Language string          `json:"language,omitempty"`
+	ASR      AIBackendConfig `json:"asr,omitzero"`
+	LLM      AIBackendConfig `json:"llm,omitzero"`
 }
 
 // AIBackendConfig is the connection target for one OpenAI-compatible
@@ -144,6 +150,7 @@ func defaults() Values {
 				MinWordsPerQuestion: 30,
 				MaxQuestionsPerPoll: 5,
 				ReviewDir:           expandPath("~/Documents/ptrack/pending-banks"),
+				Language:            "auto",
 				ASR:                 AIBackendConfig{BaseURL: "http://127.0.0.1:11434", Model: "whisper"},
 				LLM:                 AIBackendConfig{BaseURL: "http://127.0.0.1:11434", Model: "qwen2.5:3b"},
 			},
@@ -347,6 +354,7 @@ func applyConstraints(root *jsonschema.Schema) {
 	maxq.Minimum = new(1.0)
 	maxq.Maximum = new(20.0)
 	at(root, "challenges", "auto_generation", "review_dir").MinLength = new(1)
+	at(root, "challenges", "auto_generation", "language").Pattern = `^(auto|[a-zA-Z]{2,3}(-[a-zA-Z]{2,4})?)$`
 	at(root, "challenges", "auto_generation", "asr", "base_url").MinLength = new(1)
 	at(root, "challenges", "auto_generation", "asr", "api_key").WriteOnly = true
 	at(root, "challenges", "auto_generation", "asr", "model").MinLength = new(1)

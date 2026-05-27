@@ -315,6 +315,33 @@ If the model emits JSON or mis-shaped YAML, the challenger tolerates
 both (loads with a permissive parser, normalizes before writing).
 Invalid questions are dropped silently.
 
+### Lesson language
+
+`challenges.auto_generation.language` declares the spoken lesson
+language. Accepted values:
+
+- A BCP-47 / ISO 639-1 tag, e.g. `"en"`, `"uk"`, `"uk-UA"`.
+- The sentinel `"auto"` to opt out of all hinting and rely on
+  backend-side language detection.
+
+Default: `"auto"`. When a concrete tag is set the challenger does two
+things:
+
+- Forwards it as the `language` parameter on every ASR request, which
+  Whisper-class models use as a hard hint. Without the hint accented
+  or non-English speech routinely transcribes into hallucinated
+  English; with it accuracy improves noticeably.
+- Injects it into the LLM's user prompt as a
+  "write every prompt and answer in this language" instruction so
+  generated questions match the audience regardless of how the
+  transcript looks (helpful when the lecturer code-switches into
+  English for technical terms).
+
+Region subtags (`uk-UA`) are stripped for the ASR request because
+Whisper only accepts the primary ISO 639-1 subtag; the LLM prompt
+keeps the full tag verbatim. `"auto"` and the empty string both
+disable the hint on both sides.
+
 ### Model choices
 
 Both backends are OpenAI-compatible HTTP endpoints. The teacher

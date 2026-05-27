@@ -1,0 +1,5 @@
+{
+  "messenger.telegram.start": "Welcome to Presence Tracker!\n\nTo receive attendance challenges, register your display name:\n\n/register <your display name>\n\nExample: /register John Smith\n\nEach account may hold one registration at a time. Sending /register again replaces it. Use /whoami to see your current registration and /unregister to release it.",
+  "messenger.telegram.whoami.none_hint": "\n\nUse /register <display name> to register.",
+  "messenger.telegram.whoami.current_hint": " Use /register <name> to change it, or /unregister to release it."
+}

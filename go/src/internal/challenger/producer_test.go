@@ -1,6 +1,7 @@
 package challenger
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -78,5 +79,18 @@ questions:
 func TestParseLLMBankUnparseable(t *testing.T) {
 	if _, err := parseLLMBank("just prose, no yaml here"); err == nil {
 		t.Error("expected error for prose-only input")
+	}
+}
+
+func TestUserPromptCarriesLanguage(t *testing.T) {
+	withLang := userPrompt("hello", 3, "uk")
+	if !strings.Contains(withLang, `"uk"`) {
+		t.Errorf("language tag not embedded in prompt: %q", withLang)
+	}
+	for _, sentinel := range []string{"", "auto", "AUTO", " auto "} {
+		got := userPrompt("hello", 3, sentinel)
+		if strings.Contains(got, "BCP-47") {
+			t.Errorf("language instruction leaked for sentinel %q: %q", sentinel, got)
+		}
 	}
 }

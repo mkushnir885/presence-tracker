@@ -491,7 +491,16 @@ optionally opens the browser automatically on start.
 
 The GUI supports dark/light/system color themes and English/Ukrainian
 UI languages. Theme preference and language are stored in localStorage.
-Translation files live in `go/src/internal/gui/locales/<lang>.json`.
+
+Translation lookup is provided by the small `internal/i18n` package: a
+`Catalog` merges JSON namespaces (one per subsystem) and hands out
+`Locale` values bound to a language. The GUI loads
+`go/src/internal/gui/locales/<lang>.json`; messenger adapters load
+`internal/messengers/locales/<lang>.json` (shared keys) plus their own
+`internal/messengers/<adapter>/locales/<lang>.json` (adapter-specific
+keys). Keys use dotted prefixes (`messenger.*`, `messenger.telegram.*`,
+…); unknown keys fall through to the key string itself so untranslated
+copy is visible rather than blank.
 
 ## Security and privacy
 

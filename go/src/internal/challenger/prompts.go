@@ -1,6 +1,9 @@
 package challenger
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // This file is the documented public contract of the auto-generator's
 // LLM interface. Treat changes as breaking — the prompt shape is the
@@ -56,14 +59,20 @@ Rules:
 
 // userPrompt builds the per-call instruction. The transcript is wrapped
 // in fenced markers so the model does not confuse it with the schema
-// example above.
-func userPrompt(transcript string, n int) string {
-	return fmt.Sprintf(`Produce %d question(s) based on this transcript.
-
+// example above. When language is a concrete BCP-47 / ISO 639-1 tag
+// (e.g. "en", "uk") it is injected as a hard constraint on the output
+// language; the empty string and the "auto" sentinel both opt out and
+// let the model match the transcript.
+func userPrompt(transcript string, n int, language string) string {
+	langLine := ""
+	if normalized := strings.ToLower(strings.TrimSpace(language)); normalized != "" && normalized != "auto" {
+		langLine = fmt.Sprintf("\nWrite every prompt, choice, and answer in language %q (BCP-47).\n", language)
+	}
+	return fmt.Sprintf(`Produce %d question(s) based on this transcript.%s
 Transcript:
 <<<
 %s
 >>>
 
-Return only the YAML bank.`, n, transcript)
+Return only the YAML bank.`, n, langLine, transcript)
 }

@@ -1,0 +1,5 @@
+{
+  "messenger.telegram.start": "Вітаємо у Presence Tracker!\n\nЩоб отримувати запитання для перевірки присутності, зареєструйте ваше відображуване ім'я:\n\n/register <ваше ім'я>\n\nПриклад: /register Іван Петренко\n\nКожен обліковий запис може мати лише одну реєстрацію. Повторне /register замінює попередню. /whoami показує поточну реєстрацію, /unregister скасовує її.",
+  "messenger.telegram.whoami.none_hint": "\n\nВикористайте /register <ім'я>, щоб зареєструватись.",
+  "messenger.telegram.whoami.current_hint": " /register <ім'я> змінює запис, /unregister скасовує його."
+}

@@ -22,10 +22,11 @@ const asrTimeout = 2 * time.Minute
 
 // ASRClient calls an OpenAI-compatible /v1/audio/transcriptions endpoint.
 type ASRClient struct {
-	baseURL string
-	apiKey  string
-	model   string
-	http    *http.Client
+	baseURL  string
+	apiKey   string
+	model    string
+	language string
+	http     *http.Client
 }
 
 // audioFilename picks a friendly filename for the multipart "file"
@@ -44,15 +45,32 @@ func audioFilename(mime string) string {
 	}
 }
 
-// NewASRClient builds an ASRClient. The returned client is safe for
-// concurrent use.
-func NewASRClient(cfg config.AIBackendConfig) *ASRClient {
+// NewASRClient builds an ASRClient. language is the BCP-47 / ISO 639-1
+// hint sent on every request (Whisper's `language` parameter); pass ""
+// to let the backend auto-detect, at the cost of accuracy on non-English
+// speech. The returned client is safe for concurrent use.
+func NewASRClient(cfg config.AIBackendConfig, language string) *ASRClient {
 	return &ASRClient{
-		baseURL: strings.TrimRight(cfg.BaseURL, "/"),
-		apiKey:  cfg.APIKey,
-		model:   cfg.Model,
-		http:    &http.Client{Timeout: asrTimeout},
+		baseURL:  strings.TrimRight(cfg.BaseURL, "/"),
+		apiKey:   cfg.APIKey,
+		model:    cfg.Model,
+		language: asrLanguage(language),
+		http:     &http.Client{Timeout: asrTimeout},
 	}
+}
+
+// asrLanguage reduces a BCP-47 tag to the primary subtag — Whisper's
+// `language` parameter is defined in ISO 639-1, so `uk-UA` and `en-US`
+// must shed their region before they hit the backend. The empty string
+// and the "auto" sentinel both opt out of the hint so the backend
+// detects the language itself.
+func asrLanguage(tag string) string {
+	primary, _, _ := strings.Cut(strings.TrimSpace(tag), "-")
+	primary = strings.ToLower(primary)
+	if primary == "auto" {
+		return ""
+	}
+	return primary
 }
 
 // Transcribe posts audio to <base_url>/v1/audio/transcriptions and
@@ -84,6 +102,11 @@ func (c *ASRClient) Transcribe(ctx context.Context, audio io.Reader, mime string
 	if c.model != "" {
 		if err := mw.WriteField("model", c.model); err != nil {
 			return "", fmt.Errorf("challenger: asr write model: %w", err)
+		}
+	}
+	if c.language != "" {
+		if err := mw.WriteField("language", c.language); err != nil {
+			return "", fmt.Errorf("challenger: asr write language: %w", err)
 		}
 	}
 	if err := mw.Close(); err != nil {

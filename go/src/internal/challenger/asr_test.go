@@ -44,7 +44,7 @@ func TestASRClientTranscribe(t *testing.T) {
 				BaseURL: srv.URL,
 				APIKey:  "sk-test",
 				Model:   "whisper",
-			})
+			}, "uk-UA")
 
 			text, err := c.Transcribe(context.Background(), bytes.NewBufferString("audio-bytes"), "audio/webm")
 			if (err != nil) != tc.wantError {
@@ -71,12 +71,39 @@ func TestASRClientTranscribe(t *testing.T) {
 			if !bytes.Contains(gotBody, []byte(`name="model"`)) {
 				t.Errorf("body missing model field")
 			}
+			if !bytes.Contains(gotBody, []byte(`name="language"`)) ||
+				!bytes.Contains(gotBody, []byte("uk")) ||
+				bytes.Contains(gotBody, []byte("uk-UA")) {
+				t.Errorf("body should carry language=uk (region stripped); got %q", gotBody)
+			}
+		})
+	}
+}
+
+func TestASRClientOmitsLanguageWhenUnset(t *testing.T) {
+	for _, sentinel := range []string{"", "auto", "AUTO", " auto "} {
+		t.Run("sentinel="+sentinel, func(t *testing.T) {
+			var gotBody []byte
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotBody, _ = io.ReadAll(r.Body)
+				w.WriteHeader(200)
+				_, _ = io.WriteString(w, `{"text":""}`)
+			}))
+			defer srv.Close()
+
+			c := NewASRClient(config.AIBackendConfig{BaseURL: srv.URL, Model: "whisper"}, sentinel)
+			if _, err := c.Transcribe(context.Background(), bytes.NewBufferString("x"), "audio/webm"); err != nil {
+				t.Fatal(err)
+			}
+			if bytes.Contains(gotBody, []byte(`name="language"`)) {
+				t.Errorf("language hint leaked for sentinel %q: %q", sentinel, gotBody)
+			}
 		})
 	}
 }
 
 func TestASRClientNoBaseURL(t *testing.T) {
-	c := NewASRClient(config.AIBackendConfig{})
+	c := NewASRClient(config.AIBackendConfig{}, "")
 	if _, err := c.Transcribe(context.Background(), bytes.NewBufferString("x"), "audio/webm"); err == nil {
 		t.Fatal("expected error when base_url is empty")
 	}

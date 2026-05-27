@@ -210,6 +210,11 @@
               "default": "~/Documents/ptrack/pending-banks",
               "minLength": 1
             },
+            "language": {
+              "type": "string",
+              "default": "auto",
+              "pattern": "^(auto|[a-zA-Z]{2,3}(-[a-zA-Z]{2,4})?)$"
+            },
             "asr": {
               "type": "object",
               "properties": {

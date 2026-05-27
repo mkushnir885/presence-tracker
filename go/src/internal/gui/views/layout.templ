@@ -5,7 +5,7 @@ package views
 // theme and language menus — pages that don't need it pass nil.
 templ Layout(title string, locale Locale, navExtras templ.Component) {
 	<!DOCTYPE html>
-	<html lang={ htmlLang(locale.Lang) }>
+	<html lang={ locale.Lang }>
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -80,7 +80,7 @@ templ Layout(title string, locale Locale, navExtras templ.Component) {
 					location.reload();
 				}
 				function setLang(lang) {
-					var cur = (document.cookie.match(/(?:^|;\s*)ptrack-lang=([^;]+)/) || [])[1] || 'us';
+					var cur = (document.cookie.match(/(?:^|;\s*)ptrack-lang=([^;]+)/) || [])[1] || 'en';
 					if (cur === lang) { ptrackCloseMenus(null); return; }
 					document.cookie = 'ptrack-lang=' + lang + ';path=/;max-age=31536000';
 					localStorage.setItem('ptrack-lang', lang);
@@ -150,13 +150,13 @@ templ langMenu(locale Locale) {
 		</summary>
 		<ul class="menu-list lang-list">
 			<li>
-				<button type="button" onclick="setLang('us')" class={ langActive(locale.Lang, "us") }>
-					<span class="lang-code">US</span>
+				<button type="button" onclick="setLang('en')" class={ langActive(locale.Lang, "en") }>
+					<span class="lang-code">EN</span>
 				</button>
 			</li>
 			<li>
-				<button type="button" onclick="setLang('ua')" class={ langActive(locale.Lang, "ua") }>
-					<span class="lang-code">UA</span>
+				<button type="button" onclick="setLang('uk')" class={ langActive(locale.Lang, "uk") }>
+					<span class="lang-code">UK</span>
 				</button>
 			</li>
 		</ul>
@@ -233,13 +233,3 @@ func langActive(current, target string) string {
 	return ""
 }
 
-// htmlLang maps internal locale codes to BCP 47 language tags for the
-// <html lang> attribute. Our internal codes use country-style "us"/"ua"
-// to keep the GUI flag-like; the document still needs the actual
-// language tag.
-func htmlLang(lang string) string {
-	if lang == "ua" {
-		return "uk"
-	}
-	return "en"
-}

@@ -12,10 +12,15 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"presence-tracker/src/internal/config"
+	"presence-tracker/src/internal/i18n"
 	"presence-tracker/src/internal/participants"
 	"presence-tracker/src/internal/session"
 	"presence-tracker/src/internal/stats"
 )
+
+// Locale is the templ-facing translation handle. It re-exports
+// i18n.Locale so templ template signatures stay short.
+type Locale = i18n.Locale
 
 // RegistryFilterInputs holds the raw, user-typed values from the
 // registry page's filter form. All fields are blank when the user has
@@ -97,12 +102,6 @@ func registryInfoClass(errors RegistryFilterErrors) string {
 		return "registry-info has-error"
 	}
 	return "registry-info"
-}
-
-// Locale carries the active language and a translation lookup function.
-type Locale struct {
-	Lang string
-	T    func(key string) string
 }
 
 // DashboardData is the data model for the dashboard page.

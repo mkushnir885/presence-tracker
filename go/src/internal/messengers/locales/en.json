@@ -1,0 +1,16 @@
+{
+  "messenger.register.success": "✅ Registered as %q. When you join a meeting under this name, you'll receive a confirmation message.",
+  "messenger.register.name_taken": "⚠️ The name %q is already registered by another account. Ask your teacher to remove the existing entry from the registry page, then try again.",
+  "messenger.register.failed": "Registration failed: %s",
+  "messenger.whoami.none": "You have no active registration.",
+  "messenger.whoami.current": "You are registered as %q.",
+  "messenger.unregister.removed": "✅ Registration removed.",
+  "messenger.unregister.error": "Could not remove registration: %s",
+  "messenger.join_confirm.prompt": "📍 Did you just join meeting *%s* on *%s*?",
+  "messenger.join_confirm.btn.yes": "Yes, that's me",
+  "messenger.join_confirm.btn.no": "No",
+  "messenger.join_confirm.yes_result": "✅ Confirmed! Challenges will be sent to you during this meeting.",
+  "messenger.join_confirm.no_result": "Not confirmed. Challenges will not be sent to you in this session.",
+  "messenger.challenge.reply_hint.text": "\n\nPlease reply to this message with your answer.",
+  "messenger.challenge.reply_hint.numeric": "\n\nPlease reply to this message with a number."
+}
