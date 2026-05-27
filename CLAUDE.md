@@ -16,8 +16,11 @@ choices matter as much as shipping features.
   messenger adapters, challenge scheduler, Parquet event log (via
   `github.com/apache/arrow/go/v17`), orchestration.
 - **Python** — data analysis only: Polars-backed CSV reports and the
-  GUI stats JSON. Invoked one-shot by Go (`ptrack_py report`,
-  `aggregate`, `stats`); never long-running. Distributed as a single
+  GUI stats JSON. Invoked one-shot by Go (`ptrack_py report`, `stats`);
+  never long-running. `report` takes one or more positional Parquet
+  paths or glob patterns and produces a per-meeting CSV when exactly
+  one file matches or an aggregate CSV when more do. Output always
+  goes to stdout; callers redirect to a file when needed. Distributed as a single
   self-contained binary built with **PyInstaller** (`ptrack_py` /
   `ptrack_py.exe`). Users install the Go binary and the Python binary;
   no Python runtime or `uv` required.
@@ -54,8 +57,7 @@ presence-tracker/
 │           ├── eventstore/         # Arrow/Parquet read+write
 │           ├── session/            # meeting lifecycle, event dedup/normalization
 │           ├── config/             # JSON loading, schema validation, live reload
-│           ├── gui/                # templ templates + net/http handlers
-│           └── reporter/           # invokes ptrack_py binary for CSV output
+│           └── gui/                # templ templates + net/http handlers
 ├── py/src/
 │   ├── ptrack_analytics/           # Jupyter library: load + Polars frames (presence, challenges, questions)
 │   └── ptrack_py/                  # binary-only: CLI entry, CSV reports, GUI stats JSON
@@ -320,9 +322,10 @@ Go and Python never share a process. They communicate via:
 
 1. **Parquet files** for event data — schema in `@docs/EVENT_SCHEMA.md`.
 2. **One-shot subprocess invocation** for analytics — Go invokes
-   `ptrack_py report ...` / `ptrack_py aggregate ...` to obtain CSV
-   output on stdout, and `ptrack_py stats --in <file> [--in <file> …]`
-   to obtain the GUI stats JSON. No Python process is kept alive in
+   `ptrack_py report <paths…>` to obtain CSV output on stdout (single
+   matched file → per-meeting; multiple → aggregate), and
+   `ptrack_py stats <paths…>` to obtain the GUI stats JSON on stdout.
+   No Python process is kept alive in
    either case. The stats JSON is cached by Go alongside the input
    files; cache entries are invalidated when any input's mtime advances
    (e.g. after the display-name rewrite PATCH).
@@ -370,8 +373,8 @@ For releases: PyInstaller single-file binary (`ptrack_py`).
 | Trigger a poll (any producer)   | `./bin/ptrack poll path/to/bank.yaml`                                    |
 | Trigger a poll, wait for result | `./bin/ptrack poll --wait path/to/bank.yaml`                             |
 | Reload config in running daemon | `./bin/ptrack reload`                                                    |
-| Export CSV report for a meeting | `./bin/ptrack report --in meeting.parquet --out report.csv`              |
-| Export cross-meeting CSV report | `./bin/ptrack report --in 'meetings/*.parquet' --out semester.csv`       |
+| Export CSV report for a meeting | `./bin/ptrack report meeting.parquet > report.csv`                       |
+| Export cross-meeting CSV report | `./bin/ptrack report 'meetings/*.parquet' > semester.csv`                |
 | Ad-hoc analysis (Jupyter)       | `cd py && jupyter notebook` — import `ptrack_analytics`, call `load()`   |
 
 ## Current status
@@ -390,8 +393,9 @@ audio capture, and the BBB/Zoom polling rewrite are still pending.
   `POST /poll` HTTP endpoint mounted by both `ptrack track` and
   `ptrack serve` (handler lives in `cmd/ptrack/main.go`), `PTRACK_PORTS`
   env var that lists every running daemon's port, `ptrack track` /
-  `ptrack serve` / `ptrack poll` / `ptrack report` CLI commands,
-  `internal/reporter/` package. Telegram messenger and registry use the
+  `ptrack serve` / `ptrack poll` / `ptrack report` CLI commands (the
+  report path shells out to `ptrack_py report` directly via
+  `internal/ptrackpy`). Telegram messenger and registry use the
   display-name flow (`/register`, `/unregister`, `/whoami`); the session
   coordinator buffers joins until verification, applies the collision
   rule, and writes only verified participants to Parquet.
@@ -399,7 +403,8 @@ audio capture, and the BBB/Zoom polling rewrite are still pending.
   derived lazy frames (`presence`, `challenge_results`). The binary-only
   `ptrack_py` package holds the typer CLI plus the formats Go shells out
   for: CSV reports (`reports.py`) and the GUI stats JSON (`stats.py`),
-  exposed as `ptrack_py report` / `ptrack_py aggregate` / `ptrack_py stats`.
+  exposed as `ptrack_py report <paths…>` (per-meeting when one file
+  matches, aggregate with more) and `ptrack_py stats <paths…>`.
 - GUI (`ptrack serve`) and `internal/gui/` package: HTTP server with
   all routes from the older `docs/GUI.md`, in-process session
   management, templ + htmx templates (dashboard, live status, meeting

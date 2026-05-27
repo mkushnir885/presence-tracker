@@ -50,13 +50,7 @@ func (l *Loader) Load(ctx context.Context, files []string) (*Document, error) {
 		return cached, nil
 	}
 
-	args := append(make([]string, 0, 2+2*len(abs)), "stats")
-	for _, f := range abs {
-		args = append(args, "--in", f)
-	}
-	args = append(args, "--out", "-")
-
-	out, err := ptrackpy.Run(ctx, args...)
+	out, err := ptrackpy.Run(ctx, append([]string{"stats"}, abs...)...)
 	if err != nil {
 		return nil, fmt.Errorf("stats: %w", err)
 	}

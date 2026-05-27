@@ -37,7 +37,7 @@ import (
 	meetprovider "presence-tracker/src/internal/providers/meet"
 	mockprovider "presence-tracker/src/internal/providers/mock"
 	zoomprovider "presence-tracker/src/internal/providers/zoom"
-	"presence-tracker/src/internal/reporter"
+	"presence-tracker/src/internal/ptrackpy"
 	"presence-tracker/src/internal/session"
 )
 
@@ -155,53 +155,32 @@ func runReload(ctx context.Context, cfgPath, serverURL string, port int) error {
 
 // reportCmd generates a CSV report from one or more meeting Parquet files.
 func reportCmd() *cobra.Command {
-	var (
-		input  string
-		output string
-	)
-
 	cmd := &cobra.Command{
-		Use:   "report",
+		Use:   "report <paths...>",
 		Short: "Generate a CSV report from one or more meeting Parquet files",
-		Example: `  ptrack report --in meeting.parquet --out report.csv
-  ptrack report --in 'meetings/*.parquet' --out semester.csv
-  ptrack report --in meeting.parquet --out -`,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runReport(cmd.Context(), input, output)
+		Long: "Pass one or more Parquet paths or glob patterns. With a " +
+			"single matched file the output is a per-meeting CSV; with " +
+			"more it switches to the cross-meeting aggregate. CSV is " +
+			"written to stdout — redirect to a file when needed.",
+		Example: `  ptrack report meeting.parquet > report.csv
+  ptrack report 'meetings/*.parquet' > semester.csv
+  ptrack report jan.parquet feb.parquet > q1.csv`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runReport(cmd.Context(), args)
 		},
 	}
-
-	cmd.Flags().StringVar(&input, "in", "", "Parquet file or glob pattern (e.g. 'meetings/*.parquet')")
-	cmd.Flags().StringVar(&output, "out", "", "output CSV path, or - for stdout")
-	_ = cmd.MarkFlagRequired("in")
-	_ = cmd.MarkFlagRequired("out")
-
 	return cmd
 }
 
-func runReport(ctx context.Context, input, output string) error {
-	files, err := filepath.Glob(input)
-	if err != nil {
-		return fmt.Errorf("report: glob %q: %w", input, err)
-	}
-	if len(files) == 0 {
-		// No glob match — pass the raw input through so the user sees a
-		// clean error from ptrack_py instead of a silent empty result.
-		files = []string{input}
-	}
-
-	csv, err := reporter.Generate(ctx, files)
+func runReport(ctx context.Context, inputs []string) error {
+	args := append([]string{"report"}, inputs...)
+	csv, err := ptrackpy.Run(ctx, args...)
 	if err != nil {
 		return err
 	}
-	if output == "-" {
-		_, err = os.Stdout.Write(csv)
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
-		return fmt.Errorf("report: create output directory: %w", err)
-	}
-	return os.WriteFile(output, csv, 0o644)
+	_, err = os.Stdout.Write(csv)
+	return err
 }
 
 func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture string) error {

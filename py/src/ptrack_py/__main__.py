@@ -2,8 +2,8 @@
 CLI entry point for the ptrack_py binary (PyInstaller target).
 
 Subcommands:
-  report      Generate a per-meeting CSV report.
-  aggregate   Generate a cross-meeting aggregate CSV report.
+  report      Generate a CSV report; per-meeting with one --in, aggregate
+              with more than one.
   stats       Emit JSON stats payload consumed by the Go GUI's /stats view.
 
 TODO: challenger subcommand (AI-generated challenges) not implemented yet.
@@ -11,6 +11,7 @@ TODO: challenger subcommand (AI-generated challenges) not implemented yet.
 
 from __future__ import annotations
 
+import glob as _glob
 import json
 import sys
 from pathlib import Path
@@ -18,7 +19,7 @@ from pathlib import Path
 import polars as pl
 import typer
 
-from ptrack_analytics.load import LoadError, load_events, load_questions
+from ptrack_analytics.load import LoadError, load_questions
 from ptrack_analytics.schema import EVENT_SCHEMA
 
 from .reports import generate_aggregate_csv, generate_csv
@@ -31,85 +32,55 @@ app = typer.Typer(
 
 @app.command()
 def report(
-    input: str = typer.Option(..., "--in", help="Path to a meeting .parquet file"),
-    output: str = typer.Option(..., "--out", help="Output CSV path, or - for stdout"),
-) -> None:
-    """Generate a per-meeting CSV report from a Parquet file."""
-    try:
-        events = load_events(input)
-        csv_text = generate_csv(events)
-    except LoadError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
-
-    if output == "-":
-        sys.stdout.write(csv_text)
-    else:
-        out = Path(output)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(csv_text, encoding="utf-8")
-
-
-@app.command()
-def aggregate(
-    inputs: list[str] = typer.Option(
+    inputs: list[str] = typer.Argument(
         ...,
-        "--in",
+        metavar="PATHS...",
         help=(
-            "Path to a meeting .parquet file. Repeat for multiple files. "
-            "(A single glob pattern is also accepted for back-compat.)"
+            "Parquet file paths or glob patterns matching several. "
+            "Exactly one matched file produces a per-meeting CSV; more "
+            "than one produces the cross-meeting aggregate. Output is "
+            "written to stdout — redirect to a file with `> report.csv`."
         ),
     ),
-    output: str = typer.Option(..., "--out", help="Output CSV path, or - for stdout"),
 ) -> None:
-    """Generate an aggregate CSV report over multiple meetings."""
+    """Generate a CSV report from one or more Parquet files."""
+    paths = _expand_globs(inputs)
+
     try:
-        if len(inputs) == 1:
-            events = load_events(inputs[0])
-        else:
-            frames = [
-                pl.scan_parquet(p, schema=pl.Schema(EVENT_SCHEMA)) for p in inputs
-            ]
-            events = pl.concat(frames)
-        csv_text = generate_aggregate_csv(events)
-    except (LoadError, OSError) as exc:
+        frames = [pl.scan_parquet(p, schema=pl.Schema(EVENT_SCHEMA)) for p in paths]
+        events = pl.concat(frames)
+        csv_text = (
+            generate_csv(events) if len(paths) == 1 else generate_aggregate_csv(events)
+        )
+    except OSError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
-    if output == "-":
-        sys.stdout.write(csv_text)
-    else:
-        out = Path(output)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(csv_text, encoding="utf-8")
+    sys.stdout.write(csv_text)
 
 
 @app.command()
 def stats(
-    inputs: list[str] = typer.Option(
+    inputs: list[str] = typer.Argument(
         ...,
-        "--in",
+        metavar="PATHS...",
         help=(
-            "Path to a meeting .parquet file. Repeat for cross-meeting mode: "
-            "with one --in the response describes a single meeting; with more "
-            "than one it describes every (participant, meeting) cell."
+            "Parquet file paths or glob patterns matching several. With "
+            "one matched file the response describes a single meeting; "
+            "with more it describes every (participant, meeting) cell. "
+            "Output is written to stdout."
         ),
-    ),
-    output: str = typer.Option(
-        "-", "--out", help="Output JSON path, or - for stdout (default)."
     ),
 ) -> None:
     """Emit the GUI stats JSON for one or more Parquet files."""
-    if not inputs:
-        typer.echo("at least one --in is required", err=True)
-        raise typer.Exit(code=2)
+    paths = _expand_globs(inputs)
 
     try:
-        frames = [pl.scan_parquet(p, schema=pl.Schema(EVENT_SCHEMA)) for p in inputs]
+        frames = [pl.scan_parquet(p, schema=pl.Schema(EVENT_SCHEMA)) for p in paths]
         events = pl.concat(frames)
-        mode = "meeting" if len(inputs) == 1 else "cross_meeting"
-        questions = _load_questions_for(inputs)
-        source_files = _build_source_file_map(inputs)
+        mode = "meeting" if len(paths) == 1 else "cross_meeting"
+        questions = _load_questions_for(paths)
+        source_files = _build_source_file_map(paths)
         payload = generate_stats(events, mode=mode, questions=questions)
         for meeting in payload["meetings"]:
             src = source_files.get(meeting["meeting_id"])
@@ -119,13 +90,22 @@ def stats(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
-    text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    if output == "-":
-        sys.stdout.write(text)
-    else:
-        out = Path(output)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(text, encoding="utf-8")
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+
+
+def _expand_globs(patterns: list[str]) -> list[str]:
+    """Expand glob patterns into a sorted list of Parquet paths.
+
+    Exits the program with code 1 if no pattern matches anything; that
+    matches how the previous per-pattern loader surfaced missing files.
+    """
+    paths: list[str] = []
+    for pattern in patterns:
+        paths.extend(sorted(_glob.glob(str(Path(pattern).expanduser()))))
+    if not paths:
+        typer.echo(f"no Parquet files matched: {' '.join(patterns)}", err=True)
+        raise typer.Exit(code=1)
+    return paths
 
 
 def _build_source_file_map(inputs: list[str]) -> dict[str, str]:

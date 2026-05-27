@@ -85,9 +85,13 @@ There is no notebook helper for CSV generation; for ad-hoc tables call
 want the exact CSV the GUI offers, shell out to the binary instead:
 
 ```bash
-ptrack_py report    --in meetings/2026-04-21.parquet     --out reports/2026-04-21.csv
-ptrack_py aggregate --in 'meetings/spring-2026-*.parquet' --out reports/semester.csv
+ptrack_py report meetings/2026-04-21.parquet > reports/2026-04-21.csv
+ptrack_py report meetings/spring-2026-*.parquet > reports/semester.csv
 ```
+
+(One matched Parquet produces a per-meeting CSV; more than one
+switches to the cross-meeting aggregate. CSV is always written to
+stdout.)
 
 (`ptrack_py` lives in the sibling `ptrack_py/` package; see
 "Relationship to the GUI" below.)

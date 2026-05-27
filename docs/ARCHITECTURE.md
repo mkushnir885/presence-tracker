@@ -28,7 +28,7 @@ it.
                               External ASR + LLM         ┌──────────────────────┐
                               (Ollama / OpenAI /         │ ptrack_py            │
                                Gemini / ...)             │  (one-shot: report / │
-                                                         │   aggregate / stats) │
+                                                         │   stats)             │
                                                          │  Polars (CSV + JSON) │
                                                          └──────────────────────┘
 ```
@@ -67,10 +67,9 @@ it.
 7. All events are written to `<meetings_dir>/<meeting_id>.parquet` by
    `eventstore`.
 8. For CSV report generation, Go invokes
-   `ptrack_py report --in meeting.parquet --format csv --out -` (stdout)
-   and caches the result for the GUI stats columns. The same CSV is also
-   offered as a download. Advanced users can import `ptrack_analytics`
-   directly in Jupyter.
+   `ptrack_py report meeting.parquet` and reads the CSV off stdout.
+   The same CSV is offered as a download. Advanced users can import
+   `ptrack_analytics` directly in Jupyter.
 
 The teacher remains in control of the meeting's flow: the only act
 that interrupts ordinary teaching is the brief moment of triggering or
@@ -350,13 +349,17 @@ running. A new tab reconnects to the same session at the same
 The `ptrack_py` binary runs when Go needs CSV reports or GUI stats:
 
 ```
-ptrack_py report    --in <parquet>               --out <csv-or->
-ptrack_py aggregate --in '<glob>'                --out <csv-or->
-ptrack_py stats     --in <parquet> [--in <p2> …] --out <json-or->
+ptrack_py report <parquet> [<p2> …]
+ptrack_py stats  <parquet> [<p2> …]
 ```
 
-`--out -` writes to stdout, which Go reads directly. Exit code +
-stderr is the contract.
+Both commands take positional Parquet paths or glob patterns and
+write their result (CSV or JSON) to stdout. `report` produces a
+per-meeting CSV when exactly one Parquet matches and the cross-meeting
+aggregate when more do.
+
+Go reads the result off stdout directly. Exit code + stderr is the
+contract.
 
 The CSV / JSON producers (`reports.py`, `stats.py`) live in
 `py/src/ptrack_py/` — the binary-only package — and build on top of
@@ -417,7 +420,7 @@ minutes; older content is evicted in memory, never flushed to disk.
 The Python work that remains — Polars-backed CSV reports and the GUI
 stats JSON — is naturally one-shot: load Parquet, run Polars
 expressions, emit a few KB of output. A subprocess invocation with
-stdout-as-result is debuggable from a shell (`ptrack_py report --out -`),
+stdout-as-result is debuggable from a shell (`ptrack_py report meeting.parquet`),
 has no IPC state to maintain, and recycles all memory between runs. Go
 reads the output and caches it next to the inputs.
 

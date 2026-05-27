@@ -226,7 +226,7 @@ or more `file` query values, each a basename in `meetings_dir`:
 
 ### Data source
 
-Stats are computed by `ptrack_py stats --in <a.parquet> [--in <b.parquet> …]`,
+Stats are computed by `ptrack_py stats <a.parquet> [<b.parquet> …]`,
 which returns a JSON document covering everything the templ template
 needs: meeting boundaries, per-participant presence ratio, segments,
 challenge counts, and challenge markers (with `question_id` for tooltip
@@ -386,12 +386,11 @@ dismisses the popup.
 ## CSV reports
 
 CSV generation is delegated to `ptrack_py`. Go obtains the CSV by
-calling `ptrack_py report --in <file> --format csv --out -` (or
-`ptrack_py aggregate --in '<glob>' --format csv --out -` for the
-multi-file case) and streams the result to the response. The stats
-view's `↓ Export CSV` buttons hit `GET /report?file=…` (one or more
-`file` values), which dispatches to the correct `ptrack_py` subcommand
-based on the file count.
+calling `ptrack_py report <file> [<file> …]` and streams the stdout
+result to the response. With a single matched Parquet the report is
+per-meeting; with more, `ptrack_py` switches to the cross-meeting
+aggregate. The stats view's `↓ Export CSV` buttons hit
+`GET /report?file=…` (one or more `file` values).
 
 The stats JSON returned by `ptrack_py stats` and the CSV returned by
 the report/aggregate subcommands are computed from the same Polars
@@ -428,8 +427,8 @@ Rows are sorted by `display_name` (case-insensitive) then by `meeting`
 CLI equivalents:
 
 ```
-ptrack_py report --in meeting.parquet --format csv --out report.csv
-ptrack_py aggregate --in 'meetings/*.parquet' --format csv --out semester.csv
+ptrack_py report meeting.parquet > report.csv
+ptrack_py report 'meetings/*.parquet' > semester.csv
 ```
 
 ## Registry page

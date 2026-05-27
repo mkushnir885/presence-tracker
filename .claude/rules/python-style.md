@@ -52,7 +52,8 @@ Python service. The two packages under `py/src/` are:
 - `ptrack_analytics/` — Jupyter-facing library: `load()` and the
   derived Polars lazy frames (`presence`, `challenges`, `questions`).
 - `ptrack_py/` — binary-only one-shot CLI invoked by Go for CSV reports
-  (`report`, `aggregate`) and the GUI stats JSON (`stats`).
+  (`report` — per-meeting with one `--in`, aggregate with more) and the
+  GUI stats JSON (`stats`).
 
 Auto-generation of challenges (ASR + LLM) is in-process Go talking to
 external OpenAI-compatible HTTP backends; do not add ASR, LLM,

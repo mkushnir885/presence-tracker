@@ -29,7 +29,7 @@ import (
 	bbbprovider "presence-tracker/src/internal/providers/bbb"
 	meetprovider "presence-tracker/src/internal/providers/meet"
 	zoomprovider "presence-tracker/src/internal/providers/zoom"
-	"presence-tracker/src/internal/reporter"
+	"presence-tracker/src/internal/ptrackpy"
 	"presence-tracker/src/internal/session"
 	"presence-tracker/src/internal/stats"
 )
@@ -510,8 +510,8 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleReport serves the CSV equivalent of the same file query that
-// /stats reads. With one file it returns the per-meeting CSV; with
-// more, the cross-meeting aggregate.
+// /stats reads. The Python report command auto-aggregates when more
+// than one --in is supplied.
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	files, basenames, err := s.collectStatsFiles(r)
 	if err != nil {
@@ -519,7 +519,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	csv, err := reporter.Generate(r.Context(), files)
+	csv, err := ptrackpy.Run(r.Context(), append([]string{"report"}, files...)...)
 	if err != nil {
 		http.Error(w, "report: "+err.Error(), http.StatusInternalServerError)
 		return
