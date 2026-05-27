@@ -16,23 +16,21 @@ it.
 │                                                                         │
 │   cobra CLI ── session.Coordinator ── eventstore (Parquet)              │
 │   (track/serve/poll)        │                                           │
-│        ┌────────────────────┼────────────────┬──────────────────┐       │
-│        ▼                    ▼                ▼                  ▼       │
-│   providers.*         messengers.*       challenges          gui.Server │
-│   (zoom/meet/        (telegram/...)   (YAML pipeline:        + control  │
-│    bbb/mock)                          load, fan-out, score)  plane HTTP │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-         │                            │                       ▲
-         │                            │                       │ ptrack poll
-         ▼                            ▼                       │ (thin client)
-┌─────────────────────────────┐    ┌─────────────────────────────────────┐
-│ ptrack_py challenger        │    │ ptrack_py (PyInstaller)             │
-│  (long-running, AI-gen)     │    │  (one-shot: report / aggregate /    │
-│  faster-whisper + LLM       │    │   stats)                            │
-│  writes YAML to pending dir │    │  Polars (CSV + GUI JSON)            │
-│  optional: exec ptrack poll │    │  builds on ptrack_analytics frames  │
-└─────────────────────────────┘    └─────────────────────────────────────┘
+│        ┌──────────┬─────────┴─────┬──────────────┬─────────────┐        │
+│        ▼          ▼               ▼              ▼             ▼        │
+│   providers.*  messengers.*   challenges     challenger    gui.Server   │
+│   (zoom/meet/  (telegram/    (YAML           (in-process   + control    │
+│    bbb/mock)    ...)          pipeline)       audio→ASR→   plane HTTP)  │
+│                                               LLM→YAML)                 │
+└────────────────────────────────────────┬──────────────────────┬─────────┘
+                                         │ OpenAI-compatible    │ ptrack poll
+                                         ▼ HTTP                 │ (thin client)
+                              External ASR + LLM         ┌──────────────────────┐
+                              (Ollama / OpenAI /         │ ptrack_py            │
+                               Gemini / ...)             │  (one-shot: report / │
+                                                         │   aggregate / stats) │
+                                                         │  Polars (CSV + JSON) │
+                                                         └──────────────────────┘
 ```
 
 ## Data flow
@@ -45,9 +43,10 @@ it.
    pairing is handled entirely via the Telegram bot (see "Participant
    identity" in `CLAUDE.md`).
 3. A poll is dispatched by calling `ptrack poll --type=<label> <bank>`
-   (from the GUI's Trigger poll menu, from the Python challenger when
-   `auto_submit` is on, from the user's terminal, or from any external
-   script). The poll endpoint loads the bank, calls
+   (from the GUI's Trigger poll menu, from the user's terminal, or from
+   any external script). The in-process auto-generator, when
+   `auto_submit` is on, calls the same pipeline directly without going
+   through the CLI. The poll endpoint loads the bank, calls
    `Provider.FetchPresence` for an up-to-the-second view of who is
    actually in the meeting right now, picks eligible participants from
    that snapshot, and randomly assigns one question per participant.
@@ -301,9 +300,9 @@ Every running daemon appends its loopback HTTP port to the
 `PTRACK_PORTS` environment variable (comma-separated). `ptrack serve`
 uses the configured `gui.bind_addr` port (default 8080); `ptrack track`
 (headless) binds a random free loopback port. The exported list is
-inherited by every child the daemon spawns — the Python challenger,
-and any `ptrack poll` invocation re-entered from that child — so they
-find their way back without an on-disk descriptor.
+inherited by any child the daemon spawns and by shells launched from
+inside the daemon, so a `ptrack poll` invocation finds its way back
+without an on-disk descriptor.
 
 Because the daemon supervises exactly one meeting at a time, running
 multiple `ptrack` processes in parallel is the supported way to track
@@ -328,18 +327,20 @@ CLI errors and asks the user to disambiguate.
 
 ### Lifecycle endpoints
 
-- `POST /system/unload-models` — releases the Python challenger's
-  resident ASR + LLM models. Backed by the GUI's **Free models**
-  button. The challenger process keeps running; the next generation
-  reloads on demand.
-- `POST /system/shutdown` — stops the active session, terminates the
-  Python challenger, closes all listeners, and returns 200 once
-  drainage is complete. Backed by the GUI's **Shut down** button; the
-  browser then renders a "you can close this tab" page.
+- `POST /system/shutdown` — stops the active session, closes the audio
+  WebSocket, drains the in-process challenger, closes all listeners,
+  and returns 200 once drainage is complete. Backed by the GUI's
+  **Shut down** button; the browser then renders a "you can close this
+  tab" page.
+
+There is no `/system/unload-models` endpoint: ptrack holds no model
+weights of its own, so there is nothing in-process to free. Memory used
+by the external ASR/LLM backend (e.g. Ollama) is the operator's
+concern.
 
 Closing the browser tab without using **Shut down** leaves the daemon
-running and the Python challenger warm. A new tab reconnects to the
-same session at the same `http://127.0.0.1:<port>` address.
+running. A new tab reconnects to the same session at the same
+`http://127.0.0.1:<port>` address.
 
 ## Cross-process model
 
@@ -362,44 +363,35 @@ The CSV / JSON producers (`reports.py`, `stats.py`) live in
 (`from ptrack_analytics import load, presence, challenges`). Notebook
 users depend on `ptrack_analytics` directly and never on `ptrack_py`.
 
-### Go ↔ Python: challenger (long-running, optional)
+### Go ↔ external inference (OpenAI-compatible HTTP)
 
-Go spawns `ptrack_py challenger run` once per session, when
-`challenges.auto_generation.enabled` is true. The contract is built
-out of three primitives, in increasing order of intimacy:
+Auto-generation, when enabled, sends audio to an ASR endpoint and
+prompts to an LLM endpoint over plain OpenAI-compatible HTTP. The
+default is a local Ollama daemon; any compatible gateway works (base
+URL, API key, and model name are config-driven —
+`challenges.auto_generation.asr.*` and `challenges.auto_generation.llm.*`).
 
-1. **Files.** Python writes generated YAML banks to the pending
-   directory (`/tmp/ptrack/` on Linux). That is the *output* contract.
-2. **CLI re-entry.** When `auto_submit` is on, Python invokes
-   `ptrack poll --type=aigenerated <path>` itself. This re-enters the
-   same control plane the GUI uses; no extra surface to maintain.
-3. **HTTP for audio.** Audio frames captured by the browser GUI are
-   streamed over a WebSocket to the Go daemon and forwarded to the
-   Python challenger over a small localhost HTTP endpoint (or its
-   stdin). This is the only in-process link from Go into Python.
-
-Endpoints exposed by the challenger (localhost only):
-
-- `POST /context/audio` — Go relays browser-captured PCM/Opus frames.
-- `POST /context/screen` — optional OCR frames, 1 fps, when screen OCR
-  is enabled.
-- `POST /control/unload-models` — release ASR + LLM memory.
-- `POST /control/shutdown` — stop and exit.
-
-Note that there is **no** `POST /challenges/generate` endpoint anymore.
-Generation is autonomous inside the challenger: it watches its own
-schedule, writes YAML, and optionally re-enters via `ptrack poll`. Go
-never asks for a batch synchronously.
+ptrack owns no model weights, no warm-up state, and no resident memory
+for inference. Lifecycle of the chosen backend (start, stop, free) is
+the operator's responsibility — `ollama serve` for local, account
+quota for hosted. There is no `/challenges/generate` endpoint anywhere:
+generation is autonomous inside `internal/challenger/`, which watches
+its own schedule, writes YAML, and (when `auto_submit` is on)
+dispatches in-process through the challenge pipeline.
 
 ### Audio capture path
 
-Audio is captured **by the browser**, not by either binary:
+Audio is captured **by the browser**, not by ptrack itself:
 
 ```
-Browser (getUserMedia) ──WebSocket──► Go control plane ──HTTP──► Python challenger
-   ▲                                                                 │
-   │ mic picker, mute toggle                                         ▼
-   │ permission dialog                                             ASR rolling window
+Browser (getUserMedia) ──WebSocket──► Go control plane ──HTTP──► ASR backend
+   ▲                                          │
+   │ mic picker, mute toggle                  ▼
+   │ permission dialog            rolling transcript in memory
+                                              │
+                                              ▼  LLM /chat/completions
+                                       internal/challenger
+                                       (writes YAML, optionally dispatches)
 ```
 
 Choosing browser-side capture buys three things:
@@ -412,18 +404,21 @@ Choosing browser-side capture buys three things:
 - a mute control that lives where the teacher is already looking, with
   no audio captured before they explicitly start streaming.
 
-The audio bytes are never written to disk by Go, Python, or the GUI.
-The browser's `MediaRecorder`/`AudioWorklet` buffers stay in memory
-only. faster-whisper consumes the frames into a rolling transcript
-window of `context.audio_transcript.window_minutes` minutes; older
-audio is dropped, not flushed to disk.
+The audio bytes are never written to disk by Go or the browser; the
+browser's `MediaRecorder`/`AudioWorklet` buffers stay in memory only.
+Go batches incoming frames into short segments (a few seconds each)
+and POSTs each one to the ASR endpoint. The returned transcripts
+accumulate into a rolling window of `transcript_window_minutes`
+minutes; older content is evicted in memory, never flushed to disk.
 
-### Why subprocess + HTTP instead of gRPC
+### Why subprocess for ptrack_py instead of in-process RPC
 
-Two languages, one machine, bounded message rate. The HTTP layer is
-debuggable with `curl` and trivial to stand up. The data path (Parquet
-files and generated YAML banks) is already out-of-band; HTTP only
-carries control messages and the audio stream.
+The Python work that remains — Polars-backed CSV reports and the GUI
+stats JSON — is naturally one-shot: load Parquet, run Polars
+expressions, emit a few KB of output. A subprocess invocation with
+stdout-as-result is debuggable from a shell (`ptrack_py report --out -`),
+has no IPC state to maintain, and recycles all memory between runs. Go
+reads the output and caches it next to the inputs.
 
 ## Event schema
 
@@ -467,9 +462,6 @@ symlink to the default location. The user-facing directories
 │   ├── 2026-04-21-algebra.jsonl
 │   └── 2026-04-23-algebra.jsonl
 └── 2026-04-21-algebra.csv              # reports_dir (root of ~/Documents/ptrack)
-
-~/.cache/ptrack/                        # config.CacheDir() — fixed
-└── models/                             # ASR + LLM model weights
 ```
 
 ### Windows
@@ -490,9 +482,6 @@ symlink to the default location. The user-facing directories
 ├── meetings\
 ├── questions\
 └── 2026-04-21-algebra.csv
-
-%LOCALAPPDATA%\ptrack\cache\            # config.CacheDir() — fixed
-└── models\
 ```
 
 ## GUI
@@ -507,11 +496,13 @@ Translation files live in `go/src/internal/gui/locales/<lang>.json`.
 
 ## Security and privacy
 
-- All credentials stored in `secrets.yaml` with 0600 permissions (Linux)
-  or DPAPI-encrypted (Windows). Never in `config.yaml`.
-- The challenger service binds to `127.0.0.1` only. Never 0.0.0.0.
-- Transcript data is in-memory only — never written to disk by
-  `challenger`. This is a hard requirement.
+- All credentials live inline in `config.json` with mode `0600` on
+  Unix; on Windows the user is responsible for ACLs.
+- The daemon's HTTP listener binds to `127.0.0.1` only. Never 0.0.0.0.
+- Audio frames and transcripts are in-memory only — Go never writes
+  either to disk. ASR is performed by an external HTTP backend, which
+  receives audio over the network; choosing where to send it (local
+  Ollama vs. a hosted API) is the teacher's privacy decision.
 - Display name collision is rejected at registration time — the bot
   returns an error if a name is already claimed by a different handle,
   so only one Telegram account can own a given `(platform, name)` pair.

@@ -15,14 +15,16 @@ choices matter as much as shipping features.
 - **Go** — main binary, CLI (cobra), HTTP server, provider adapters,
   messenger adapters, challenge scheduler, Parquet event log (via
   `github.com/apache/arrow/go/v17`), orchestration.
-- **Python** — data analysis (Polars), CSV report generation, and
-  (v1 stretch / v2) AI-generated question pipeline: ASR, small-LLM
-  question generation. Distributed as a single self-contained binary
-  built with **PyInstaller** (`ptrack_py` / `ptrack_py.exe`). Users
-  install the Go binary and the Python binary; no Python runtime or
-  `uv` required.
+- **Python** — data analysis only: Polars-backed CSV reports and the
+  GUI stats JSON. Invoked one-shot by Go (`ptrack_py report`,
+  `aggregate`, `stats`); never long-running. Distributed as a single
+  self-contained binary built with **PyInstaller** (`ptrack_py` /
+  `ptrack_py.exe`). Users install the Go binary and the Python binary;
+  no Python runtime or `uv` required.
 
   Reports are emitted as CSV only; no PDF generation in v1.
+
+  Auto-generation (ASR + LLM) lives in Go — see "Challenge system".
 - **templ + htmx** — server-rendered GUI with minimal client-side JS.
   Supports dark/light/system color themes and English/Ukrainian UI
   languages (easily extended by adding translation files). Opened in
@@ -47,7 +49,7 @@ presence-tracker/
 │           ├── providers/          # video-conferencing adapters (Zoom, Meet, BBB)
 │           ├── messengers/         # messenger adapters (Telegram first)
 │           ├── challenges/         # single YAML pipeline: parse, validate, fan out, score
-│           ├── challenger/         # supervises the optional ptrack_py challenger subprocess
+│           ├── challenger/         # in-process auto-generation: audio buffer, ASR/LLM HTTP clients, YAML producer
 │           ├── participants/       # cross-platform identity registry + pairing flow
 │           ├── eventstore/         # Arrow/Parquet read+write
 │           ├── session/            # meeting lifecycle, event dedup/normalization
@@ -56,9 +58,7 @@ presence-tracker/
 │           └── reporter/           # invokes ptrack_py binary for CSV output
 ├── py/src/
 │   ├── ptrack_analytics/           # Jupyter library: load + Polars frames (presence, challenges, questions)
-│   ├── ptrack_py/                  # binary-only: CLI entry, CSV reports, GUI stats JSON
-│   ├── challenger/                 # question generation from meeting context (v1 stretch)
-│   └── perception/                 # (v2) ASR (Whisper), OCR
+│   └── ptrack_py/                  # binary-only: CLI entry, CSV reports, GUI stats JSON
 ├── test/fixtures/                  # recorded event streams for replay
 └── docs/                           # reference docs, loaded on demand via @docs/...
 ```
@@ -172,8 +172,9 @@ ptrack poll [--type=<label>] [--port=<port>] [--wait] <path-to-bank.yaml>
 
 which is a thin HTTP client to the running `ptrack serve` / `ptrack track`
 daemon (see "Control plane" in `@docs/ARCHITECTURE.md`). The GUI's
-**Trigger poll** menu, the user's terminal, and the Python challenger
-when auto-submit is on all dispatch through this same endpoint.
+**Trigger poll** menu and the user's terminal both dispatch through
+this endpoint. The in-process auto-generator, when `auto_submit` is on,
+calls the same pipeline directly (no CLI, no HTTP).
 
 `--type` is a free-form label that is stored verbatim on every
 `challenge_issued` event for the round. The system does not constrain
@@ -183,7 +184,7 @@ its values. Conventions used by the built-in producers:
 - `combined` — auto-generated YAML that the teacher reviewed/edited and
   dispatched manually from the GUI.
 - `aigenerated` — auto-generated YAML dispatched automatically by the
-  Python challenger.
+  in-process challenger.
 
 `--type` never appears inside the YAML — the YAML stays a clean,
 producer-agnostic bank format.
@@ -217,7 +218,14 @@ once dispatched or once a newer file replaces them. Audio for the
 generator is captured by the **browser** through
 `navigator.mediaDevices.getUserMedia` (with a mute toggle and the
 browser's native device picker) and streamed to the daemon over a
-WebSocket — mobile-friendly, including Android-on-Termux.
+WebSocket — mobile-friendly, including Android-on-Termux. The
+`internal/challenger/` package consumes frames in-process, batches them
+into short segments, and calls an **OpenAI-compatible** ASR endpoint
+(default: a local Ollama daemon; OpenAI Whisper API or any compatible
+gateway also works). The same compat shape is used for the LLM
+chat-completions call that produces the YAML. ptrack owns no model
+weights; the chosen backend handles all warm-up, GPU memory, and
+unloading.
 
 Polls are optional. A session with no polls at all is valid
 (tracking-only mode).
@@ -258,8 +266,8 @@ Main views:
    information: warnings, errors, delivery diagnostics, scheduler events.
    No participant timeline is rendered live. Hosts the **Trigger poll**
    menu (Custom / Auto-generated), the **Audio** card with the browser's
-   microphone toggle and device picker, and the **Free models** and
-   **Shut down** lifecycle buttons.
+   microphone toggle and device picker, and the **Shut down** lifecycle
+   button.
 2. **Stats view** — a single page served at `GET /stats?file=<a>&file=<b>…`.
    With one `file` query value it shows the per-meeting timeband list
    (one row per participant in that file). With more than one it
@@ -315,17 +323,10 @@ Go and Python never share a process. They communicate via:
    either case. The stats JSON is cached by Go alongside the input
    files; cache entries are invalidated when any input's mtime advances
    (e.g. after the display-name rewrite PATCH).
-3. **Long-running subprocess + YAML files + CLI re-entry** for the
-   optional auto-generated challenges. Go spawns `ptrack_py challenger
-   run` once per session; the Python side writes generated YAML banks
-   to the pending directory, and (when `auto_submit` is on) re-enters
-   the system through `ptrack poll --type=aigenerated <path>` like any
-   other producer.
-4. **Localhost HTTP** for the audio path only: the browser's WebSocket
-   stream lands on the Go daemon and is relayed to the challenger over
-   a small `POST /context/audio` endpoint (or its stdin), so the ASR
-   process can ingest it. No `POST /challenges/generate` exists — Go
-   never asks Python for a batch.
+
+That is the entire Go ↔ Python surface. Auto-generation (ASR + LLM) is
+an in-process Go feature that talks to external OpenAI-compatible
+backends over HTTP — Python is not involved.
 
 When the event schema changes, update `go/src/internal/eventstore/` (Go
 Arrow schema), `py/src/ptrack_analytics/schema.py`, and
@@ -411,14 +412,14 @@ audio capture, and the BBB/Zoom polling rewrite are still pending.
 **Pending against the current design (not yet in code):**
 
 - Replace the GUI's single Trigger Poll button with the Custom /
-  Auto-generated menu; add the Audio card, Free models, and Shut down
-  controls.
+  Auto-generated menu; add the Audio card and the Shut down control.
 - Browser-side audio capture via `getUserMedia` and a WebSocket to the
-  daemon; relay path Go → Python.
-- `internal/challenger/` package to supervise the optional
-  `ptrack_py challenger run` subprocess and forward audio.
-- Auto-generation pipeline on the Python side: rolling transcript,
-  YAML producer, optional `ptrack poll` re-entry.
+  daemon.
+- `internal/challenger/` package: rolling audio buffer, ASR client
+  (OpenAI-compatible `/v1/audio/transcriptions`), transcript window,
+  LLM client (OpenAI-compatible `/v1/chat/completions`), YAML producer,
+  in-process dispatch into `challenges.Pipeline.RunPoll` when
+  `auto_submit` is true.
 - GUI stats backend rewrite — `ptrack_py stats` subcommand, on-disk
   JSON cache, unified `/stats?file=…` route in Go, paged
   one-participant-per-page cross-meeting container. Replaces the
@@ -438,19 +439,18 @@ first when a design decision differs from what is documented.
 - Challenges: single YAML pipeline + `ptrack poll` CLI + GUI Trigger
   poll menu (Custom path only — auto-generation is stretch)
 - GUI: live meeting view + multi-meeting aggregate + config editor +
-  system controls (Free models, Shut down)
+  Shut down control
 - CSV reports (single meeting and cross-meeting)
 - Polars analytics via `ptrack_analytics` library and CLI
 
 **v1 stretch:**
 
-- Auto-generated challenges via the optional `ptrack_py challenger`
-  subprocess (ASR with Whisper + small LLM Qwen/Gemma/Phi), with both
-  `auto_submit` modes wired through `ptrack poll`
-- Browser-side audio capture via `getUserMedia` + WebSocket relay to
-  the daemon (prerequisite for the above)
+- Auto-generated challenges via in-process `internal/challenger/`,
+  using OpenAI-compatible ASR + LLM endpoints (default: local Ollama;
+  any compatible gateway works). Both `auto_submit` modes supported.
+- Browser-side audio capture via `getUserMedia` + WebSocket to the
+  daemon (prerequisite for the above)
 - Optional: screen-share OCR for cross-modal challenges
-- Optional: local-only mode with Ollama / llama.cpp
 
 **v2 / future work:**
 

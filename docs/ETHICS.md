@@ -63,8 +63,11 @@ transmit, or export participant data.
 - The teacher's microphone (used only when AI-generated challenges are
   enabled) is captured through the browser's `getUserMedia` flow, with
   the platform's native permission dialog and an explicit mute toggle
-  in the GUI. Audio is streamed in memory only; neither the browser,
-  the Go daemon, nor the Python challenger writes audio bytes to disk.
+  in the GUI. Audio is streamed in memory only; neither the browser nor
+  the Go daemon writes audio bytes to disk. The ASR HTTP request body
+  carries the audio to the configured backend — choosing where that
+  backend lives (local Ollama vs. a hosted API) is the teacher's
+  privacy decision.
 
 ## Required teacher-facing disclosures
 

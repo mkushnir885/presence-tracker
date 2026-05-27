@@ -46,8 +46,8 @@ file was produced. Three producer roles are recognized:
 | Producer            | Convention `--type=` label | Notes                                                                            |
 |---------------------|----------------------------|----------------------------------------------------------------------------------|
 | Teacher, by hand    | `custom` (default)         | The teacher prepares a YAML bank in their editor and selects it from the GUI or shell. |
-| Auto-generator      | `aigenerated`              | The Python challenger process writes a YAML to the pending directory and immediately invokes `ptrack poll` itself (when `auto_submit` is on). |
-| Reviewed auto-gen   | `combined`                 | The Python challenger writes a YAML to the pending directory and stops; the teacher reviews/edits it and triggers the poll via the GUI menu (when `auto_submit` is off). |
+| Auto-generator      | `aigenerated`              | The in-process Go challenger writes a YAML to the pending directory and immediately dispatches it through the challenge pipeline (when `auto_submit` is on). |
+| Reviewed auto-gen   | `combined`                 | The Go challenger writes a YAML to the pending directory and stops; the teacher reviews/edits it and triggers the poll via the GUI menu (when `auto_submit` is off). |
 | User scripts        | any other label            | Any tool that produces a valid YAML bank can call `ptrack poll --type=<anything> <path>`. The label is free-form; the system stores it verbatim on every `challenge_issued` event. |
 
 The `--type` label is purely a CLI/transport-side tag. It is **never**
@@ -88,10 +88,10 @@ bound to onto the `PTRACK_PORTS` environment variable (comma-separated):
 - `ptrack serve` — the configured `gui.bind_addr` port (default 8080).
 - `ptrack track` (headless) — a random free loopback port.
 
-Every child process the daemon spawns inherits this variable, which is
-how the Python challenger and any `ptrack poll` invocation it makes
-find their way back to the same daemon — no on-disk descriptor, no
-cleanup on shutdown.
+Every child process the daemon spawns inherits this variable, so any
+`ptrack poll` invocation re-entered from a child (or launched by the
+teacher from a daemon-spawned shell) finds the right daemon without an
+on-disk descriptor.
 
 When the teacher runs `ptrack poll` directly from a fresh shell
 (`PTRACK_PORTS` unset), the CLI falls back to the port from
@@ -140,9 +140,10 @@ Files in this directory are short-lived:
 - The GUI's **Trigger poll** menu enables the **Auto-generated** option
   only when at least one YAML is present here. On selection, the menu
   calls `ptrack poll --type=combined <path>`.
-- When `auto_submit` is on, the Python challenger calls
-  `ptrack poll --type=aigenerated <path>` itself immediately after
-  writing the file.
+- When `auto_submit` is on, the in-process challenger dispatches the
+  YAML directly through the same pipeline immediately after writing it
+  (logically equivalent to `ptrack poll --type=aigenerated <path>` but
+  with no CLI or HTTP hop).
 - A YAML in this directory is removed in either of two events:
   1. It has been submitted (whether via GUI or auto-submit).
   2. A new YAML has been generated to replace it (only the most recent
@@ -237,23 +238,37 @@ context for any challenge event.
 
 ## Auto-generation (optional)
 
-Auto-generation is an out-of-band producer of YAML banks. The Python
-binary `ptrack_py` runs as a long-lived child process of the Go daemon
-for the duration of a session whenever
-`challenges.auto_generation.enabled` is true.
+Auto-generation is an in-process producer of YAML banks built into the
+Go daemon. When `challenges.auto_generation.enabled` is true, the
+`go/src/internal/challenger/` package runs alongside the session: it
+consumes audio frames forwarded from the browser, maintains a rolling
+in-memory transcript window, and on its own schedule asks an LLM for a
+fresh batch of questions.
 
-The Python process:
+Both inference paths — ASR and LLM — go out over **OpenAI-compatible
+HTTP**. The challenger holds no model weights itself; it speaks to a
+configured backend that does. The default backend is a local **Ollama**
+daemon (which exposes `/v1/chat/completions` and
+`/v1/audio/transcriptions`); hosted backends (OpenAI, Gemini, any
+self-hosted gateway) are interchangeable — base URL, API key, and model
+name come from config.
 
-1. Receives audio captured by the browser GUI and relayed by Go (see
-   "Audio capture path" below). It maintains a rolling in-memory
-   transcript window sized per config.
-2. When the configured interval elapses (or the early-regen condition
-   fires), it asks the local or hosted LLM for a batch of questions in
-   the YAML bank format, validates the result, and writes the file to
-   the pending directory.
-3. If `challenges.auto_generation.auto_submit` is true, it then exec's
-   `ptrack poll --type=aigenerated <path>` to dispatch the poll
-   immediately.
+The challenger:
+
+1. Reads PCM/Opus frames forwarded from the GUI's WebSocket
+   (`POST /audio/stream`), assembles short audio segments, and POSTs
+   them to the configured ASR endpoint as they fill. The returned
+   transcripts are appended to a rolling buffer sized per
+   `transcript_window_minutes`.
+2. When the configured `poll_interval_seconds` elapses (or an
+   early-regen condition fires), it builds a prompt from the current
+   transcript window, calls the LLM's chat-completions endpoint asking
+   for `questions_per_poll` questions in YAML bank format, validates
+   the response, and writes the result to the pending directory
+   (`/tmp/ptrack/` on Linux, `%TEMP%\ptrack\` on Windows).
+3. If `challenges.auto_generation.auto_submit` is true, it dispatches
+   the bank directly through the in-process challenge pipeline with
+   `--type=aigenerated`. No CLI re-entry, no HTTP hop.
 4. If `auto_submit` is false, it stops there. The GUI surfaces the file
    in the **Auto-generated** option of the Trigger poll menu; the
    teacher submits it (with `--type=combined`) after optionally
@@ -274,73 +289,63 @@ microphone input through `navigator.mediaDevices.getUserMedia`, which:
 - works on mobile browsers, which is how Android-on-Termux use is
   supported.
 
-The GUI streams PCM (or Opus) audio frames over a WebSocket to the Go
-daemon's control plane. Go forwards these to the Python challenger over
-stdin (or its localhost HTTP audio endpoint, depending on the
-implementation choice in `internal/challenger/`). The data is consumed
-by faster-whisper inside Python and never written to disk by any party.
+The GUI streams PCM/Opus audio frames over a WebSocket to the Go
+daemon's control plane. `internal/challenger/` receives them in-process,
+buffers a few seconds at a time, and forwards each segment to the ASR
+endpoint as a standard OpenAI-compatible `/audio/transcriptions`
+request. Frames are never written to disk by Go or the browser; the ASR
+backend's local handling of the request body is its own concern.
 
 The browser exposes a mute toggle next to the meeting status panel,
 which simply pauses the WebSocket stream and synthesizes a silence
-marker on resume so faster-whisper does not mis-segment around the gap.
+marker on resume so the ASR backend does not mis-segment around the gap.
 
 ### Generation prompt
 
 A stable system prompt instructs the LLM to produce questions as YAML
 conforming to the bank format. Prompts live in
-`py/src/challenger/prompts.py` — treat this file as part of the system's
-public contract.
+`go/src/internal/challenger/prompts.go` — treat this file as part of
+the system's public contract.
 
-If the model emits JSON or mis-shaped YAML, the Python challenger
-tolerates both (loads with a permissive parser, normalizes before
-writing). Invalid questions are dropped silently.
+If the model emits JSON or mis-shaped YAML, the challenger tolerates
+both (loads with a permissive parser, normalizes before writing).
+Invalid questions are dropped silently.
 
 ### Model choices
 
-| Use case           | Default local model          | Alt (smaller)  | Alt (hosted)       |
-|--------------------|------------------------------|----------------|--------------------|
-| Question generator | Qwen 2.5 3B (Q4_K_M)         | SmolLM2 1.7B   | OpenAI / Gemini    |
-| ASR                | faster-whisper `small` int8  | `base` int8    | OpenAI Whisper API |
+Both backends are OpenAI-compatible HTTP endpoints. The teacher
+configures a base URL, API key (optional for local), and model name
+per side; the LLM and ASR endpoints are independent and do not have to
+share a host.
+
+| Use case           | Default (local)            | Alt (hosted)                          |
+|--------------------|----------------------------|---------------------------------------|
+| Question generator | Ollama running Qwen 2.5 3B | OpenAI, Gemini, any OAI-compat gateway |
+| ASR                | Ollama running Whisper     | OpenAI Whisper API                    |
+
+If the chosen backend does not expose `/v1/audio/transcriptions`, point
+`asr.base_url` at one that does (a small Whisper-server sidecar suffices).
 
 See `@docs/CONFIG.md` for configuration keys.
 
-### Model lifecycle (warm start)
+### Resource lifecycle
 
-The Python challenger loads its ASR and LLM models once at session
-start and keeps them resident for the rest of the session. Each
-subsequent generation reuses the warm models; load cost is paid once,
-not per poll.
+There are no resident models inside `ptrack`. The chosen backend
+(Ollama, hosted API) owns model weights, GPU memory, and warm-up — the
+challenger is just an HTTP client. Practical consequences:
 
-Two notable departures from the obvious lifecycle:
+- **No "Free models" button.** Memory management belongs to the chosen
+  backend (e.g. `ollama stop <model>`).
+- **No preload step inside `ptrack`.** The first generation pays
+  whatever cold-start the backend has; subsequent ones reuse whatever
+  it kept warm.
+- **Shutdown is just the Go daemon stopping.** The GUI's **Shut down**
+  button stops the active session, closes all listeners, and exits the
+  process. The external ASR/LLM backend keeps running independently.
 
-- **Models are not unloaded on `meeting_ended`.** They stay resident.
-  The teacher releases them explicitly via the GUI's **Free models**
-  button (see `@docs/GUI.md`). Rationale: back-to-back meetings should
-  not pay the load cost twice.
-- **Process termination is explicit.** The full shutdown path
-  (Python process exits, Go daemon stops, all listeners closed) is
-  triggered by the GUI's **Shut down** button, which then renders a
-  "you can close this browser tab" page. Closing the browser tab by
-  itself does not stop anything — the daemon survives, models stay
-  warm, and a new tab reconnects to the same session.
-
-Two config-driven optimizations:
-
-- `challenges.auto_generation.preload_models: true|false` —
-  if true (default), Python blocks startup until models are loaded and
-  reports `loaded faster-whisper small in 4.2s, 480 MB; loaded
-  llama-cpp Qwen2.5-3B in 7.1s, 2.4 GB` over its stderr (Go relays this
-  to the GUI's system log). If false, models load lazily on the first
-  generation, trading a faster session start for a slower first poll.
-- `challenges.auto_generation.idle_unload_after_seconds` —
-  if non-zero, the challenger auto-unloads after that many seconds of
-  inactivity. Default 0 (never auto-unload). Useful on memory-tight
-  machines.
-
-Hosted backends (`generator.backend: openai | gemini`,
-`asr.backend: whisper-api`) skip the load step entirely; the warm-start
-machinery still holds the transcript window and API client state, just
-without the multi-gigabyte memory footprint.
+Sessions that don't need auto-generation simply leave
+`challenges.auto_generation.enabled` at `false` and incur no audio,
+ASR, or LLM traffic at all.
 
 ## Poll coordination
 

@@ -41,8 +41,7 @@ Rendered server-side with templ; interactive bits use htmx.
 | `GET /poll/pending/preview`                          | Return the pending YAML's contents for inline preview / edit                   |
 | `GET /questions/{id}`                                | Return question text for a marker hover tooltip (reads from `.jsonl`)          |
 | `POST /audio/stream`                                 | WebSocket upgrade; browser pushes PCM/Opus frames captured via `getUserMedia`  |
-| `POST /system/unload-models`                         | Release the Python challenger's resident ASR + LLM (the process keeps running) |
-| `POST /system/shutdown`                              | Stop the active session, terminate the challenger, close all listeners         |
+| `POST /system/shutdown`                              | Stop the active session, drain the in-process challenger, close all listeners  |
 | `GET /config`                                        | Config editor page                                                             |
 | `POST /config`                                       | Save config (validated before write)                                           |
 
@@ -146,10 +145,11 @@ menu with two options:
   same path before the poll is dispatched. On successful submission the
   file is removed from the pending directory.
 
-If auto-generation is configured with `auto_submit: true`, the Python
-challenger submits its own polls (with `type=aigenerated`) without ever
-populating the menu — the **Auto-generated** option appears only when
-the teacher's intervention is expected.
+If auto-generation is configured with `auto_submit: true`, the
+in-process challenger dispatches its own polls (with
+`type=aigenerated`) without ever populating the menu — the
+**Auto-generated** option appears only when the teacher's intervention
+is expected.
 
 The "Last poll" card shows the most recent poll's `type`, dispatch
 time, and result counts (delivered / correct / incorrect / unanswered),
@@ -165,8 +165,9 @@ When `challenges.auto_generation.enabled` is true, the status dashboard
 shows an **Audio** card with the microphone permission state and a
 mute/resume toggle. Audio is captured by the browser through
 `navigator.mediaDevices.getUserMedia` and streamed to the daemon over
-a WebSocket at `POST /audio/stream`; the daemon relays the frames to
-the Python challenger for ASR.
+a WebSocket at `POST /audio/stream`; the in-process challenger batches
+the frames into short segments and POSTs each one to the configured
+OpenAI-compatible ASR backend.
 
 ```
 ┌──────────────────────────────┐
@@ -181,9 +182,9 @@ the Python challenger for ASR.
 - **Change device** opens the browser's native device picker via
   `enumerateDevices()`. The chosen device is remembered in
   `localStorage`.
-- **Mute** pauses the WebSocket stream; the challenger receives a
-  silence marker so faster-whisper does not mis-segment around the
-  gap. Resume reopens the stream.
+- **Mute** pauses the WebSocket stream; the challenger emits a silence
+  marker on resume so the ASR backend does not mis-segment around the
+  gap.
 - The card surfaces permission-denied and device-error states with a
   short remediation hint.
 
@@ -193,23 +194,22 @@ including Android-on-Termux — without any extra OS plumbing.
 ### System controls
 
 The status dashboard footer (and the bottom of the config editor)
-exposes two buttons:
+expose one button:
 
-- **Free models** — `POST /system/unload-models`. Releases the
-  challenger's resident ASR + LLM and reclaims the multi-gigabyte
-  memory footprint. The challenger process keeps running; the next
-  generation reloads on demand. Useful between long pauses in
-  back-to-back lessons.
 - **Shut down** — `POST /system/shutdown`. Stops the active session,
-  terminates the challenger, closes all listeners, and replaces the
-  current page with a static "ptrack has stopped — you can close this
-  browser tab" screen. A confirmation modal is shown first.
+  drains the in-process challenger, closes all listeners, and replaces
+  the current page with a static "ptrack has stopped — you can close
+  this browser tab" screen. A confirmation modal is shown first.
+
+There is no "Free models" button: ptrack holds no model weights of its
+own, so there is nothing in-process to free. The external ASR/LLM
+backend (e.g. Ollama) manages its own memory; stopping a model there
+is done outside the GUI (`ollama stop <model>`).
 
 Closing the browser tab on its own does **not** shut anything down —
-the daemon and the challenger keep running, models stay warm, and a
-new tab reconnects to the same session at the same
-`http://127.0.0.1:<port>` URL. The **Shut down** button is the only
-graceful exit path from the GUI.
+the daemon keeps running and a new tab reconnects to the same session
+at the same `http://127.0.0.1:<port>` URL. The **Shut down** button is
+the only graceful exit path from the GUI.
 
 ## Stats view
 
