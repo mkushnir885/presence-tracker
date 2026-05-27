@@ -134,12 +134,25 @@ type MeetingFile struct {
 
 // StatusData is the data model for the live status page.
 type StatusData struct {
-	MeetingID    string
-	ProviderName string
-	StartedAt    time.Time
-	Present      []session.PresenceStatus
-	Unregistered []session.UnregisteredStatus
-	LogEntries   []LogEntry
+	MeetingID         string
+	ProviderName      string
+	StartedAt         time.Time
+	Present           []session.PresenceStatus
+	Unregistered      []session.UnregisteredStatus
+	LogEntries        []LogEntry
+	AutoGenEnabled    bool
+	AutoGenAutoSubmit bool
+	AutoGenIntervalS  int
+	PendingBank       *PendingBank
+}
+
+// PendingBank describes the most recent auto-generated YAML in the
+// review directory, surfaced to the live status view so the teacher
+// can dispatch it via the Auto-generated trigger.
+type PendingBank struct {
+	Path    string
+	Name    string
+	ModTime time.Time
 }
 
 // LogEntry mirrors gui.LogEntry for use in templates (views does not import gui).

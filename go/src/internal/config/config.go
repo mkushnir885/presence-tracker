@@ -71,8 +71,9 @@ type TelegramConfig struct {
 }
 
 type ChallengesConfig struct {
-	Defaults ChallengeDefaults `json:"defaults,omitzero"`
-	Poll     PollConfig        `json:"poll,omitzero"`
+	Defaults       ChallengeDefaults    `json:"defaults,omitzero"`
+	Poll           PollConfig           `json:"poll,omitzero"`
+	AutoGeneration AutoGenerationConfig `json:"auto_generation,omitzero"`
 }
 
 type ChallengeDefaults struct {
@@ -82,6 +83,27 @@ type ChallengeDefaults struct {
 
 type PollConfig struct {
 	MaxDeliverySkewMS int `json:"max_delivery_skew_ms,omitempty"`
+}
+
+type AutoGenerationConfig struct {
+	Enabled             bool            `json:"enabled,omitempty"`
+	AutoSubmit          bool            `json:"auto_submit,omitempty"`
+	PollIntervalSeconds int             `json:"poll_interval_seconds,omitempty"`
+	MinWordsPerQuestion int             `json:"min_words_per_question,omitempty"`
+	MaxQuestionsPerPoll int             `json:"max_questions_per_poll,omitempty"`
+	ReviewDir           string          `json:"review_dir,omitempty"`
+	ASR                 AIBackendConfig `json:"asr,omitzero"`
+	LLM                 AIBackendConfig `json:"llm,omitzero"`
+}
+
+// AIBackendConfig is the connection target for one OpenAI-compatible
+// HTTP backend (used for ASR and the question-generation LLM). ptrack
+// holds no model weights — the backend (Ollama, OpenAI, any compatible
+// gateway) does.
+type AIBackendConfig struct {
+	BaseURL string `json:"base_url,omitempty"`
+	APIKey  string `json:"api_key,omitempty"`
+	Model   string `json:"model,omitempty"`
 }
 
 type EventStoreConfig struct {
@@ -117,6 +139,14 @@ func defaults() Values {
 		Challenges: ChallengesConfig{
 			Defaults: ChallengeDefaults{AnswerWindowSeconds: 30, MinGapBetweenChallengesSecs: 60},
 			Poll:     PollConfig{MaxDeliverySkewMS: 2000},
+			AutoGeneration: AutoGenerationConfig{
+				PollIntervalSeconds: 300,
+				MinWordsPerQuestion: 30,
+				MaxQuestionsPerPoll: 5,
+				ReviewDir:           expandPath("~/Documents/ptrack/pending-banks"),
+				ASR:                 AIBackendConfig{BaseURL: "http://127.0.0.1:11434", Model: "whisper"},
+				LLM:                 AIBackendConfig{BaseURL: "http://127.0.0.1:11434", Model: "qwen2.5:3b"},
+			},
 		},
 		EventStore: EventStoreConfig{Compression: "zstd", RowGroupSize: 10000},
 		GUI:        GUIConfig{BindAddr: "127.0.0.1", Port: 8080},
@@ -281,6 +311,7 @@ func normalisePaths(v *Values) {
 	v.MeetingsDir = expandPath(v.MeetingsDir)
 	v.QuestionsDir = expandPath(v.QuestionsDir)
 	v.ReportsDir = expandPath(v.ReportsDir)
+	v.Challenges.AutoGeneration.ReviewDir = expandPath(v.Challenges.AutoGeneration.ReviewDir)
 }
 
 // applyConstraints declares value-range, length, and enum restrictions
@@ -309,6 +340,19 @@ func applyConstraints(root *jsonschema.Schema) {
 	at(root, "challenges", "defaults", "answer_window_seconds").Minimum = new(1.0)
 	at(root, "challenges", "defaults", "min_gap_between_challenges_seconds").Minimum = new(0.0)
 	at(root, "challenges", "poll", "max_delivery_skew_ms").Minimum = new(0.0)
+
+	at(root, "challenges", "auto_generation", "poll_interval_seconds").Minimum = new(30.0)
+	at(root, "challenges", "auto_generation", "min_words_per_question").Minimum = new(5.0)
+	maxq := at(root, "challenges", "auto_generation", "max_questions_per_poll")
+	maxq.Minimum = new(1.0)
+	maxq.Maximum = new(20.0)
+	at(root, "challenges", "auto_generation", "review_dir").MinLength = new(1)
+	at(root, "challenges", "auto_generation", "asr", "base_url").MinLength = new(1)
+	at(root, "challenges", "auto_generation", "asr", "api_key").WriteOnly = true
+	at(root, "challenges", "auto_generation", "asr", "model").MinLength = new(1)
+	at(root, "challenges", "auto_generation", "llm", "base_url").MinLength = new(1)
+	at(root, "challenges", "auto_generation", "llm", "api_key").WriteOnly = true
+	at(root, "challenges", "auto_generation", "llm", "model").MinLength = new(1)
 
 	at(root, "eventstore", "compression").Enum = []any{"zstd", "snappy", "none"}
 	at(root, "eventstore", "row_group_size").Minimum = new(1.0)

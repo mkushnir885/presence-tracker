@@ -3,6 +3,7 @@ package views
 import (
 	"fmt"
 	"presence-tracker/src/internal/session"
+	"strconv"
 )
 
 templ Status(data StatusData, locale Locale) {
@@ -18,7 +19,7 @@ templ Status(data StatusData, locale Locale) {
 				<span class="text-muted">{ locale.T("status.started") }</span> { data.StartedAt.Format("15:04:05") }
 			</div>
 			<div style="flex:1"></div>
-			<form>
+			<form style="display:flex;gap:0.5rem;">
 				<button
 					type="button"
 					class="btn btn-danger"
@@ -27,18 +28,33 @@ templ Status(data StatusData, locale Locale) {
 					hx-target="body"
 					hx-push-url="/"
 				>{ locale.T("status.stop") }</button>
+				<button
+					type="button"
+					class="btn btn-danger"
+					hx-post="/system/shutdown"
+					hx-confirm={ locale.T("status.shutdown_confirm") }
+					hx-target="body"
+					hx-swap="outerHTML"
+				>{ locale.T("status.shutdown") }</button>
 			</form>
 		</div>
 		<div id="poll-card" class="card" hx-preserve="true">
-			<div class="text-muted" style="font-size:0.8rem;margin-bottom:0.5rem;">{ locale.T("status.poll.title") }</div>
-			<div class="poll-form">
-				<div class="poll-form-row">
+			<div class="text-muted" style="font-size:0.8rem;margin-bottom:0.5rem;">{ locale.T("status.poll.menu") }</div>
+			<div class="poll-tabs" style="display:flex;gap:0.5rem;margin-bottom:0.5rem;">
+				<button type="button" class="btn poll-tab active" data-poll-tab="custom">{ locale.T("status.poll.custom") }</button>
+				if data.AutoGenEnabled {
+					<button type="button" class="btn poll-tab" data-poll-tab="auto">{ locale.T("status.poll.auto") }</button>
+				}
+			</div>
+			<div class="poll-pane" data-poll-pane="custom">
+				<div class="poll-form-row" style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
 					<input
 						type="text"
 						id="poll-bank-path"
 						class="poll-bank-input"
 						placeholder={ locale.T("status.poll.placeholder") }
 						autocomplete="off"
+						style="flex:1;min-width:14rem;"
 					/>
 					<input type="file" id="poll-bank-picker" accept=".yaml,.yml" hidden/>
 					<button
@@ -46,14 +62,25 @@ templ Status(data StatusData, locale Locale) {
 						class="btn"
 						onclick="document.getElementById('poll-bank-picker').click()"
 					>{ locale.T("status.poll.browse") }</button>
-				</div>
-				<div class="poll-form-row">
 					<button type="button" id="poll-start-btn" class="btn btn-primary">{ locale.T("status.poll.start") }</button>
-					<span id="poll-feedback" class="text-muted"></span>
 				</div>
+				<div id="poll-feedback" class="text-muted" style="margin-top:0.5rem;"></div>
 			</div>
+			if data.AutoGenEnabled {
+				<div class="poll-pane" data-poll-pane="auto" hidden hx-get="/poll/pending" hx-trigger="load,every 10s" hx-swap="innerHTML">
+					@AutoPollPanel(data.PendingBank, locale)
+				</div>
+			}
 			<script>
 				(function() {
+					const tabs = document.querySelectorAll('.poll-tab');
+					const panes = document.querySelectorAll('.poll-pane');
+					tabs.forEach(t => t.addEventListener('click', () => {
+						tabs.forEach(x => x.classList.remove('active'));
+						t.classList.add('active');
+						const id = t.getAttribute('data-poll-tab');
+						panes.forEach(p => p.hidden = p.getAttribute('data-poll-pane') !== id);
+					}));
 					const input = document.getElementById('poll-bank-path');
 					const picker = document.getElementById('poll-bank-picker');
 					const startBtn = document.getElementById('poll-start-btn');
@@ -62,8 +89,6 @@ templ Status(data StatusData, locale Locale) {
 						picker.addEventListener('change', () => {
 							const f = picker.files && picker.files[0];
 							if (!f) return;
-							// Browsers do not expose absolute paths; prefill the file name
-							// and let the teacher prepend the directory if needed.
 							input.value = f.name;
 							input.focus();
 						});
@@ -99,6 +124,23 @@ templ Status(data StatusData, locale Locale) {
 				})();
 			</script>
 		</div>
+		if data.AutoGenEnabled {
+			<div id="audio-card" class="card" hx-preserve="true" data-poll-interval={ strconv.Itoa(data.AutoGenIntervalS) }>
+				<div class="text-muted" style="font-size:0.8rem;margin-bottom:0.5rem;">{ locale.T("status.audio.title") }</div>
+				<div id="audio-pre" style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+					<span class="text-muted">{ locale.T("status.audio.permission_prompt") }</span>
+					<button type="button" id="audio-grant-btn" class="btn btn-primary">{ locale.T("status.audio.grant") }</button>
+				</div>
+				<div id="audio-live" hidden style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+					<label for="audio-device" class="text-muted">{ locale.T("status.audio.device") }</label>
+					<select id="audio-device"></select>
+					<button type="button" id="audio-mute-btn" class="btn">{ locale.T("status.audio.mute") }</button>
+					<button type="button" id="audio-trigger-btn" class="btn">{ locale.T("status.poll.auto_dispatch") }</button>
+				</div>
+				<div id="audio-status" class="text-muted" style="margin-top:0.5rem;font-size:0.85rem;">{ locale.T("status.audio.status_idle") }</div>
+				<script src="/assets/audio.js" defer></script>
+			</div>
+		}
 		<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
 			<div class="card">
 				<div class="text-muted" style="font-size:0.8rem;margin-bottom:0.25rem;">{ locale.T("status.present") }</div>
@@ -156,4 +198,67 @@ templ UnregisteredFragment(participants []session.UnregisteredStatus, locale Loc
 			<li>{ p.DisplayName } <span class="text-muted">({ p.PlatformID })</span></li>
 		}
 	</ul>
+}
+
+// AutoPollPanel renders the "Auto-generated" tab body. Polled by htmx
+// every 10s so a freshly written pending bank shows up without a page
+// reload.
+templ AutoPollPanel(pending *PendingBank, locale Locale) {
+	if pending == nil {
+		<div class="text-muted">{ locale.T("status.poll.auto_empty") }</div>
+	} else {
+		<div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+			<div>
+				<div class="text-muted" style="font-size:0.8rem;">{ locale.T("status.poll.auto_pending") }</div>
+				<code>{ pending.Name }</code>
+				<span class="text-muted" style="margin-left:0.5rem;font-size:0.8rem;">{ pending.ModTime.Format("15:04:05") }</span>
+			</div>
+			<div style="flex:1"></div>
+			<button
+				type="button"
+				class="btn"
+				hx-get="/poll/pending/preview"
+				hx-target="#auto-preview"
+				hx-swap="innerHTML"
+			>{ locale.T("status.poll.auto_preview") }</button>
+			<button
+				type="button"
+				class="btn btn-primary"
+				onclick={ dispatchPendingScript(pending.Path) }
+			>{ locale.T("status.poll.auto_dispatch") }</button>
+		</div>
+		<div id="auto-preview" style="margin-top:0.5rem;"></div>
+	}
+}
+
+script dispatchPendingScript(path string) {
+	fetch('/poll', {
+		method: 'POST',
+		headers: {'Content-Type': 'application/json'},
+		body: JSON.stringify({type: 'combined', bank_path: path}),
+	}).then(async r => {
+		const body = await r.json().catch(() => ({}));
+		const el = document.getElementById('auto-preview');
+		if (!el) return;
+		if (r.ok) {
+			el.textContent = 'scheduled ' + (body.scheduled_count ?? 0)
+				+ (body.skipped_count ? ' (skipped ' + body.skipped_count + ')' : '');
+		} else {
+			el.textContent = 'error: ' + (body.error || r.status);
+		}
+	}).catch(err => {
+		const el = document.getElementById('auto-preview');
+		if (el) el.textContent = 'error: ' + err;
+	});
+}
+
+// ShutdownDone is shown after POST /system/shutdown. It replaces the
+// whole body so htmx no longer polls /status (which would 404 once the
+// listener is gone).
+templ ShutdownDone(locale Locale) {
+	@Layout("Stopped", locale, nil) {
+		<div class="card" style="text-align:center;padding:2rem;">
+			<h2>{ locale.T("status.shutdown_done") }</h2>
+		</div>
+	}
 }

@@ -177,6 +177,83 @@
             }
           },
           "additionalProperties": false
+        },
+        "auto_generation": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "auto_submit": {
+              "type": "boolean",
+              "default": false
+            },
+            "poll_interval_seconds": {
+              "type": "integer",
+              "default": 300,
+              "minimum": 30
+            },
+            "min_words_per_question": {
+              "type": "integer",
+              "default": 30,
+              "minimum": 5
+            },
+            "max_questions_per_poll": {
+              "type": "integer",
+              "default": 5,
+              "minimum": 1,
+              "maximum": 20
+            },
+            "review_dir": {
+              "type": "string",
+              "default": "~/Documents/ptrack/pending-banks",
+              "minLength": 1
+            },
+            "asr": {
+              "type": "object",
+              "properties": {
+                "base_url": {
+                  "type": "string",
+                  "default": "http://127.0.0.1:11434",
+                  "minLength": 1
+                },
+                "api_key": {
+                  "type": "string",
+                  "default": "",
+                  "writeOnly": true
+                },
+                "model": {
+                  "type": "string",
+                  "default": "whisper",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            },
+            "llm": {
+              "type": "object",
+              "properties": {
+                "base_url": {
+                  "type": "string",
+                  "default": "http://127.0.0.1:11434",
+                  "minLength": 1
+                },
+                "api_key": {
+                  "type": "string",
+                  "default": "",
+                  "writeOnly": true
+                },
+                "model": {
+                  "type": "string",
+                  "default": "qwen2.5:3b",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

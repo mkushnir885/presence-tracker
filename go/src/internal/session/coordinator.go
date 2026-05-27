@@ -452,6 +452,17 @@ func (c *Coordinator) RunPoll(ctx context.Context, bankPath, typeLabel string) (
 	if err != nil {
 		return challenges.PollResult{}, err
 	}
+	return c.runPollBank(ctx, bank, typeLabel)
+}
+
+// RunPollBank dispatches an in-memory bank through the same pipeline as
+// RunPoll. Used by the in-process auto-generator on the auto_submit
+// path so the generated bank never touches disk.
+func (c *Coordinator) RunPollBank(ctx context.Context, bank challenges.Bank, typeLabel string) (challenges.PollResult, error) {
+	return c.runPollBank(ctx, bank, typeLabel)
+}
+
+func (c *Coordinator) runPollBank(ctx context.Context, bank challenges.Bank, typeLabel string) (challenges.PollResult, error) {
 	eligible := c.eligibleParticipants()
 
 	sendFn := func(ctx context.Context, handle, challengeID string, q challenges.Question) (string, error) {
@@ -469,6 +480,16 @@ func (c *Coordinator) RunPoll(ctx context.Context, bankPath, typeLabel string) (
 		return ref.Opaque, nil
 	}
 	return c.pipeline.RunPoll(ctx, bank, typeLabel, eligible, sendFn, c.cfg.QuestionsDir, c.cfg.MeetingID)
+}
+
+// RecordGeneratorFailed records a challenger generator failure so the
+// teacher sees it in the GUI's system log. Implements
+// challenger.EventSink.
+func (c *Coordinator) RecordGeneratorFailed(_ context.Context, reason string) {
+	c.writeEvent(eventstore.Record{
+		EventType: "challenge_generator_failed",
+		Metadata:  map[string]string{"reason": reason},
+	})
 }
 
 func (c *Coordinator) eligibleParticipants() []challenges.EligibleParticipant {

@@ -24,6 +24,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"presence-tracker/src/internal/challenger"
 	"presence-tracker/src/internal/config"
 	"presence-tracker/src/internal/eventstore"
 	"presence-tracker/src/internal/gui"
@@ -285,9 +286,18 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 	router.SetHandler(coord)
 	defer router.SetHandler(nil)
 
+	var chSvc *challenger.Service
+	if ag := v.Challenges.AutoGeneration; ag.Enabled {
+		chSvc = challenger.New(ag, coord, coord)
+		if err := chSvc.SweepReviewDir(); err != nil {
+			slog.Warn("track: sweep review_dir", "err", err)
+		}
+	}
+
 	mux := http.NewServeMux()
 	mountPollHandler(mux, func() *session.Coordinator { return coord })
 	mountReloadHandler(mux, cfg)
+	mountAudioHandler(mux, func() *challenger.Service { return chSvc })
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -398,6 +408,38 @@ func mountReloadHandler(mux *http.ServeMux, cfg *config.Config) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	})
+}
+
+// audioBodyLimit caps one /audio/segment request body. 64 MB covers
+// ~30 min of Opus at typical bitrates and rejects accidental raw PCM.
+const audioBodyLimit = 64 << 20
+
+// mountAudioHandler registers POST /audio/segment on mux. challengerFn
+// returns the active session's challenger, or nil when none is running
+// or auto-generation is disabled. The browser POSTs one Opus/WebM blob
+// per poll interval; the handler runs ASR + accumulator + (optional)
+// LLM in-process and returns the structured Result as JSON.
+func mountAudioHandler(mux *http.ServeMux, challengerFn func() *challenger.Service) {
+	mux.HandleFunc("POST /audio/segment", func(w http.ResponseWriter, r *http.Request) {
+		svc := challengerFn()
+		if svc == nil {
+			writePollError(w, http.StatusConflict, "no active session or auto-generation disabled")
+			return
+		}
+		mime := r.Header.Get("Content-Type")
+		if mime == "" {
+			mime = "audio/webm"
+		}
+		body := http.MaxBytesReader(w, r.Body, audioBodyLimit)
+		defer func() { _ = body.Close() }()
+
+		result, err := svc.Generate(r.Context(), body, mime)
+		if err != nil {
+			writePollError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writePollJSON(w, http.StatusOK, result)
 	})
 }
 
@@ -542,6 +584,11 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 	srv.RegisterRoutes(mux)
 	mountPollHandler(mux, srv.Coord)
 	mountReloadHandler(mux, cfg)
+	mountAudioHandler(mux, srv.Challenger)
+
+	srvCtx, cancelSrv := context.WithCancel(ctx)
+	defer cancelSrv()
+	srv.OnShutdown(cancelSrv)
 
 	addr := fmt.Sprintf("%s:%d", v.GUI.BindAddr, v.GUI.Port)
 	ln, err := net.Listen("tcp", addr)
@@ -562,7 +609,7 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 		}()
 	}
 
-	runHTTPServer(ctx, ln, mux)
+	runHTTPServer(srvCtx, ln, mux)
 	return nil
 }
 

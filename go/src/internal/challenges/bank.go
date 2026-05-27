@@ -81,31 +81,42 @@ func Load(path string) (Bank, error) {
 	if err != nil {
 		return Bank{}, fmt.Errorf("challenges: read bank: %w", err)
 	}
+	bank, err := Parse(raw)
+	if err != nil {
+		return Bank{}, fmt.Errorf("challenges: %s: %w", path, err)
+	}
+	return bank, nil
+}
 
+// Parse decodes a question bank from YAML or JSON bytes, validates it
+// against the embedded schema, and assigns a fresh UUID to every
+// question. Used by Load for file input and by the auto-generator for
+// in-memory LLM output.
+func Parse(raw []byte) (Bank, error) {
 	var intermediate any
 	if err := yaml.Unmarshal(raw, &intermediate); err != nil {
-		return Bank{}, fmt.Errorf("challenges: parse %s: %w", path, err)
+		return Bank{}, fmt.Errorf("parse: %w", err)
 	}
 	jsonBytes, err := json.Marshal(intermediate)
 	if err != nil {
-		return Bank{}, fmt.Errorf("challenges: re-encode %s: %w", path, err)
+		return Bank{}, fmt.Errorf("re-encode: %w", err)
 	}
 
 	var validateInput any
 	if err := json.Unmarshal(jsonBytes, &validateInput); err != nil {
-		return Bank{}, fmt.Errorf("challenges: decode for validation: %w", err)
+		return Bank{}, fmt.Errorf("decode for validation: %w", err)
 	}
 	schema, err := ResolvedBankSchema()
 	if err != nil {
 		return Bank{}, err
 	}
 	if err := schema.Validate(validateInput); err != nil {
-		return Bank{}, fmt.Errorf("challenges: %s: %w", path, err)
+		return Bank{}, err
 	}
 
 	var rb rawBank
 	if err := json.Unmarshal(jsonBytes, &rb); err != nil {
-		return Bank{}, fmt.Errorf("challenges: decode %s: %w", path, err)
+		return Bank{}, fmt.Errorf("decode: %w", err)
 	}
 
 	bank := Bank{Questions: make([]Question, 0, len(rb.Questions))}

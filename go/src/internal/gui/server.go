@@ -19,6 +19,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"presence-tracker/src/internal/challenger"
 	"presence-tracker/src/internal/config"
 	"presence-tracker/src/internal/eventstore"
 	"presence-tracker/src/internal/gui/views"
@@ -42,13 +43,24 @@ type Server struct {
 
 	mu     sync.RWMutex
 	active *activeSession
+
+	// shutdownFn, when non-nil, is invoked by POST /system/shutdown to
+	// stop the daemon process. cmd/ptrack wires it to the http.Server
+	// listener-shutdown path.
+	shutdownFn func()
 }
+
+// OnShutdown registers the callback POST /system/shutdown invokes after
+// it has drained the active session. cmd/ptrack uses it to stop the
+// http.Server and release the listener.
+func (s *Server) OnShutdown(fn func()) { s.shutdownFn = fn }
 
 // activeSession holds state for the currently running tracking session.
 type activeSession struct {
 	meetingID    string
 	providerName string
 	coord        *session.Coordinator
+	challenger   *challenger.Service
 	cancel       context.CancelFunc
 	startedAt    time.Time
 	done         chan struct{}
@@ -88,6 +100,9 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /questions/{id}", s.handleQuestion)
 	mux.HandleFunc("GET /config", s.handleConfig)
 	mux.HandleFunc("POST /config", s.handleSaveConfig)
+	mux.HandleFunc("GET /poll/pending", s.handlePollPending)
+	mux.HandleFunc("GET /poll/pending/preview", s.handlePollPendingPreview)
+	mux.HandleFunc("POST /system/shutdown", s.handleShutdown)
 }
 
 // Coord returns the coordinator of the currently active session, or nil
@@ -100,6 +115,18 @@ func (s *Server) Coord() *session.Coordinator {
 		return nil
 	}
 	return s.active.coord
+}
+
+// Challenger returns the auto-generator of the currently active session,
+// or nil when no session is running or auto-generation is disabled.
+// Used by cmd/ptrack to mount the audio-segment handler.
+func (s *Server) Challenger() *challenger.Service {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.active == nil {
+		return nil
+	}
+	return s.active.challenger
 }
 
 // handleDashboard renders the main dashboard page.
@@ -220,6 +247,14 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 
 	coord := session.New(sessCfg, prov, msgr, s.registry, store)
 
+	var chSvc *challenger.Service
+	if ag := s.cfg.Get().Challenges.AutoGeneration; ag.Enabled {
+		chSvc = challenger.New(ag, coord, coord)
+		if err := chSvc.SweepReviewDir(); err != nil {
+			slog.Warn("serve: sweep review_dir", "err", err)
+		}
+	}
+
 	sessCtx, cancel := context.WithCancel(context.Background())
 	buf := newLogBuffer(200, slog.Default().Handler())
 	newHandler := slog.New(buf)
@@ -232,6 +267,7 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 		meetingID:    meetingID,
 		providerName: providerName,
 		coord:        coord,
+		challenger:   chSvc,
 		cancel:       cancel,
 		startedAt:    time.Now(),
 		done:         done,
@@ -306,17 +342,133 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	ag := s.cfg.Get().Challenges.AutoGeneration
 	data := views.StatusData{
-		MeetingID:    act.meetingID,
-		ProviderName: act.providerName,
-		StartedAt:    act.startedAt,
-		Present:      status.Present,
-		Unregistered: status.Unregistered,
-		LogEntries:   vEntries,
+		MeetingID:         act.meetingID,
+		ProviderName:      act.providerName,
+		StartedAt:         act.startedAt,
+		Present:           status.Present,
+		Unregistered:      status.Unregistered,
+		LogEntries:        vEntries,
+		AutoGenEnabled:    ag.Enabled && act.challenger != nil,
+		AutoGenAutoSubmit: ag.AutoSubmit,
+		AutoGenIntervalS:  ag.PollIntervalSeconds,
+		PendingBank:       latestPendingBank(act.challenger),
 	}
 
 	locale := localeFromRequest(r)
 	_ = views.Status(data, locale).Render(r.Context(), w)
+}
+
+// latestPendingBank returns the freshest auto-*.yaml in the review dir,
+// or nil when the challenger is offline, in auto_submit mode, or the
+// dir is empty.
+func latestPendingBank(svc *challenger.Service) *views.PendingBank {
+	if svc == nil {
+		return nil
+	}
+	dir := svc.ReviewDirPath()
+	if dir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var newest os.FileInfo
+	var newestName string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), "auto-") || !strings.HasSuffix(e.Name(), ".yaml") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if newest == nil || info.ModTime().After(newest.ModTime()) {
+			newest = info
+			newestName = e.Name()
+		}
+	}
+	if newest == nil {
+		return nil
+	}
+	return &views.PendingBank{
+		Path:    filepath.Join(dir, newestName),
+		Name:    newestName,
+		ModTime: newest.ModTime(),
+	}
+}
+
+// handlePollPending returns the htmx fragment for the Auto-generated
+// tab body: either the empty-state hint or the pending-bank row.
+func (s *Server) handlePollPending(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	act := s.active
+	s.mu.RUnlock()
+	if act == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	locale := localeFromRequest(r)
+	_ = views.AutoPollPanel(latestPendingBank(act.challenger), locale).Render(r.Context(), w)
+}
+
+// handlePollPendingPreview returns the pending YAML's raw text wrapped
+// in a <pre> for inline display. Keeps it simple — full edit is the
+// teacher's text editor, not the GUI.
+func (s *Server) handlePollPendingPreview(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	act := s.active
+	s.mu.RUnlock()
+	if act == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	pending := latestPendingBank(act.challenger)
+	if pending == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	body, err := os.ReadFile(pending.Path)
+	if err != nil {
+		http.Error(w, "read pending: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(`<pre style="white-space:pre-wrap;max-height:20rem;overflow:auto;">`))
+	_, _ = w.Write([]byte(htmlEscape(string(body))))
+	_, _ = w.Write([]byte(`</pre>`))
+}
+
+// handleShutdown stops the active session, renders the "you can close
+// this tab" page, and triggers the daemon-level shutdown callback (if
+// registered). The browser sees a final HTML body before the listener
+// goes away.
+func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	act := s.active
+	s.mu.Unlock()
+	if act != nil {
+		act.cancel()
+		select {
+		case <-act.done:
+		case <-time.After(10 * time.Second):
+		}
+	}
+	locale := localeFromRequest(r)
+	_ = views.ShutdownDone(locale).Render(r.Context(), w)
+	if s.shutdownFn != nil {
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			s.shutdownFn()
+		}()
+	}
+}
+
+func htmlEscape(s string) string {
+	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&#39;")
+	return r.Replace(s)
 }
 
 // handleUnregisteredFragment returns the unregistered participants HTML fragment.
@@ -654,6 +806,19 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 		v.Challenges.Defaults.AnswerWindowSeconds = formInt(form, "challenges.defaults.answer_window_seconds", v.Challenges.Defaults.AnswerWindowSeconds)
 		v.Challenges.Defaults.MinGapBetweenChallengesSecs = formInt(form, "challenges.defaults.min_gap_between_challenges_seconds", v.Challenges.Defaults.MinGapBetweenChallengesSecs)
 		v.Challenges.Poll.MaxDeliverySkewMS = formInt(form, "challenges.poll.max_delivery_skew_ms", v.Challenges.Poll.MaxDeliverySkewMS)
+
+		v.Challenges.AutoGeneration.Enabled = formBool(form, "challenges.auto_generation.enabled")
+		v.Challenges.AutoGeneration.AutoSubmit = formBool(form, "challenges.auto_generation.auto_submit")
+		v.Challenges.AutoGeneration.PollIntervalSeconds = formInt(form, "challenges.auto_generation.poll_interval_seconds", v.Challenges.AutoGeneration.PollIntervalSeconds)
+		v.Challenges.AutoGeneration.MinWordsPerQuestion = formInt(form, "challenges.auto_generation.min_words_per_question", v.Challenges.AutoGeneration.MinWordsPerQuestion)
+		v.Challenges.AutoGeneration.MaxQuestionsPerPoll = formInt(form, "challenges.auto_generation.max_questions_per_poll", v.Challenges.AutoGeneration.MaxQuestionsPerPoll)
+		v.Challenges.AutoGeneration.ReviewDir = form.Get("challenges.auto_generation.review_dir")
+		v.Challenges.AutoGeneration.ASR.BaseURL = form.Get("challenges.auto_generation.asr.base_url")
+		v.Challenges.AutoGeneration.ASR.APIKey = formSecret(form, "challenges.auto_generation.asr.api_key", v.Challenges.AutoGeneration.ASR.APIKey)
+		v.Challenges.AutoGeneration.ASR.Model = form.Get("challenges.auto_generation.asr.model")
+		v.Challenges.AutoGeneration.LLM.BaseURL = form.Get("challenges.auto_generation.llm.base_url")
+		v.Challenges.AutoGeneration.LLM.APIKey = formSecret(form, "challenges.auto_generation.llm.api_key", v.Challenges.AutoGeneration.LLM.APIKey)
+		v.Challenges.AutoGeneration.LLM.Model = form.Get("challenges.auto_generation.llm.model")
 
 		v.EventStore.Compression = form.Get("eventstore.compression")
 		v.EventStore.RowGroupSize = formInt(form, "eventstore.row_group_size", v.EventStore.RowGroupSize)

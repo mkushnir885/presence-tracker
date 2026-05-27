@@ -70,6 +70,26 @@ templ ConfigEditor(data ConfigData, locale Locale) {
 				</div>
 			</details>
 			<details>
+				<summary>{ locale.T("config.auto_generation") }</summary>
+				<div class="card">
+					<div class="text-muted" style="font-size:0.85rem;margin-bottom:0.5rem;">{ locale.T("config.auto_generation.hint") }</div>
+					@checkboxField("challenges.auto_generation.enabled", locale.T("config.enabled"), data.V.Challenges.AutoGeneration.Enabled)
+					@checkboxField("challenges.auto_generation.auto_submit", locale.T("config.auto_generation.auto_submit"), data.V.Challenges.AutoGeneration.AutoSubmit)
+					@intField(data, locale.T("config.auto_generation.poll_interval"), "challenges.auto_generation.poll_interval_seconds", data.V.Challenges.AutoGeneration.PollIntervalSeconds, "challenges", "auto_generation", "poll_interval_seconds")
+					@intField(data, locale.T("config.auto_generation.min_words"), "challenges.auto_generation.min_words_per_question", data.V.Challenges.AutoGeneration.MinWordsPerQuestion, "challenges", "auto_generation", "min_words_per_question")
+					@intField(data, locale.T("config.auto_generation.max_questions"), "challenges.auto_generation.max_questions_per_poll", data.V.Challenges.AutoGeneration.MaxQuestionsPerPoll, "challenges", "auto_generation", "max_questions_per_poll")
+					@textField(data, "challenges.auto_generation.review_dir", locale.T("config.auto_generation.review_dir"), data.V.Challenges.AutoGeneration.ReviewDir, "challenges", "auto_generation", "review_dir")
+					<h4>{ locale.T("config.auto_generation.asr") }</h4>
+					@textField(data, "challenges.auto_generation.asr.base_url", locale.T("config.auto_generation.base_url"), data.V.Challenges.AutoGeneration.ASR.BaseURL, "challenges", "auto_generation", "asr", "base_url")
+					@secretField(data, "challenges.auto_generation.asr.api_key", locale.T("config.auto_generation.api_key"), locale.T("config.secret_hint"), "challenges", "auto_generation", "asr", "api_key")
+					@textField(data, "challenges.auto_generation.asr.model", locale.T("config.auto_generation.model"), data.V.Challenges.AutoGeneration.ASR.Model, "challenges", "auto_generation", "asr", "model")
+					<h4>{ locale.T("config.auto_generation.llm") }</h4>
+					@textField(data, "challenges.auto_generation.llm.base_url", locale.T("config.auto_generation.base_url"), data.V.Challenges.AutoGeneration.LLM.BaseURL, "challenges", "auto_generation", "llm", "base_url")
+					@secretField(data, "challenges.auto_generation.llm.api_key", locale.T("config.auto_generation.api_key"), locale.T("config.secret_hint"), "challenges", "auto_generation", "llm", "api_key")
+					@textField(data, "challenges.auto_generation.llm.model", locale.T("config.auto_generation.model"), data.V.Challenges.AutoGeneration.LLM.Model, "challenges", "auto_generation", "llm", "model")
+				</div>
+			</details>
+			<details>
 				<summary>{ locale.T("config.event_store") }</summary>
 				<div class="card">
 					@enumField(data, locale.T("config.compression"), "eventstore.compression", data.V.EventStore.Compression, "eventstore", "compression")
