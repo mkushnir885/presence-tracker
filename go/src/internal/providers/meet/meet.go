@@ -164,7 +164,6 @@ func (a *Adapter) pollLoop(ctx context.Context, spaceName string) {
 			})
 		}
 
-		// Poll participants in the current record.
 		participants, err := a.listParticipants(ctx, currentRecord)
 		if err != nil {
 			slog.Warn("meet: poll: list participants", "err", err)
@@ -175,43 +174,57 @@ func (a *Adapter) pollLoop(ctx context.Context, spaceName string) {
 		for _, p := range participants {
 			currentIDs[p.name] = struct{}{}
 			if _, seen := activeParticipants[p.name]; !seen {
-				// New participant.
 				activeParticipants[p.name] = p.displayName
 				a.send(ctx, providers.Event{
 					Kind:        providers.EventKindParticipantJoined,
 					MeetingID:   spaceName,
-					PlatformID:  p.platformID,
+					PlatformID:  p.name,
 					DisplayName: p.displayName,
 					Timestamp:   p.joinTime,
 				})
 			}
 		}
 
-		// Detect participants who left (present before, absent now).
 		for id, name := range activeParticipants {
 			if _, present := currentIDs[id]; !present {
 				delete(activeParticipants, id)
 				a.send(ctx, providers.Event{
 					Kind:        providers.EventKindParticipantLeft,
 					MeetingID:   spaceName,
+					PlatformID:  id,
 					DisplayName: name,
 					Timestamp:   time.Now(),
 				})
 			}
 		}
 
-		// Check if the meeting has ended.
 		ended, err := a.isRecordEnded(ctx, currentRecord)
 		if err != nil {
 			slog.Warn("meet: poll: check record end", "err", err)
 			continue
 		}
 		if ended {
+			// Flush leaves for anyone still active: Google may set the
+			// conferenceRecord's end_time before each participant's
+			// latest_end_time propagates, leaving stragglers visible to the
+			// participants filter at the moment the record is marked ended.
+			now := time.Now()
+			for id, name := range activeParticipants {
+				a.send(ctx, providers.Event{
+					Kind:        providers.EventKindParticipantLeft,
+					MeetingID:   spaceName,
+					PlatformID:  id,
+					DisplayName: name,
+					Timestamp:   now,
+				})
+			}
+			activeParticipants = nil
+
 			slog.Info("meet: meeting ended", "record", currentRecord)
 			a.send(ctx, providers.Event{
 				Kind:      providers.EventKindMeetingEnded,
 				MeetingID: spaceName,
-				Timestamp: time.Now(),
+				Timestamp: now,
 			})
 			return
 		}
@@ -228,8 +241,11 @@ func (a *Adapter) send(ctx context.Context, evt providers.Event) {
 }
 
 type participantInfo struct {
-	name        string // conferenceRecords/.../participants/... resource name
-	platformID  string // user resource name or anonymous ID
+	// name is the conferenceRecords/.../participants/... resource name.
+	// It is stable from join to leave within a single conference record,
+	// so it doubles as the PlatformID emitted on both join and leave events
+	// — the session coordinator matches the two by that field.
+	name        string
 	displayName string
 	joinTime    time.Time
 }
@@ -313,10 +329,8 @@ func (a *Adapter) listParticipants(ctx context.Context, recordName string) ([]pa
 		info.joinTime = joinTime
 
 		if su := p.SignedInUser; su != nil {
-			info.platformID = su.User
 			info.displayName = su.DisplayName
 		} else if au := p.AnonymousUser; au != nil {
-			info.platformID = p.Name // use resource name as stable ID for anonymous users
 			info.displayName = au.DisplayName
 		}
 		out = append(out, info)
