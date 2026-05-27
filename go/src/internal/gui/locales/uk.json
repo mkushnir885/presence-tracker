@@ -219,9 +219,9 @@
   "status.audio.unmute": "Увімкнути звук",
   "status.audio.device": "Мікрофон",
   "status.audio.status_idle": "Очікування першого інтервалу…",
-  "status.shutdown": "Завершити роботу",
-  "status.shutdown_confirm": "Завершити роботу ptrack? Це зупинить процес.",
-  "status.shutdown_done": "ptrack зупинено — можна закрити вкладку.",
+  "nav.shutdown": "Завершити роботу",
+  "nav.shutdown_confirm": "Завершити роботу ptrack? Це зупинить процес.",
+  "nav.shutdown_done": "ptrack зупинено — можна закрити вкладку.",
 
   "nav.theme_light": "Світла",
   "nav.theme_dark": "Темна",

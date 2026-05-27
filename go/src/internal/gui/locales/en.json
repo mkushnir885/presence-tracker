@@ -219,9 +219,9 @@
   "status.audio.unmute": "Unmute",
   "status.audio.device": "Microphone",
   "status.audio.status_idle": "Waiting for the first interval…",
-  "status.shutdown": "Shut down",
-  "status.shutdown_confirm": "Shut down ptrack? This stops the daemon process.",
-  "status.shutdown_done": "ptrack has stopped — you can close this tab.",
+  "nav.shutdown": "Shut down",
+  "nav.shutdown_confirm": "Shut down ptrack? This stops the daemon process.",
+  "nav.shutdown_done": "ptrack has stopped — you can close this tab.",
 
   "nav.theme_light": "Light",
   "nav.theme_dark": "Dark",

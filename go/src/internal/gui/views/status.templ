@@ -19,24 +19,14 @@ templ Status(data StatusData, locale Locale) {
 				<span class="text-muted">{ locale.T("status.started") }</span> { data.StartedAt.Format("15:04:05") }
 			</div>
 			<div style="flex:1"></div>
-			<form style="display:flex;gap:0.5rem;">
-				<button
-					type="button"
-					class="btn btn-danger"
-					hx-delete="/session"
-					hx-confirm={ locale.T("nav.stop_confirm") }
-					hx-target="body"
-					hx-push-url="/"
-				>{ locale.T("status.stop") }</button>
-				<button
-					type="button"
-					class="btn btn-danger"
-					hx-post="/system/shutdown"
-					hx-confirm={ locale.T("status.shutdown_confirm") }
-					hx-target="body"
-					hx-swap="outerHTML"
-				>{ locale.T("status.shutdown") }</button>
-			</form>
+			<button
+				type="button"
+				class="btn btn-danger"
+				hx-delete="/session"
+				hx-confirm={ locale.T("nav.stop_confirm") }
+				hx-target="body"
+				hx-push-url="/"
+			>{ locale.T("status.stop") }</button>
 		</div>
 		<div id="poll-card" class="card" hx-preserve="true">
 			<div class="text-muted" style="font-size:0.8rem;margin-bottom:0.5rem;">{ locale.T("status.poll.menu") }</div>
@@ -258,7 +248,7 @@ script dispatchPendingScript(path string) {
 templ ShutdownDone(locale Locale) {
 	@Layout("Stopped", locale, nil) {
 		<div class="card" style="text-align:center;padding:2rem;">
-			<h2>{ locale.T("status.shutdown_done") }</h2>
+			<h2>{ locale.T("nav.shutdown_done") }</h2>
 		</div>
 	}
 }
