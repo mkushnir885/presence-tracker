@@ -4,56 +4,36 @@ templ Dashboard(data DashboardData, locale Locale) {
 	@Layout("Dashboard", locale, nil) {
 		@pageHeader(locale.T("nav.dashboard")) {
 		}
-		if data.ActiveSession {
-			<div class="card">
-				<p>{ locale.T("dashboard.active.tracking") } <strong>{ data.ActiveMeetingID }</strong></p>
-				<div style="display:flex;gap:0.5rem;align-items:center;">
-					<a class="btn" href="/status">{ locale.T("dashboard.active.view_status") }</a>
-					<form method="POST" action="/session" style="display:inline">
-						<input type="hidden" name="_method" value="DELETE"/>
-						<button
-							type="submit"
-							class="btn btn-danger"
-							hx-delete="/session"
-							hx-confirm={ locale.T("nav.stop_confirm") }
-							hx-target="body"
-							hx-push-url="/"
-						>{ locale.T("dashboard.active.stop") }</button>
-					</form>
-				</div>
-			</div>
-		} else {
-			<div class="card">
-				<h2 style="margin-top:0">{ locale.T("dashboard.connect.title") }</h2>
-				if len(data.EnabledProviders) == 0 {
-					<p class="text-muted">
-						{ locale.T("dashboard.connect.no_providers") }
-						<a href="/config">{ locale.T("dashboard.connect.no_providers_link") }</a>.
-					</p>
-				} else {
-					<form hx-post="/session" hx-target="body" hx-push-url="/status">
-						<div class="field">
-							<label for="provider">{ locale.T("dashboard.connect.provider") }</label>
-							<select id="provider" name="provider" style="width:auto">
-								for _, p := range data.EnabledProviders {
-									<option value={ p.Name }>{ p.Label }</option>
-								}
-							</select>
-						</div>
-						<div class="field">
-							<label for="meeting_id">{ locale.T("dashboard.connect.meeting_id") }</label>
-							<input id="meeting_id" name="meeting_id" type="text" placeholder={ locale.T("dashboard.connect.meeting_id_placeholder") } required/>
-							<small class="text-muted">{ locale.T("dashboard.connect.meeting_id_hint") }</small>
-						</div>
-						<div class="field">
-							<label for="file_name">{ locale.T("dashboard.connect.file_name") }</label>
-							<input id="file_name" name="file_name" type="text" placeholder={ locale.T("dashboard.connect.file_name_placeholder") }/>
-							<small class="text-muted">{ locale.T("dashboard.connect.file_name_hint") }</small>
-						</div>
-						<button type="submit" class="btn btn-primary">{ locale.T("dashboard.connect.btn") }</button>
-					</form>
-				}
-			</div>
-		}
+		<div class="card">
+			<h2 style="margin-top:0">{ locale.T("dashboard.connect.title") }</h2>
+			if len(data.EnabledProviders) == 0 {
+				<p class="text-muted">
+					{ locale.T("dashboard.connect.no_providers") }
+					<a href="/config">{ locale.T("dashboard.connect.no_providers_link") }</a>.
+				</p>
+			} else {
+				<form hx-post="/session" hx-target="body" hx-push-url="/status">
+					<div class="field">
+						<label for="provider">{ locale.T("dashboard.connect.provider") }</label>
+						<select id="provider" name="provider" style="width:auto">
+							for _, p := range data.EnabledProviders {
+								<option value={ p.Name }>{ p.Label }</option>
+							}
+						</select>
+					</div>
+					<div class="field">
+						<label for="meeting_id">{ locale.T("dashboard.connect.meeting_id") }</label>
+						<input id="meeting_id" name="meeting_id" type="text" placeholder={ locale.T("dashboard.connect.meeting_id_placeholder") } required/>
+						<small class="text-muted">{ locale.T("dashboard.connect.meeting_id_hint") }</small>
+					</div>
+					<div class="field">
+						<label for="file_name">{ locale.T("dashboard.connect.file_name") }</label>
+						<input id="file_name" name="file_name" type="text" placeholder={ locale.T("dashboard.connect.file_name_placeholder") }/>
+						<small class="text-muted">{ locale.T("dashboard.connect.file_name_hint") }</small>
+					</div>
+					<button type="submit" class="btn btn-primary">{ locale.T("dashboard.connect.btn") }</button>
+				</form>
+			}
+		</div>
 	}
 }

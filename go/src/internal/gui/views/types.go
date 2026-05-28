@@ -105,10 +105,10 @@ func registryInfoClass(errors RegistryFilterErrors) string {
 }
 
 // DashboardData is the data model for the dashboard page.
+// The dashboard is only ever rendered when no session is active —
+// once tracking starts, GET / redirects to /status.
 type DashboardData struct {
 	EnabledProviders []ProviderOption
-	ActiveSession    bool
-	ActiveMeetingID  string
 }
 
 // MeetingsData is the data model for the Meeting files page.
@@ -133,9 +133,18 @@ type MeetingFile struct {
 
 // StatusData is the data model for the live status page.
 type StatusData struct {
-	MeetingID         string
-	ProviderName      string
-	StartedAt         time.Time
+	MeetingID    string
+	ProviderName string
+	// StartedAt is when ptrack attached to the meeting.
+	StartedAt time.Time
+	// MeetingStartedAt is the timestamp of the session_started event:
+	// the meeting's true start when tracking caught it, or the attach
+	// time when tracking joined mid-meeting. Zero until the provider
+	// has reported the meeting starting.
+	MeetingStartedAt time.Time
+	// MeetingInProgress is true when tracking attached while the meeting
+	// was already running.
+	MeetingInProgress bool
 	Present           []session.PresenceStatus
 	Unregistered      []session.UnregisteredStatus
 	LogEntries        []LogEntry

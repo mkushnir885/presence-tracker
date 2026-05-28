@@ -9,14 +9,13 @@ import (
 templ Status(data StatusData, locale Locale) {
 	@Layout("Live Status", locale, nil) {
 		<div hx-get="/status" hx-trigger="every 5s" hx-target="body" hx-swap="outerHTML"></div>
-		@pageHeader("Live Status — " + data.MeetingID) {
-		}
-		<div class="card" style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;">
-			<div>
-				<span class="text-muted">{ locale.T("status.provider") }</span> { data.ProviderName }
-			</div>
-			<div>
-				<span class="text-muted">{ locale.T("status.started") }</span> { data.StartedAt.Format("15:04:05") }
+		<header class="page-header status-page-header">
+			<div class="status-title-block">
+				<h1>
+					{ locale.T("status.title.prefix") } { data.ProviderName } { locale.T("status.title.middle") }
+					<code class="meeting-id">{ data.MeetingID }</code>
+				</h1>
+				@statusStartedLine(data, locale)
 			</div>
 			<div style="flex:1"></div>
 			<button
@@ -27,7 +26,7 @@ templ Status(data StatusData, locale Locale) {
 				hx-target="body"
 				hx-push-url="/"
 			>{ locale.T("status.stop") }</button>
-		</div>
+		</header>
 		<div id="poll-card" class="card" hx-preserve="true">
 			<div class="text-muted" style="font-size:0.8rem;margin-bottom:0.5rem;">{ locale.T("status.poll.menu") }</div>
 			<div class="poll-tabs" style="display:flex;gap:0.5rem;margin-bottom:0.5rem;">
@@ -179,6 +178,24 @@ templ Status(data StatusData, locale Locale) {
 				}
 			}
 		</div>
+	}
+}
+
+// statusStartedLine renders the "started at" sub-line of the live
+// status header. Three cases:
+//   1. No session_started observed yet — show tracking attach time.
+//   2. Tracking attached while the meeting was already in progress —
+//      show tracking attach time plus a small hint.
+//   3. Tracking caught the meeting start — show the meeting's true
+//      start timestamp.
+templ statusStartedLine(data StatusData, locale Locale) {
+	if data.MeetingStartedAt.IsZero() || data.MeetingInProgress {
+		<div class="status-started">{ fmt.Sprintf(locale.T("status.tracking_started_at"), data.StartedAt.Format("15:04:05")) }</div>
+		if data.MeetingInProgress {
+			<small class="text-muted">{ locale.T("status.meeting_started_earlier_hint") }</small>
+		}
+	} else {
+		<div class="status-started">{ fmt.Sprintf(locale.T("status.meeting_started_at"), data.MeetingStartedAt.Format("15:04:05")) }</div>
 	}
 }
 

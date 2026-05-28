@@ -129,20 +129,23 @@ func (s *Server) Challenger() *challenger.Service {
 	return s.active.challenger
 }
 
-// handleDashboard renders the main dashboard page.
+// handleDashboard renders the Connect-form dashboard. When a session
+// is already active it redirects to /status — there is no meaningful
+// dashboard action while tracking, and the live view is what the user
+// wants.
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	act := s.active
 	s.mu.RUnlock()
 
+	if act != nil {
+		http.Redirect(w, r, "/status", http.StatusSeeOther)
+		return
+	}
+
 	data := views.DashboardData{
 		EnabledProviders: enabledProviderOptions(s.cfg.Get().Providers),
 	}
-	if act != nil {
-		data.ActiveSession = true
-		data.ActiveMeetingID = act.meetingID
-	}
-
 	locale := localeFromRequest(r)
 	_ = views.Dashboard(data, locale).Render(r.Context(), w)
 }
@@ -353,6 +356,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		MeetingID:         act.meetingID,
 		ProviderName:      act.providerName,
 		StartedAt:         act.startedAt,
+		MeetingStartedAt:  status.MeetingStartedAt,
+		MeetingInProgress: status.MeetingInProgress,
 		Present:           status.Present,
 		Unregistered:      status.Unregistered,
 		LogEntries:        vEntries,

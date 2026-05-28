@@ -47,6 +47,14 @@ type CoordStatus struct {
 	MeetingID    string
 	Present      []PresenceStatus
 	Unregistered []UnregisteredStatus
+	// MeetingStartedAt is the timestamp of the session_started event:
+	// the meeting's true start when tracking attached before it began,
+	// or the attach timestamp otherwise. Zero until the provider has
+	// reported the meeting starting.
+	MeetingStartedAt time.Time
+	// MeetingInProgress is true when tracking attached while the meeting
+	// was already running. False when tracking caught the start.
+	MeetingInProgress bool
 }
 
 // PresenceStatus describes one verified participant currently in the meeting.
@@ -94,6 +102,12 @@ type Coordinator struct {
 	// meeting actually ending. If still zero when Run exits, the
 	// session_ended event is written with cause="tracking".
 	meetingEndedAt time.Time
+
+	// Set on the first session_started observation: the event timestamp
+	// (meeting start or attach time, depending on cause) and whether
+	// tracking attached mid-meeting.
+	meetingStartedAt  time.Time
+	meetingInProgress bool
 }
 
 // New creates a Coordinator.
@@ -182,6 +196,10 @@ func (c *Coordinator) onMeetingStarted(evt providers.Event) {
 	if evt.MeetingInProgress {
 		cause = causeTracking
 	}
+	c.mu.Lock()
+	c.meetingStartedAt = evt.Timestamp
+	c.meetingInProgress = evt.MeetingInProgress
+	c.mu.Unlock()
 	c.store.SetStartTime(evt.Timestamp)
 	c.writeEvent(eventstore.Record{
 		Timestamp: evt.Timestamp,
@@ -406,9 +424,11 @@ func (c *Coordinator) Status() CoordStatus {
 	}
 
 	return CoordStatus{
-		MeetingID:    c.cfg.MeetingID,
-		Present:      present,
-		Unregistered: unreg,
+		MeetingID:         c.cfg.MeetingID,
+		Present:           present,
+		Unregistered:      unreg,
+		MeetingStartedAt:  c.meetingStartedAt,
+		MeetingInProgress: c.meetingInProgress,
 	}
 }
 
