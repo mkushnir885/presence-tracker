@@ -294,7 +294,7 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 		_ = ln.Close()
 		return err
 	}
-	go runHTTPServer(ctx, ln, mux)
+	go runHTTPServer(ctx, ln, mux, nil)
 
 	slog.Info("tracking started", "meeting_id", internalMeetingID, "platform_meeting", meetingID, "provider", prov.Name(), "control_port", chosen)
 
@@ -303,10 +303,16 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 
 // runHTTPServer serves mux on ln until ctx is cancelled. Blocks; intended
 // to be called from a goroutine when the caller needs to do other work.
-func runHTTPServer(ctx context.Context, ln net.Listener, mux *http.ServeMux) {
+// beforeShutdown, when non-nil, runs after ctx cancels but before
+// http.Server.Shutdown begins — used by the GUI server to release its
+// long-lived SSE handlers so the graceful shutdown isn't held up.
+func runHTTPServer(ctx context.Context, ln net.Listener, mux *http.ServeMux, beforeShutdown func()) {
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		<-ctx.Done()
+		if beforeShutdown != nil {
+			beforeShutdown()
+		}
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutCtx)
@@ -571,7 +577,13 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 
 	srvCtx, cancelSrv := context.WithCancel(ctx)
 	defer cancelSrv()
-	srv.OnShutdown(cancelSrv)
+	// shutdownFn cancels the signal context (not just srvCtx) so the
+	// messenger router's forwarding goroutine — started under the
+	// outer ctx — also unblocks, allowing the deferred router.Stop()
+	// to return. Otherwise router.Stop hangs forever on the
+	// shutdown-button path because only SIGINT/SIGTERM would cancel
+	// its ctx.
+	srv.OnShutdown(stop)
 
 	addr := fmt.Sprintf("%s:%d", v.GUI.BindAddr, v.GUI.Port)
 	ln, err := net.Listen("tcp", addr)
@@ -592,7 +604,7 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 		}()
 	}
 
-	runHTTPServer(srvCtx, ln, mux)
+	runHTTPServer(srvCtx, ln, mux, srv.SignalShutdown)
 	return nil
 }
 

@@ -20,18 +20,17 @@
 
 (function () {
 	const stateEl = document.getElementById("audio-state");
-	const micBtn = document.getElementById("audio-mic-btn");
-	if (!stateEl || !micBtn) return;
+	if (!stateEl) return;
 
-	const statusEl = document.getElementById("audio-status");
-	const deviceList = document.getElementById("audio-device-list");
-	const deviceMenu = deviceList && deviceList.closest("details.menu");
+	let micBtn = null;
+	let statusEl = null;
+	let deviceList = null;
+	let deviceMenu = null;
+	let labelGrant = "Grant microphone access";
+	let labelMute = "Mute";
+	let labelUnmute = "Unmute";
 	const pollInterval = Math.max(parseInt(stateEl.dataset.pollInterval, 10) || 300, 30);
 	const deviceKey = "ptrack.audio.deviceId";
-
-	const labelGrant = micBtn.dataset.labelGrant || "Grant microphone access";
-	const labelMute = micBtn.dataset.labelMute || "Mute";
-	const labelUnmute = micBtn.dataset.labelUnmute || "Unmute";
 
 	let stream = null;
 	let recorder = null;
@@ -242,7 +241,18 @@
 		}
 	}
 
+	let initialised = false;
 	function init() {
+		const btn = document.getElementById("audio-mic-btn");
+		if (!btn || initialised) return;
+		initialised = true;
+		micBtn = btn;
+		statusEl = document.getElementById("audio-status");
+		deviceList = document.getElementById("audio-device-list");
+		deviceMenu = deviceList && deviceList.closest("details.menu");
+		labelGrant = micBtn.dataset.labelGrant || labelGrant;
+		labelMute = micBtn.dataset.labelMute || labelMute;
+		labelUnmute = micBtn.dataset.labelUnmute || labelUnmute;
 		if (!supportedMime) {
 			setStatus("MediaRecorder not supported in this browser");
 			micBtn.disabled = true;
@@ -267,5 +277,12 @@
 		tryAutoGrant();
 	}
 
+	// The audio card may be absent on initial render (the meeting hasn't
+	// started yet) and appear only after a status-body swap. Retry init
+	// on every htmx settle until it succeeds; it's a single-shot once
+	// the button shows up.
 	init();
+	if (!initialised) {
+		document.body.addEventListener("htmx:afterSettle", init);
+	}
 })();

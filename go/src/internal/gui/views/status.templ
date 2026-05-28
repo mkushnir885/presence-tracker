@@ -8,7 +8,6 @@ import (
 
 templ Status(data StatusData, locale Locale) {
 	@Layout("Live Status", locale, nil) {
-		<div hx-get="/status" hx-trigger="every 5s" hx-target="body" hx-swap="outerHTML"></div>
 		<div class="live-status-page">
 			<header class="page-header status-page-header">
 				<div class="status-title-block">
@@ -16,7 +15,6 @@ templ Status(data StatusData, locale Locale) {
 						{ locale.T("status.title.prefix") } { data.ProviderName } { locale.T("status.title.middle") }
 						<code class="meeting-id">{ data.MeetingID }</code>
 					</h1>
-					@statusStartedLine(data, locale)
 				</div>
 				<div style="flex:1"></div>
 				<button
@@ -28,6 +26,35 @@ templ Status(data StatusData, locale Locale) {
 					hx-push-url="/"
 				>{ locale.T("status.stop") }</button>
 			</header>
+			@StatusBody(data, locale)
+		</div>
+		if data.AutoGenEnabled {
+			<div id="audio-state" hx-preserve="true" data-poll-interval={ strconv.Itoa(data.AutoGenIntervalS) } hidden></div>
+			<script src="/assets/audio.js" defer></script>
+		}
+		<script src="/assets/live_status.js" defer></script>
+	}
+}
+
+// StatusBody is the polled inner area of the live status page. It
+// swaps in place every 5 s via htmx, leaving the page shell (nav,
+// header, scripts) untouched. The wrapper carries the hx-* attrs so
+// the swap retargets itself. Two states:
+//   * meeting not started — a centered waiting card; the live layout
+//     stays hidden until the provider observes session_started.
+//   * meeting running — controls, roster, started-line, log.
+templ StatusBody(data StatusData, locale Locale) {
+	<div
+		id="status-body"
+		class="status-body"
+		hx-get="/status/body"
+		hx-trigger="every 5s"
+		hx-swap="outerHTML"
+	>
+		@statusStartedLine(data, locale)
+		if data.MeetingStartedAt.IsZero() {
+			@waitingForMeetingCard(locale)
+		} else {
 			<div class="live-layout">
 				<div class="live-controls">
 					if data.AutoGenEnabled {
@@ -42,30 +69,40 @@ templ Status(data StatusData, locale Locale) {
 					@rosterCard("tracked", locale.T("status.tracked"), presenceNames(data.Present), locale)
 				</div>
 			</div>
-			<h2 class="live-log-title">{ locale.T("status.log.title") }</h2>
-			<div class="card log-panel">
-				if len(data.LogEntries) == 0 {
-					<div class="text-muted">{ locale.T("status.log.empty") }</div>
-				} else {
-					for _, e := range data.LogEntries {
-						<div class="log-entry">
-							<span class="log-time">{ e.Time.Format("15:04:05") }</span>
-							<span class={ "log-level-" + e.Level }>{ e.Level }</span>
-							<span>{ e.Message }</span>
-							if e.Attrs != "" {
-								<span class="text-muted">{ e.Attrs }</span>
-							}
-						</div>
-					}
-				}
-			</div>
-		</div>
-		if data.AutoGenEnabled {
-			<div id="audio-state" hx-preserve="true" data-poll-interval={ strconv.Itoa(data.AutoGenIntervalS) } hidden></div>
-			<script src="/assets/audio.js" defer></script>
 		}
-		<script src="/assets/live_status.js" defer></script>
-	}
+		<h2 class="live-log-title">{ locale.T("status.log.title") }</h2>
+		<div class="card log-panel">
+			if len(data.LogEntries) == 0 {
+				<div class="text-muted">{ locale.T("status.log.empty") }</div>
+			} else {
+				for _, e := range data.LogEntries {
+					<div class="log-entry">
+						<span class="log-time">{ e.Time.Format("15:04:05") }</span>
+						<span class={ "log-level-" + e.Level }>{ e.Level }</span>
+						<span>{ e.Message }</span>
+						if e.Attrs != "" {
+							<span class="text-muted">{ e.Attrs }</span>
+						}
+					</div>
+				}
+			}
+		</div>
+	</div>
+}
+
+// waitingForMeetingCard is shown after tracking attached but before
+// the provider reported the meeting starting. The roster and
+// challenge controls are hidden — there's nothing to act on yet —
+// but the system log stays visible below so the teacher can watch
+// connection diagnostics.
+templ waitingForMeetingCard(locale Locale) {
+	<div class="status-waiting">
+		<div class="card status-waiting-card">
+			<div class="status-waiting-spinner" aria-hidden="true"></div>
+			<h2>{ locale.T("status.waiting.title") }</h2>
+			<p class="text-muted">{ locale.T("status.waiting.hint") }</p>
+		</div>
+	</div>
 }
 
 // statusStartedLine renders the "started at" sub-line of the live
@@ -244,10 +281,6 @@ func unregisteredNames(items []session.UnregisteredStatus) []string {
 	return out
 }
 
-templ UnregisteredFragment(participants []session.UnregisteredStatus, locale Locale) {
-	@rosterCard("untracked", locale.T("status.untracked"), unregisteredNames(participants), locale)
-}
-
 script dispatchPendingScript(path string) {
 	const fb = document.getElementById('poll-feedback');
 	fetch('/poll', {
@@ -266,25 +299,6 @@ script dispatchPendingScript(path string) {
 	}).catch(err => {
 		if (fb) fb.textContent = 'error: ' + err;
 	});
-}
-
-// ShutdownDone is shown after POST /system/shutdown. It replaces the
-// whole body so htmx no longer polls /status (which would 404 once the
-// listener is gone). When attemptClose is true the page also tries
-// window.close() on load — it succeeds when the tab was opened by
-// ptrack (open_browser_on_start) and silently no-ops otherwise, in
-// which case the message remains visible.
-templ ShutdownDone(locale Locale, attemptClose bool) {
-	@Layout("Stopped", locale, nil) {
-		<div class="card" style="text-align:center;padding:2rem;">
-			<h2>{ locale.T("nav.shutdown_done") }</h2>
-		</div>
-		if attemptClose {
-			<script>
-				window.close();
-			</script>
-		}
-	}
 }
 
 templ iconMic() {

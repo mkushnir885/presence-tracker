@@ -49,8 +49,81 @@ templ Layout(title string, locale Locale, navExtras templ.Component) {
 			>
 				@iconArrowUp()
 			</button>
+			<template id="ptrack-stopped-template">
+				<div class="stopped-screen">
+					<div class="card stopped-card">
+						<h2><strong>Presence Tracker</strong>{ locale.T("nav.stopped.title_suffix") }</h2>
+						<p class="stopped-hint">{ locale.T("nav.stopped.hint") }</p>
+					</div>
+				</div>
+			</template>
 			<script src="https://unpkg.com/htmx.org@2.0.4" crossorigin="anonymous"></script>
 			<script>
+				// Daemon-down detector. Two signals feed it:
+				//   1. An /events Server-Sent Events stream the layout
+				//      opens once per page. When the daemon stops the
+				//      browser fires `error` on the EventSource and we
+				//      swap the body for the "stopped" template.
+				//   2. htmx:sendError, raised when any user-triggered
+				//      htmx request fails to reach the daemon — covers
+				//      the brief gap between an action and the SSE
+				//      detecting the drop.
+				(function() {
+					var shown = false;
+					var unloading = false;
+					var es = null;
+					// pagehide / beforeunload fire when the browser is
+					// navigating away. Without this guard, the browser
+					// tearing down the SSE connection during navigation
+					// fires `error` on EventSource, our detector paints
+					// the stopped screen on the still-visible old DOM,
+					// and the user sees a flash of it before the new
+					// page arrives.
+					function markUnload() {
+						unloading = true;
+						if (es) { try { es.close(); } catch (_) {} }
+					}
+					window.addEventListener('pagehide', markUnload);
+					window.addEventListener('beforeunload', markUnload);
+					function showStopped() {
+						if (shown || unloading) return;
+						shown = true;
+						var tmpl = document.getElementById('ptrack-stopped-template');
+						if (!tmpl) return;
+						document.body.className = 'stopped-body';
+						document.body.innerHTML = tmpl.innerHTML;
+					}
+					document.body.addEventListener('htmx:sendError', showStopped);
+					// POST /system/shutdown returns 204 + an HX-Trigger
+					// header that fires this event. Routing through
+					// showStopped here keeps the GUI-shutdown UX
+					// identical to the SIGINT/Ctrl-C path. When the
+					// tab was opened by ptrack itself, attemptClose
+					// asks the browser to close it.
+					document.body.addEventListener('ptrack-shutdown', function(ev) {
+						showStopped();
+						if (ev && ev.detail && ev.detail.attemptClose) {
+							try { window.close(); } catch (_) {}
+						}
+					});
+					if (typeof EventSource !== 'undefined') {
+						es = new EventSource('/events');
+						var connected = false;
+						es.addEventListener('open', function() { connected = true; });
+						es.addEventListener('error', function() {
+							// EventSource auto-reconnects, so `error` can
+							// fire transiently. Only treat it as a drop
+							// once we've seen at least one successful
+							// connection — that rules out the user
+							// opening the page while the daemon is down,
+							// which would also fail the initial GET.
+							if (connected) {
+								es.close();
+								showStopped();
+							}
+						});
+					}
+				})();
 				function ptrackCloseMenus(except) {
 					document.querySelectorAll('details.menu').forEach(function(d) {
 						if (d !== except) d.open = false;
@@ -152,8 +225,7 @@ templ shutdownButton(locale Locale) {
 		aria-label={ locale.T("nav.shutdown") }
 		hx-post="/system/shutdown"
 		hx-confirm={ locale.T("nav.shutdown_confirm") }
-		hx-target="body"
-		hx-swap="outerHTML"
+		hx-swap="none"
 	>
 		@iconPower()
 	</button>

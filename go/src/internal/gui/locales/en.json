@@ -103,6 +103,8 @@
   "status.roster.no_matches": "No participants match the filter.",
   "status.log.title": "System log",
   "status.log.empty": "No log entries yet.",
+  "status.waiting.title": "Meeting has not started yet",
+  "status.waiting.hint": "Tracking is attached. The live layout will appear as soon as the platform reports the meeting starting.",
 
   "meeting.download_csv": "Download CSV",
   "meeting.start": "Start:",
@@ -229,7 +231,8 @@
   "status.audio.status_idle": "Microphone off",
   "nav.shutdown": "Shut down",
   "nav.shutdown_confirm": "Shut down ptrack? This stops the daemon process.",
-  "nav.shutdown_done": "ptrack has stopped — you can close this tab.",
+  "nav.stopped.title_suffix": " has stopped",
+  "nav.stopped.hint": "You can close this tab.",
 
   "nav.theme_light": "Light",
   "nav.theme_dark": "Dark",

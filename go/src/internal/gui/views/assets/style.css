@@ -103,8 +103,9 @@ h1 { font-size: 1.4rem; margin: 0 0 1rem; }
     border-radius: 4px;
     margin-left: 0.25rem;
 }
-.status-title-block .status-started { color: var(--muted); font-size: 0.9rem; }
-.status-title-block .status-started + small { color: var(--muted); font-size: 0.8rem; }
+.status-started { color: var(--muted); font-size: 0.9rem; }
+.status-started + small { color: var(--muted); font-size: 0.8rem; }
+.status-body .status-started { margin-bottom: 0.75rem; }
 h2 { font-size: 1.1rem; margin: 1.25rem 0 0.5rem; }
 .card {
     background: var(--card-bg);
@@ -943,4 +944,86 @@ details.menu .menu-list button.active svg { color: var(--accent); }
 @media (max-width: 800px) {
     .live-layout { grid-template-columns: 1fr; }
     .live-roster { grid-column: 1; grid-template-columns: 1fr; }
+}
+
+/* The polled wrapper takes the remaining vertical space so the
+   waiting card and the log panel both fill the page consistently. */
+.status-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.status-waiting {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem 1rem;
+}
+.status-waiting-card {
+    max-width: 32rem;
+    width: 100%;
+    text-align: center;
+    padding: 1.5rem 1.75rem;
+    margin: 0;
+}
+.status-waiting-card h2 { margin: 0 0 0.5rem; font-size: 1.15rem; }
+.status-waiting-card p { margin: 0; font-size: 0.92rem; line-height: 1.45; }
+.status-waiting-spinner {
+    width: 28px;
+    height: 28px;
+    margin: 0 auto 1rem;
+    border-radius: 50%;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    animation: ptrack-spin 0.9s linear infinite;
+}
+@keyframes ptrack-spin { to { transform: rotate(360deg); } }
+
+/* ── Daemon-down / shutdown screen ───────────────────────────────── */
+.stopped-body {
+    margin: 0;
+    min-height: 100vh;
+    background-color: var(--bg);
+    color: var(--fg);
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    /* Sit the card above the optical centre so a single short
+       message doesn't drift toward the bottom half. The base
+       `body` rule already sets flex-direction: column, so for a
+       column flex the *padding* is what raises the card; the
+       align-items / justify-content combo below handles centering
+       on the cross axis (horizontal) and the start anchor on the
+       main axis (vertical). */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding-top: 32vh;
+}
+.stopped-body nav { display: none; }
+.stopped-screen {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+}
+.stopped-card {
+    max-width: 28rem;
+    text-align: center;
+    padding: 1.5rem 2rem;
+    margin: 0;
+}
+.stopped-card h2 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 400;
+    line-height: 1.4;
+}
+.stopped-card h2 strong { font-weight: 700; }
+.stopped-card .stopped-hint {
+    margin: 0.4rem 0 0;
+    color: var(--muted);
+    font-size: 0.85rem;
 }

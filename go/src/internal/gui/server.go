@@ -49,6 +49,12 @@ type Server struct {
 	// stop the daemon process. cmd/ptrack wires it to the http.Server
 	// listener-shutdown path.
 	shutdownFn func()
+
+	// stopCh is closed by SignalShutdown so the long-lived /events SSE
+	// handlers can exit promptly instead of blocking http.Server.Shutdown
+	// for the full grace period. stopOnce makes the close idempotent.
+	stopOnce sync.Once
+	stopCh   chan struct{}
 }
 
 // OnShutdown registers the callback POST /system/shutdown invokes after
@@ -77,7 +83,17 @@ func New(cfg *config.Config, registry participants.Registry, router *messengers.
 		registry: registry,
 		router:   router,
 		stats:    stats.New(filepath.Join(config.CacheDir(), "stats")),
+		stopCh:   make(chan struct{}),
 	}
+}
+
+// SignalShutdown closes stopCh so any open /events SSE handlers
+// return immediately. Safe to call multiple times; cmd/ptrack invokes
+// it both from the shutdown button path and from the SIGINT/SIGTERM
+// path so http.Server.Shutdown isn't held up by the long-poll
+// handlers for its full grace period.
+func (s *Server) SignalShutdown() {
+	s.stopOnce.Do(func() { close(s.stopCh) })
 }
 
 // RegisterRoutes attaches the GUI's HTML and htmx routes to mux. The HTTP
@@ -91,7 +107,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /session", s.handleStartSession)
 	mux.HandleFunc("DELETE /session", s.handleStopSession)
 	mux.HandleFunc("GET /status", s.handleStatus)
-	mux.HandleFunc("GET /status/unregistered", s.handleUnregisteredFragment)
+	mux.HandleFunc("GET /status/body", s.handleStatusBody)
 	mux.HandleFunc("GET /stats", s.handleStats)
 	mux.HandleFunc("GET /report", s.handleReport)
 	mux.HandleFunc("PATCH /participants/{p}/display-name", s.handleRenameParticipant)
@@ -105,6 +121,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /poll/pending/preview", s.handlePollPendingPreview)
 	mux.HandleFunc("POST /poll/file", s.handlePollFile)
 	mux.HandleFunc("POST /system/shutdown", s.handleShutdown)
+	mux.HandleFunc("GET /events", s.handleEvents)
 }
 
 // Coord returns the coordinator of the currently active session, or nil
@@ -328,21 +345,47 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-// handleStatus renders the live status page.
+// handleStatus renders the live status page shell.
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	data, ok := s.statusData()
+	if !ok {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	locale := localeFromRequest(r)
+	_ = views.Status(data, locale).Render(r.Context(), w)
+}
+
+// handleStatusBody returns the polled inner fragment of the live
+// status page (waiting card or full live layout, depending on
+// session state). Replaces the previous full-body /status poll, so
+// the navbar, audio card and poll card no longer flicker every tick.
+func (s *Server) handleStatusBody(w http.ResponseWriter, r *http.Request) {
+	data, ok := s.statusData()
+	if !ok {
+		// The session is gone (Stop tracking was clicked). Tell htmx to
+		// reload the page so it lands back on the home view.
+		w.Header().Set("HX-Redirect", "/")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	locale := localeFromRequest(r)
+	_ = views.StatusBody(data, locale).Render(r.Context(), w)
+}
+
+// statusData captures the current session state into a StatusData
+// view model. Returns ok=false when no session is active.
+func (s *Server) statusData() (views.StatusData, bool) {
 	s.mu.RLock()
 	act := s.active
 	s.mu.RUnlock()
-
 	if act == nil {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
+		return views.StatusData{}, false
 	}
 
 	status := act.coord.Status()
 	logEntries := act.buf.Entries()
 
-	// Convert gui.LogEntry to views.LogEntry.
 	vEntries := make([]views.LogEntry, len(logEntries))
 	for i, e := range logEntries {
 		vEntries[i] = views.LogEntry{
@@ -354,7 +397,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ag := s.cfg.Get().Challenges.AutoGeneration
-	data := views.StatusData{
+	return views.StatusData{
 		MeetingID:         act.meetingID,
 		ProviderName:      act.providerName,
 		StartedAt:         act.startedAt,
@@ -367,10 +410,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		AutoGenAutoSubmit: ag.AutoSubmit,
 		AutoGenIntervalS:  ag.PollIntervalSeconds,
 		PendingBank:       latestPendingBank(act.challenger),
-	}
-
-	locale := localeFromRequest(r)
-	_ = views.Status(data, locale).Render(r.Context(), w)
+	}, true
 }
 
 // latestPendingBank returns the freshest auto-*.yaml in the review dir,
@@ -527,10 +567,56 @@ func (s *Server) handlePollFile(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleShutdown stops the active session, renders the "you can close
-// this tab" page, and triggers the daemon-level shutdown callback (if
-// registered). The browser sees a final HTML body before the listener
-// goes away.
+// handleEvents is the daemon-liveness SSE stream that every page opens
+// in its layout. The connection is held open for the lifetime of the
+// daemon; the browser's EventSource fires onerror the moment the
+// stream drops (Ctrl-C, OS kill, graceful shutdown) and the layout's
+// detector flips the body to the stopped template. We send periodic
+// comment-only keep-alives so intermediate proxies and the browser's
+// idle-connection heuristics don't cut us off prematurely.
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("Connection", "keep-alive")
+	h.Set("X-Accel-Buffering", "no")
+
+	// Send something immediately so the client's EventSource fires
+	// onopen rather than sitting in CONNECTING.
+	if _, err := io.WriteString(w, "event: hello\ndata: ok\n\n"); err != nil {
+		return
+	}
+	flusher.Flush()
+
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+			if _, err := io.WriteString(w, ": keep-alive\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}
+
+// handleShutdown stops the active session and triggers the daemon-
+// level shutdown callback (if registered). The response carries no
+// body — instead an HX-Trigger header fires `ptrack-shutdown` on the
+// client, which routes through the same showStopped() detector used
+// for SIGINT/Ctrl-C, so both shutdown paths produce identical UI.
+// The trigger payload carries attemptClose so the client can try
+// window.close() when the tab was opened by ptrack.
 func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	act := s.active
@@ -542,11 +628,20 @@ func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 		case <-time.After(10 * time.Second):
 		}
 	}
-	locale := localeFromRequest(r)
-	_ = views.ShutdownDone(locale, s.cfg.Get().GUI.OpenBrowserOnStart).Render(r.Context(), w)
+	trigger := map[string]map[string]bool{
+		"ptrack-shutdown": {"attemptClose": s.cfg.Get().GUI.OpenBrowserOnStart},
+	}
+	if b, err := json.Marshal(trigger); err == nil {
+		w.Header().Set("HX-Trigger", string(b))
+	}
+	w.WriteHeader(http.StatusNoContent)
 	if s.shutdownFn != nil {
 		go func() {
+			// Brief delay so the HX-Trigger response reaches the
+			// browser and showStopped() paints the screen before the
+			// listener goes away.
 			time.Sleep(200 * time.Millisecond)
+			s.SignalShutdown()
 			s.shutdownFn()
 		}()
 	}
@@ -555,22 +650,6 @@ func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 func htmlEscape(s string) string {
 	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&#39;")
 	return r.Replace(s)
-}
-
-// handleUnregisteredFragment returns the unregistered participants HTML fragment.
-func (s *Server) handleUnregisteredFragment(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	act := s.active
-	s.mu.RUnlock()
-
-	if act == nil {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	status := act.coord.Status()
-	locale := localeFromRequest(r)
-	_ = views.UnregisteredFragment(status.Unregistered, locale).Render(r.Context(), w)
 }
 
 // handleStats renders the unified per-meeting / cross-meeting stats

@@ -103,6 +103,8 @@
   "status.roster.no_matches": "Жоден учасник не відповідає фільтру.",
   "status.log.title": "Системний журнал",
   "status.log.empty": "Записів журналу ще немає.",
+  "status.waiting.title": "Зустріч ще не розпочалась",
+  "status.waiting.hint": "Відстеження підключено. Робочий інтерфейс з’явиться, щойно платформа повідомить про початок зустрічі.",
 
   "meeting.download_csv": "Завантажити CSV",
   "meeting.start": "Початок:",
@@ -229,7 +231,8 @@
   "status.audio.status_idle": "Мікрофон вимкнено",
   "nav.shutdown": "Завершити роботу",
   "nav.shutdown_confirm": "Завершити роботу ptrack? Це зупинить процес.",
-  "nav.shutdown_done": "ptrack зупинено — можна закрити вкладку.",
+  "nav.stopped.title_suffix": " зупинено",
+  "nav.stopped.hint": "Можете закрити цю вкладку.",
 
   "nav.theme_light": "Світла",
   "nav.theme_dark": "Темна",
