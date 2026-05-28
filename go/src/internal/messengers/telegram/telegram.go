@@ -51,6 +51,11 @@ type Adapter struct {
 	pending    map[pendingKey]string // {chatID, questionMsgID} → challengeID
 	pendingInv map[string]pendingKey // challengeID → pendingKey (for cleanup on timeout)
 
+	// stopOnce guards bot.StopReceivingUpdates: both the Start goroutine
+	// (on ctx cancel) and an explicit Stop call race to shut the poller
+	// down, and the upstream library panics on a double close.
+	stopOnce sync.Once
+
 	// registerPrompts tracks the message ID of an outstanding /register
 	// ForceReply prompt per chat. Entries expire after registerPromptTTL;
 	// the prompt message is auto-deleted by the onExpire callback so an
@@ -122,7 +127,7 @@ func (a *Adapter) Start(ctx context.Context) (<-chan messengers.Event, error) {
 		for {
 			select {
 			case <-ctx.Done():
-				a.bot.StopReceivingUpdates()
+				a.stopReceiving()
 				return
 			case upd, ok := <-updates:
 				if !ok {
@@ -138,8 +143,15 @@ func (a *Adapter) Start(ctx context.Context) (<-chan messengers.Event, error) {
 
 // Stop gracefully shuts down the Telegram poller.
 func (a *Adapter) Stop(_ context.Context) error {
-	a.bot.StopReceivingUpdates()
+	a.stopReceiving()
 	return nil
+}
+
+// stopReceiving is the idempotent gate around bot.StopReceivingUpdates;
+// the upstream library closes an internal channel each time it is called
+// and panics on the second close.
+func (a *Adapter) stopReceiving() {
+	a.stopOnce.Do(a.bot.StopReceivingUpdates)
 }
 
 // publishCommands registers the bot's command list with Telegram so
