@@ -141,7 +141,8 @@ func (a *Adapter) Name() string { return Name }
 func (a *Adapter) Start(ctx context.Context) (<-chan messengers.Event, error) {
 	a.publishCommands()
 
-	u := tgbotapi.NewUpdate(0)
+	offset := a.skipBacklog()
+	u := tgbotapi.NewUpdate(offset)
 	u.Timeout = 30
 	updates := a.bot.GetUpdatesChan(u)
 
@@ -162,6 +163,28 @@ func (a *Adapter) Start(ctx context.Context) (<-chan messengers.Event, error) {
 	}()
 
 	return a.events, nil
+}
+
+// skipBacklog returns the offset to use for the live update loop so
+// that any messages sent while the bot was offline are discarded.
+// Telegram's getUpdates with offset=-1 returns only the most recent
+// pending update, and using that update's ID + 1 as the next offset
+// implicitly acknowledges every earlier one. Returns 0 (no skip) if
+// the call fails or no backlog exists.
+func (a *Adapter) skipBacklog() int {
+	drain := tgbotapi.NewUpdate(-1)
+	drain.Timeout = 0
+	recent, err := a.bot.GetUpdates(drain)
+	if err != nil {
+		slog.Warn("telegram: drain backlog", "err", err)
+		return 0
+	}
+	if len(recent) == 0 {
+		return 0
+	}
+	last := recent[len(recent)-1].UpdateID
+	slog.Info("telegram: skipped offline backlog", "through_update_id", last)
+	return last + 1
 }
 
 // Stop gracefully shuts down the Telegram poller.
