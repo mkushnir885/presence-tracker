@@ -90,8 +90,41 @@ type Provider interface {
 ```
 
 `Subscribe` closes the channel when the meeting ends or `ctx` is
-cancelled. Events emitted: `participant_joined` and `participant_left`.
-Chat is not surfaced through the Provider interface.
+cancelled. Events emitted: `participant_joined`, `participant_left`,
+and the session boundary signals `meeting_started` / `meeting_ended`
+(see "Session boundaries" below). Chat is not surfaced through the
+Provider interface.
+
+#### Session boundaries
+
+The session coordinator writes exactly one `session_started` and one
+`session_ended` event per Parquet file. Which `cause` they carry
+depends on the relative ordering of tracking attach/detach and the
+provider's view of the meeting:
+
+- At attach time the provider must answer "is the meeting already in
+  progress?" — by emitting `meeting_started` immediately (with the
+  meeting's true start timestamp) if tracking attached *before* the
+  meeting began and the start was later observed, or by reporting
+  "already running" if tracking attached after the meeting had begun.
+  The coordinator emits `session_started` with `cause = "meeting"` in
+  the first case, `cause = "tracking"` in the second.
+- At detach time the coordinator emits `session_ended` with
+  `cause = "meeting"` if the provider reported `meeting_ended` first,
+  or `cause = "tracking"` if the daemon is shutting down while the
+  provider still considers the meeting active.
+
+A provider that cannot answer the "already in progress?" question at
+attach time (e.g. a hypothetical webhook-only adapter that needs to
+receive the meeting-start notification live) must fail
+`Subscribe`/`Start` rather than emit a misleading boundary. Current
+polling-based providers answer it trivially from the first poll
+response.
+
+Participants still in the meeting at `session_ended` are intentionally
+left as open bands — no synthetic `participant_left` is emitted. See
+`@docs/EVENT_SCHEMA.md` for the analytics-side close rule and the GUI
+marker semantics.
 
 `FetchPresence` is a synchronous "who is in the meeting right now"
 query. The challenge pipeline invokes it immediately before fanning

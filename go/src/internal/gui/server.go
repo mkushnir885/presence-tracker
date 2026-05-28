@@ -500,6 +500,10 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 
 	doc, err := s.stats.Load(r.Context(), files)
 	if err != nil {
+		if errors.Is(err, ptrackpy.ErrIncompleteMeeting) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		http.Error(w, "stats: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -521,6 +525,10 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 
 	csv, err := ptrackpy.Run(r.Context(), append([]string{"report"}, files...)...)
 	if err != nil {
+		if errors.Is(err, ptrackpy.ErrIncompleteMeeting) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		http.Error(w, "report: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

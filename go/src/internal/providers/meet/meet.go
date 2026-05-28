@@ -137,6 +137,11 @@ func (a *Adapter) pollLoop(ctx context.Context, spaceName string) {
 	// key = participant resource name, value = display name at join time.
 	activeParticipants := map[string]string{}
 	var currentRecord string // conferenceRecord resource name
+	// observedNoRecord becomes true the first poll that finds no active
+	// record before one appears. It distinguishes "attached and watched
+	// the meeting start" from "attached while the meeting was already in
+	// progress".
+	observedNoRecord := false
 
 	for {
 		select {
@@ -147,20 +152,26 @@ func (a *Adapter) pollLoop(ctx context.Context, spaceName string) {
 
 		// Find the active conference record for the space.
 		if currentRecord == "" {
-			record, err := a.findActiveRecord(ctx, spaceName)
+			record, startTime, err := a.findActiveRecord(ctx, spaceName)
 			if err != nil {
 				slog.Warn("meet: poll: find active record", "err", err)
 				continue
 			}
 			if record == "" {
-				continue // meeting not started yet
+				observedNoRecord = true
+				continue
 			}
 			currentRecord = record
-			slog.Info("meet: meeting started", "record", currentRecord)
+			midMeeting := !observedNoRecord
+			if midMeeting || startTime.IsZero() {
+				startTime = time.Now()
+			}
+			slog.Info("meet: meeting started", "record", currentRecord, "start_time", startTime, "mid_meeting", midMeeting)
 			a.send(ctx, providers.Event{
-				Kind:      providers.EventKindMeetingStarted,
-				MeetingID: spaceName,
-				Timestamp: time.Now(),
+				Kind:              providers.EventKindMeetingStarted,
+				MeetingID:         spaceName,
+				Timestamp:         startTime,
+				MeetingInProgress: midMeeting,
 			})
 		}
 
@@ -198,33 +209,26 @@ func (a *Adapter) pollLoop(ctx context.Context, spaceName string) {
 			}
 		}
 
-		ended, err := a.isRecordEnded(ctx, currentRecord)
+		endTime, ended, err := a.recordEndTime(ctx, currentRecord)
 		if err != nil {
 			slog.Warn("meet: poll: check record end", "err", err)
 			continue
 		}
 		if ended {
-			// Flush leaves for anyone still active: Google may set the
-			// conferenceRecord's end_time before each participant's
-			// latest_end_time propagates, leaving stragglers visible to the
-			// participants filter at the moment the record is marked ended.
-			now := time.Now()
-			for id, name := range activeParticipants {
-				a.send(ctx, providers.Event{
-					Kind:        providers.EventKindParticipantLeft,
-					MeetingID:   spaceName,
-					PlatformID:  id,
-					DisplayName: name,
-					Timestamp:   now,
-				})
+			if endTime.IsZero() {
+				endTime = time.Now()
 			}
-			activeParticipants = nil
+			// Stragglers still in activeParticipants are intentionally
+			// left without a participant_left event — the session
+			// coordinator closes any open band at session_ended (see
+			// docs/EVENT_SCHEMA.md), and synthesising leaves here would
+			// erase the "till the end" distinction the GUI surfaces.
 
-			slog.Info("meet: meeting ended", "record", currentRecord)
+			slog.Info("meet: meeting ended", "record", currentRecord, "end_time", endTime)
 			a.send(ctx, providers.Event{
 				Kind:      providers.EventKindMeetingEnded,
 				MeetingID: spaceName,
-				Timestamp: now,
+				Timestamp: endTime,
 			})
 			return
 		}
@@ -250,35 +254,39 @@ type participantInfo struct {
 	joinTime    time.Time
 }
 
-// findActiveRecord returns the name of the active conferenceRecord for the space,
-// or "" if the meeting has not started.
-func (a *Adapter) findActiveRecord(ctx context.Context, spaceName string) (string, error) {
+// findActiveRecord returns the name and start time of the active
+// conferenceRecord for the space. The returned name is "" when the meeting
+// has not started yet.
+func (a *Adapter) findActiveRecord(ctx context.Context, spaceName string) (string, time.Time, error) {
 	filter := fmt.Sprintf("space.name=\"%s\" AND end_time IS NULL", spaceName)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		meetAPIBase+"/conferenceRecords?filter="+encodeFilter(filter), nil)
 	if err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("status %d", resp.StatusCode)
+		return "", time.Time{}, fmt.Errorf("status %d", resp.StatusCode)
 	}
 	var result struct {
 		ConferenceRecords []struct {
-			Name string `json:"name"`
+			Name      string `json:"name"`
+			StartTime string `json:"startTime"`
 		} `json:"conferenceRecords"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("parse conference records: %w", err)
+		return "", time.Time{}, fmt.Errorf("parse conference records: %w", err)
 	}
 	if len(result.ConferenceRecords) == 0 {
-		return "", nil
+		return "", time.Time{}, nil
 	}
-	return result.ConferenceRecords[0].Name, nil
+	rec := result.ConferenceRecords[0]
+	startTime, _ := time.Parse(time.RFC3339, rec.StartTime)
+	return rec.Name, startTime, nil
 }
 
 // listParticipants returns participants currently in the conference record
@@ -338,31 +346,37 @@ func (a *Adapter) listParticipants(ctx context.Context, recordName string) ([]pa
 	return out, nil
 }
 
-// isRecordEnded reports whether the conference record has an end_time set.
-func (a *Adapter) isRecordEnded(ctx context.Context, recordName string) (bool, error) {
+// recordEndTime returns the conferenceRecord's end_time if the record has
+// ended, or the zero time if it is still in progress. A 404 is treated as
+// ended with an unknown (zero) end time, so the caller falls back to now.
+func (a *Adapter) recordEndTime(ctx context.Context, recordName string) (time.Time, bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		meetAPIBase+"/"+recordName, nil)
 	if err != nil {
-		return false, err
+		return time.Time{}, false, err
 	}
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return false, err
+		return time.Time{}, false, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
-		return true, nil
+		return time.Time{}, true, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("status %d", resp.StatusCode)
+		return time.Time{}, false, fmt.Errorf("status %d", resp.StatusCode)
 	}
 	var record struct {
 		EndTime string `json:"endTime"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&record); err != nil {
-		return false, fmt.Errorf("parse record: %w", err)
+		return time.Time{}, false, fmt.Errorf("parse record: %w", err)
 	}
-	return record.EndTime != "", nil
+	if record.EndTime == "" {
+		return time.Time{}, false, nil
+	}
+	endTime, _ := time.Parse(time.RFC3339, record.EndTime)
+	return endTime, true, nil
 }
 
 // encodeFilter percent-encodes the filter string for use in a query parameter.

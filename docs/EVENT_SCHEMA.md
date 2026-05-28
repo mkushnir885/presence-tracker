@@ -23,7 +23,7 @@ arrives.
 | Column         | Type                 | Nullable | Description                                                                                          |
 |----------------|----------------------|----------|------------------------------------------------------------------------------------------------------|
 | `meeting_id`   | `string`             | no       | Stable ID for this meeting session.                                                                  |
-| `timestamp`    | `int64`              | no       | For `meeting_started`: absolute Unix timestamp in ms. For all other events: ms elapsed since `meeting_started`. |
+| `timestamp`    | `int64`              | no       | For `session_started`: absolute Unix timestamp in ms. For all other events: ms elapsed since `session_started`. |
 | `event_type`   | `string`             | no       | Event kind. See "Event types" below.                                                                 |
 | `display_name` | `string`             | yes      | Canonical registered name; null for meeting-scoped events.                                           |
 | `challenge_id` | `string`             | yes      | Join key threading the lifecycle of one participant's challenge; null for non-challenge events.      |
@@ -38,12 +38,44 @@ encoding, and predicate pushdown.
 
 ## Event types
 
-### Meeting lifecycle
+### Session lifecycle
 
-| Event type        | `display_name` | Key metadata fields             |
-|-------------------|----------------|---------------------------------|
-| `meeting_started` | null           | `platform`, `host_display_name` |
-| `meeting_ended`   | null           | `duration_seconds`, `reason`    |
+Each Parquet file contains exactly one `session_started` and one
+`session_ended` event. They bound the period during which ptrack was
+attached to the meeting; the `cause` metadata field records whether
+that boundary coincides with the meeting's actual boundary or with the
+tracking process attaching/detaching.
+
+| Event type        | `display_name` | Key metadata fields                       |
+|-------------------|----------------|-------------------------------------------|
+| `session_started` | null           | `platform`, `host_display_name`, `cause`  |
+| `session_ended`   | null           | `duration_seconds`, `cause`               |
+
+`cause` is one of:
+
+- `"meeting"` — the boundary is the meeting's actual boundary as
+  observed by the provider. For `session_started`: tracking was already
+  attached when the meeting began, so the event's absolute timestamp is
+  the meeting's true start time. For `session_ended`: the provider
+  reported the meeting ending while tracking was still attached.
+- `"tracking"` — the boundary is the tracking process's boundary.
+  For `session_started`: tracking attached after the meeting was
+  already in progress, so the meeting's true start time is unknown and
+  not recorded. For `session_ended`: tracking detached (shutdown,
+  signal, error) while the meeting was still running.
+
+Only one start event and one end event are written per session; the
+producer picks the `cause` that matches what actually bounded the
+session. Providers that cannot determine whether the meeting is already
+in progress at attach time (e.g. a hypothetical webhook-only adapter
+that depends on receiving the meeting-start notification live) must
+fail at startup rather than emit a misleading `cause`.
+
+All other event timestamps remain relative to `session_started`
+regardless of `cause`. When `cause = "tracking"` on `session_started`,
+the meeting's true start time is not represented in the log at all —
+this is intentional; the event log only records what ptrack actually
+observed.
 
 ### Participant lifecycle
 
@@ -58,6 +90,17 @@ event log only contains verified participants, `participant_joined`
 itself implies verification — there is no separate `participant_verified`
 event. If the participant denies verification or leaves before answering,
 no `participant_joined` row is written.
+
+`participant_left` is written only when the provider observed the
+participant leaving. If a participant was still present when the
+session ended, **no synthetic `participant_left` is written** — the
+band stays open in the log. Analytics close any open band at the
+`session_ended` timestamp; the GUI uses `session_ended.cause` to label
+the right-edge marker ("till the end of the meeting" when
+`cause = "meeting"`, "till tracking stopped" when `cause = "tracking"`).
+Fabricating a `participant_left` would erase this distinction, which is
+the only signal that tells "we observed a leave" apart from "we stopped
+watching."
 
 Note: **mic, camera, screen-share, and chat activity are not tracked.**
 Chat is not monitored. Participant pairing is handled entirely via the

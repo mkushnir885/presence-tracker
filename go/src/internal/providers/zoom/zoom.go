@@ -83,39 +83,54 @@ func (a *Adapter) pollLoop(ctx context.Context, meetingID string) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	active := map[string]string{} // platformID → displayName
-	meetingLive := false
+	state := pollState{
+		active: map[string]string{}, // platformID → displayName
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if done := a.tick(ctx, meetingID, active, &meetingLive); done {
+			if done := a.tick(ctx, meetingID, &state); done {
 				return
 			}
 		}
 	}
 }
 
+// pollState carries cross-tick bookkeeping for pollLoop. observedNotLive is
+// set the first time a poll finds the meeting not live before it goes live,
+// distinguishing "watched the meeting start" from "attached mid-meeting".
+type pollState struct {
+	active          map[string]string
+	meetingLive     bool
+	observedNotLive bool
+}
+
 // tick performs one poll cycle. Returns true when the meeting has ended.
-func (a *Adapter) tick(ctx context.Context, meetingID string, active map[string]string, meetingLive *bool) bool {
+func (a *Adapter) tick(ctx context.Context, meetingID string, state *pollState) bool {
 	participants, live, err := a.fetchParticipants(ctx, meetingID)
 	if err != nil {
 		slog.Warn("zoom: fetch participants", "err", err)
 		return false
 	}
 
-	if !*meetingLive && live {
-		*meetingLive = true
-		a.emit(providers.Event{
-			Kind:      providers.EventKindMeetingStarted,
-			MeetingID: meetingID,
-			Timestamp: time.Now().UTC(),
-		})
+	if !state.meetingLive {
+		if !live {
+			state.observedNotLive = true
+		} else {
+			state.meetingLive = true
+			a.emit(providers.Event{
+				Kind:              providers.EventKindMeetingStarted,
+				MeetingID:         meetingID,
+				Timestamp:         time.Now().UTC(),
+				MeetingInProgress: !state.observedNotLive,
+			})
+		}
 	}
 
-	if *meetingLive {
+	if state.meetingLive {
 		current := map[string]string{}
 		for _, p := range participants {
 			id := p.email
@@ -124,7 +139,7 @@ func (a *Adapter) tick(ctx context.Context, meetingID string, active map[string]
 			}
 			current[id] = p.name
 
-			if _, seen := active[id]; !seen {
+			if _, seen := state.active[id]; !seen {
 				a.emit(providers.Event{
 					Kind:        providers.EventKindParticipantJoined,
 					MeetingID:   meetingID,
@@ -132,11 +147,11 @@ func (a *Adapter) tick(ctx context.Context, meetingID string, active map[string]
 					DisplayName: p.name,
 					Timestamp:   time.Now().UTC(),
 				})
-				active[id] = p.name
+				state.active[id] = p.name
 			}
 		}
 
-		for id := range active {
+		for id := range state.active {
 			if _, ok := current[id]; !ok {
 				a.emit(providers.Event{
 					Kind:       providers.EventKindParticipantLeft,
@@ -144,7 +159,7 @@ func (a *Adapter) tick(ctx context.Context, meetingID string, active map[string]
 					PlatformID: id,
 					Timestamp:  time.Now().UTC(),
 				})
-				delete(active, id)
+				delete(state.active, id)
 			}
 		}
 

@@ -35,15 +35,15 @@ def main() -> None:
     if event_filter:
         df = df.filter(pl.col("event_type").str.contains(event_filter))
 
-    # Find the absolute start time from meeting_started row.
-    start_rows = df.filter(pl.col("event_type") == "meeting_started")
+    # Find the absolute start time from session_started row.
+    start_rows = df.filter(pl.col("event_type") == "session_started")
     start_ts_ms: int | None = None
     if not start_rows.is_empty():
         start_ts_ms = start_rows["timestamp"][0]
         start_dt = datetime.fromtimestamp(start_ts_ms / 1000, tz=UTC)
         print(f"Meeting start: {start_dt.isoformat()}  ({path})")
     else:
-        print(f"(no meeting_started event found)  ({path})")
+        print(f"(no session_started event found)  ({path})")
 
     print(f"{'TIME':>15}  {'EVENT TYPE':<35}  {'PARTICIPANT':<20}  METADATA")
     print("-" * 110)
@@ -52,7 +52,7 @@ def main() -> None:
         ts: int = row["timestamp"]
         etype: str = row["event_type"]
 
-        if etype == "meeting_started" and start_ts_ms is not None:
+        if etype == "session_started" and start_ts_ms is not None:
             time_str = datetime.fromtimestamp(ts / 1000, tz=UTC).strftime(
                 "%H:%M:%S.000"
             )

@@ -12,12 +12,17 @@ type Document struct {
 
 // Meeting is the per-meeting envelope shared across every Participant
 // row that references it via MeetingID.
+//
+// StartedCause / EndedCause carry the session_started.cause and
+// session_ended.cause values ("meeting" or "tracking"); they tell the
+// GUI which open-band tooltip variant to use (see docs/EVENT_SCHEMA.md).
 type Meeting struct {
 	MeetingID       string  `json:"meeting_id"`
 	StartedAt       string  `json:"started_at"`
 	DurationSeconds float64 `json:"duration_seconds"`
 	Platform        string  `json:"platform"`
-	EndedReason     string  `json:"ended_reason"`
+	StartedCause    string  `json:"started_cause"`
+	EndedCause      string  `json:"ended_cause"`
 	MaxParticipants int     `json:"max_participants"`
 	SourceFile      string  `json:"source_file"`
 }

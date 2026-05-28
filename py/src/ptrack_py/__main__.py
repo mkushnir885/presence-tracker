@@ -24,6 +24,12 @@ from ptrack_analytics.schema import EVENT_SCHEMA
 
 from .reports import generate_aggregate_csv, generate_csv
 from .stats import generate_stats
+from .validate import IncompleteMeetingError, ensure_session_ended
+
+# Exit code returned when an input file is missing its session_ended
+# event (meeting still in progress). Distinct from the generic exit code
+# 1 so the Go GUI can map it to a clear "tracking still active" message.
+INCOMPLETE_MEETING_EXIT_CODE = 3
 
 app = typer.Typer(
     name="ptrack_py", help="ptrack Python analytics and generation binary."
@@ -45,6 +51,7 @@ def report(
 ) -> None:
     """Generate a CSV report from one or more Parquet files."""
     paths = _expand_globs(inputs)
+    _validate_complete(paths)
 
     try:
         frames = [pl.scan_parquet(p, schema=pl.Schema(EVENT_SCHEMA)) for p in paths]
@@ -74,6 +81,7 @@ def stats(
 ) -> None:
     """Emit the GUI stats JSON for one or more Parquet files."""
     paths = _expand_globs(inputs)
+    _validate_complete(paths)
 
     try:
         frames = [pl.scan_parquet(p, schema=pl.Schema(EVENT_SCHEMA)) for p in paths]
@@ -91,6 +99,20 @@ def stats(
         raise typer.Exit(code=1) from exc
 
     sys.stdout.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+
+
+def _validate_complete(paths: list[str]) -> None:
+    """Reject inputs that lack a session_ended event.
+
+    Exits with INCOMPLETE_MEETING_EXIT_CODE so the Go GUI can render a
+    "meeting still in progress" message instead of a generic failure.
+    """
+    for p in paths:
+        try:
+            ensure_session_ended(p)
+        except IncompleteMeetingError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=INCOMPLETE_MEETING_EXIT_CODE) from exc
 
 
 def _expand_globs(patterns: list[str]) -> list[str]:

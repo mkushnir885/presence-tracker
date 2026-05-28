@@ -10,8 +10,8 @@ participant_id column. Every per-participant event carries the canonical
 registered name.
 
 timestamp semantics:
-  - meeting_started row: absolute Unix timestamp in milliseconds.
-  - all other rows: milliseconds elapsed since the meeting_started timestamp.
+  - session_started row: absolute Unix timestamp in milliseconds.
+  - all other rows: milliseconds elapsed since the session_started timestamp.
 """
 
 from __future__ import annotations

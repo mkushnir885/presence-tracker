@@ -131,11 +131,11 @@ def _meeting_times(events: pl.LazyFrame) -> pl.LazyFrame:
     Columns: meeting_id, started_at (Datetime UTC), duration_ms (Int64),
              duration_seconds (Float64, floored at 1 s).
 
-    The meeting_started event stores an absolute Unix ms timestamp; all other
-    events store ms offsets, so the maximum offset equals the meeting duration.
+    The session_started event stores an absolute Unix ms timestamp; all other
+    events store ms offsets, so the maximum offset equals the session duration.
     """
     start = (
-        events.filter(pl.col("event_type") == "meeting_started")
+        events.filter(pl.col("event_type") == "session_started")
         .group_by("meeting_id")
         .agg(
             pl.from_epoch(pl.col("timestamp").first(), time_unit="ms").alias(

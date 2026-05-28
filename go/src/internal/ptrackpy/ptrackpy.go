@@ -19,6 +19,15 @@ var cachedPath atomic.Pointer[string]
 // neither next to the running ptrack binary nor in PATH.
 var ErrBinaryNotFound = errors.New("ptrackpy: ptrack_py not found next to ptrack or in PATH")
 
+// ErrIncompleteMeeting is returned by Run when ptrack_py rejects an
+// input because it has no session_ended event (meeting still in
+// progress). Wrapped with the file path detail in stderr.
+var ErrIncompleteMeeting = errors.New("ptrackpy: meeting still in progress")
+
+// incompleteMeetingExitCode mirrors INCOMPLETE_MEETING_EXIT_CODE in
+// py/src/ptrack_py/__main__.py.
+const incompleteMeetingExitCode = 3
+
 // Locate returns the absolute path to the ptrack_py executable, checking
 // first next to the running ptrack binary and then PATH. The returned
 // path is cached after the first successful lookup.
@@ -50,6 +59,13 @@ func Run(ctx context.Context, args ...string) ([]byte, error) {
 
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(stderr.String())
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == incompleteMeetingExitCode {
+			if msg != "" {
+				return nil, fmt.Errorf("%w: %s", ErrIncompleteMeeting, msg)
+			}
+			return nil, ErrIncompleteMeeting
+		}
 		if msg != "" {
 			return nil, fmt.Errorf("ptrackpy: %s: %w: %s", argSummary(args), err, msg)
 		}

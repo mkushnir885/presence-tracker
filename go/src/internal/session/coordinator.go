@@ -89,6 +89,11 @@ type Coordinator struct {
 	platformIndex map[string]string          // platformID → normName (for fast onLeave)
 	pendingHandle map[string]string          // messenger handle → normName (only while pending)
 	unregistered  map[string]providers.Event // platformID → original join event (live GUI only)
+
+	// Session-boundary state set when the provider observes the
+	// meeting actually ending. If still zero when Run exits, the
+	// session_ended event is written with cause="tracking".
+	meetingEndedAt time.Time
 }
 
 // New creates a Coordinator.
@@ -127,7 +132,7 @@ func (c *Coordinator) Run(ctx context.Context) error {
 
 	defer func() { //nolint:contextcheck // cleanup must run after ctx is cancelled or the provider closed; uses a fresh context
 		c.pipeline.Drain()
-		c.writeEvent(eventstore.Record{EventType: "meeting_ended"})
+		c.writeSessionEnded()
 		if err := c.store.Close(context.Background()); err != nil {
 			slog.Error("session: close eventstore", "err", err)
 		}
@@ -162,18 +167,65 @@ func (c *Coordinator) handleProviderEvent(ctx context.Context, evt providers.Eve
 	case providers.EventKindParticipantLeft:
 		c.onLeave(ctx, evt)
 	case providers.EventKindMeetingEnded:
-		// Provider channel will close; no extra action needed.
+		c.onMeetingEnded(evt)
 	case providers.EventKindMeetingStarted:
-		c.onMeetingStarted(ctx, evt)
+		c.onMeetingStarted(evt)
 	}
 }
 
-func (c *Coordinator) onMeetingStarted(_ context.Context, evt providers.Event) {
+// onMeetingStarted writes the session_started event. The cause records
+// whether tracking attached before the meeting began (cause=meeting,
+// using the meeting's true start timestamp) or while it was already in
+// progress (cause=tracking, using the attach timestamp).
+func (c *Coordinator) onMeetingStarted(evt providers.Event) {
+	cause := causeMeeting
+	if evt.MeetingInProgress {
+		cause = causeTracking
+	}
 	c.store.SetStartTime(evt.Timestamp)
 	c.writeEvent(eventstore.Record{
 		Timestamp: evt.Timestamp,
-		EventType: "meeting_started",
-		Metadata:  map[string]string{"platform": c.provider.Name()},
+		EventType: "session_started",
+		Metadata: map[string]string{
+			"platform": c.provider.Name(),
+			"cause":    cause,
+		},
+	})
+}
+
+// onMeetingEnded records the meeting's observed end time so that the
+// deferred writeSessionEnded can stamp the session_ended event with
+// cause=meeting. The provider closes its channel right after; the
+// actual session_ended row is written from the Run defer.
+func (c *Coordinator) onMeetingEnded(evt providers.Event) {
+	c.mu.Lock()
+	c.meetingEndedAt = evt.Timestamp
+	c.mu.Unlock()
+}
+
+const (
+	causeMeeting  = "meeting"
+	causeTracking = "tracking"
+)
+
+// writeSessionEnded emits exactly one session_ended event. cause is
+// "meeting" when the provider reported the meeting ending before
+// shutdown, "tracking" otherwise.
+func (c *Coordinator) writeSessionEnded() {
+	c.mu.Lock()
+	endedAt := c.meetingEndedAt
+	c.mu.Unlock()
+
+	cause := causeTracking
+	ts := time.Now().UTC()
+	if !endedAt.IsZero() {
+		cause = causeMeeting
+		ts = endedAt
+	}
+	c.writeEvent(eventstore.Record{
+		Timestamp: ts,
+		EventType: "session_ended",
+		Metadata:  map[string]string{"cause": cause},
 	})
 }
 

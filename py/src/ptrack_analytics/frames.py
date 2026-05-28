@@ -4,10 +4,16 @@ Derived lazy frames computed from the raw event log.
 All functions take the raw event LazyFrame and return a new LazyFrame.
 They do not read files or call collect(); that is the caller's responsibility.
 
-timestamp column semantics: the meeting_started row stores an absolute Unix
+timestamp column semantics: the session_started row stores an absolute Unix
 ms value; every other row stores a ms offset from that anchor. The frames
 below work with raw offsets — callers that need wall-clock times should
 join against the meetings frame which exposes started_at (Datetime).
+
+Open presence bands (no participant_left after the last participant_joined)
+are intentional and indicate the participant was still present at session
+end. The presence frame leaves left_ms null in that case so consumers can
+distinguish observed leaves from implicit ones; close at the meetings
+frame's duration_ms when a closed band is required.
 
 display_name is the participant identity end to end.
 """
@@ -22,8 +28,8 @@ def presence(events: pl.LazyFrame) -> pl.LazyFrame:
     Derive presence intervals: one row per (display_name, meeting_id, interval).
 
     Columns: display_name, meeting_id, joined_ms, left_ms, presence_seconds.
-    joined_ms and left_ms are ms offsets from the meeting start.
-    left_ms is null if the participant was still present when the meeting ended.
+    joined_ms and left_ms are ms offsets from session start.
+    left_ms is null if the participant was still present at session end.
     """
     joined = events.filter(pl.col("event_type") == "participant_joined").select(
         pl.col("display_name"),

@@ -93,24 +93,35 @@ func (a *Adapter) pollLoop(ctx context.Context, meetingID string) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	active := map[string]string{} // userID → fullName
-	meetingLive := false
+	state := pollState{
+		active: map[string]string{}, // userID → fullName
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if done := a.tick(ctx, meetingID, active, &meetingLive); done {
+			if done := a.tick(ctx, meetingID, &state); done {
 				return
 			}
 		}
 	}
 }
 
+// pollState carries cross-tick bookkeeping for pollLoop. observedNotRunning
+// is set to true the first time a poll reports the meeting as not running
+// before it goes live; that distinguishes "attached and watched the meeting
+// start" from "attached while the meeting was already in progress".
+type pollState struct {
+	active             map[string]string
+	meetingLive        bool
+	observedNotRunning bool
+}
+
 // tick performs one poll cycle. Returns true when the meeting has ended and
 // the caller should stop the loop.
-func (a *Adapter) tick(ctx context.Context, meetingID string, active map[string]string, meetingLive *bool) bool {
+func (a *Adapter) tick(ctx context.Context, meetingID string, state *pollState) bool {
 	info, err := a.fetchMeetingInfo(ctx, meetingID)
 	if err != nil {
 		slog.Warn("bbb: fetchMeetingInfo", "err", err)
@@ -119,27 +130,33 @@ func (a *Adapter) tick(ctx context.Context, meetingID string, active map[string]
 
 	isRunning := info.ReturnCode == "SUCCESS" && info.Running == "true"
 
-	if !*meetingLive && isRunning {
-		*meetingLive = true
-		ts := time.Now().UTC()
-		if info.CreateTime > 0 {
-			ts = time.UnixMilli(info.CreateTime).UTC()
+	if !state.meetingLive {
+		if !isRunning {
+			state.observedNotRunning = true
+		} else {
+			state.meetingLive = true
+			midMeeting := !state.observedNotRunning
+			ts := time.Now().UTC()
+			if !midMeeting && info.CreateTime > 0 {
+				ts = time.UnixMilli(info.CreateTime).UTC()
+			}
+			a.emit(providers.Event{
+				Kind:              providers.EventKindMeetingStarted,
+				MeetingID:         meetingID,
+				Timestamp:         ts,
+				MeetingInProgress: midMeeting,
+			})
 		}
-		a.emit(providers.Event{
-			Kind:      providers.EventKindMeetingStarted,
-			MeetingID: meetingID,
-			Timestamp: ts,
-		})
 	}
 
-	if *meetingLive {
+	if state.meetingLive {
 		current := map[string]string{}
 		for _, att := range info.Attendees.List {
 			current[att.UserID] = att.FullName
 		}
 
 		for _, att := range info.Attendees.List {
-			if _, seen := active[att.UserID]; !seen {
+			if _, seen := state.active[att.UserID]; !seen {
 				a.emit(providers.Event{
 					Kind:        providers.EventKindParticipantJoined,
 					MeetingID:   meetingID,
@@ -148,11 +165,11 @@ func (a *Adapter) tick(ctx context.Context, meetingID string, active map[string]
 					Timestamp:   time.Now().UTC(),
 					Extra:       map[string]string{"role": att.Role},
 				})
-				active[att.UserID] = att.FullName
+				state.active[att.UserID] = att.FullName
 			}
 		}
 
-		for id := range active {
+		for id := range state.active {
 			if _, ok := current[id]; !ok {
 				a.emit(providers.Event{
 					Kind:       providers.EventKindParticipantLeft,
@@ -160,7 +177,7 @@ func (a *Adapter) tick(ctx context.Context, meetingID string, active map[string]
 					PlatformID: id,
 					Timestamp:  time.Now().UTC(),
 				})
-				delete(active, id)
+				delete(state.active, id)
 			}
 		}
 

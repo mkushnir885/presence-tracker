@@ -57,29 +57,29 @@ func ReadAll(ctx context.Context, path string) ([]Record, error) {
 	}
 	tsCol := newInt64Reader(table.Column(colTimestamp))
 
-	// Collect raw timestamp values (absolute Unix ms for meeting_started,
-	// ms offset from meeting start for all others).
+	// Collect raw timestamp values (absolute Unix ms for session_started,
+	// ms offset from session start for all others).
 	rawTS := make([]int64, n)
 	for i := range n {
 		rawTS[i] = tsCol.get(i)
 	}
 
-	// Identify the meeting start time from the meeting_started event so that
+	// Identify the session start time from the session_started event so that
 	// all offsets can be reconstructed into absolute wall-clock times.
-	var meetingStart time.Time
+	var sessionStart time.Time
 	for i := range n {
-		if strCols[colEventType].get(i) == "meeting_started" {
-			meetingStart = time.UnixMilli(rawTS[i]).UTC()
+		if strCols[colEventType].get(i) == "session_started" {
+			sessionStart = time.UnixMilli(rawTS[i]).UTC()
 			break
 		}
 	}
 
 	for i := range n {
 		var ts time.Time
-		if strCols[colEventType].get(i) == "meeting_started" || meetingStart.IsZero() {
+		if strCols[colEventType].get(i) == "session_started" || sessionStart.IsZero() {
 			ts = time.UnixMilli(rawTS[i]).UTC()
 		} else {
-			ts = meetingStart.Add(time.Duration(rawTS[i]) * time.Millisecond)
+			ts = sessionStart.Add(time.Duration(rawTS[i]) * time.Millisecond)
 		}
 
 		r := Record{

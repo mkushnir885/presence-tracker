@@ -14,11 +14,12 @@ import (
 
 // fixtureEvent is one line of a fixture JSONL file.
 type fixtureEvent struct {
-	Kind        string            `json:"kind"`
-	PlatformID  string            `json:"platform_id"`
-	DisplayName string            `json:"display_name"`
-	OffsetMS    int64             `json:"offset_ms"` // time offset from meeting start
-	Extra       map[string]string `json:"extra"`
+	Kind              string            `json:"kind"`
+	PlatformID        string            `json:"platform_id"`
+	DisplayName       string            `json:"display_name"`
+	OffsetMS          int64             `json:"offset_ms"` // time offset from meeting start
+	Extra             map[string]string `json:"extra"`
+	MeetingInProgress bool              `json:"meeting_in_progress"` // optional; only meaningful on meeting_started
 }
 
 // Provider replays events from a fixture directory at real-time speed.
@@ -73,12 +74,13 @@ func (p *Provider) Subscribe(ctx context.Context, meetingID string) (<-chan prov
 				}
 			}
 			evt := providers.Event{
-				Kind:        providers.EventKind(fe.Kind),
-				MeetingID:   meetingID,
-				PlatformID:  fe.PlatformID,
-				DisplayName: fe.DisplayName,
-				Timestamp:   start.Add(time.Duration(fe.OffsetMS) * time.Millisecond),
-				Extra:       fe.Extra,
+				Kind:              providers.EventKind(fe.Kind),
+				MeetingID:         meetingID,
+				PlatformID:        fe.PlatformID,
+				DisplayName:       fe.DisplayName,
+				Timestamp:         start.Add(time.Duration(fe.OffsetMS) * time.Millisecond),
+				Extra:             fe.Extra,
+				MeetingInProgress: fe.MeetingInProgress,
 			}
 			select {
 			case ch <- evt:

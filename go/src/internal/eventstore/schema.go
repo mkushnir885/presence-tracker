@@ -13,8 +13,8 @@ import (
 // used as the cross-meeting join key.
 //
 // timestamp semantics:
-//   - meeting_started row: absolute Unix timestamp in milliseconds.
-//   - all other rows: milliseconds elapsed since the meeting_started timestamp.
+//   - session_started row: absolute Unix timestamp in milliseconds.
+//   - all other rows: milliseconds elapsed since the session_started timestamp.
 //
 // The metadata column stores a JSON-encoded map[string]string.
 // TODO: migrate to Arrow map<string,string> for native analytics support.

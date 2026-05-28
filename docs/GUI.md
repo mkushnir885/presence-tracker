@@ -347,6 +347,21 @@ thin vertical rules at each state change.
 - Solid fill: participant present.
 - Light fill / hatched: participant disconnected.
 
+The right edge of the last presence segment carries one of three
+labels in its tooltip and legend entry, depending on how that segment
+closed:
+
+- A `participant_left` event closed it — show the exact leave
+  timestamp.
+- No `participant_left`, and the file's `session_ended.cause` is
+  `"meeting"` — show "till the end of the meeting".
+- No `participant_left`, and the file's `session_ended.cause` is
+  `"tracking"` — show "till tracking stopped" (the participant may have
+  stayed longer; ptrack stopped watching first).
+
+The marker style for the last two cases is visually distinct from a
+normal leave so the open-band semantics are recognisable at a glance.
+
 ### Challenge markers
 
 Each marker is drawn at the X-coordinate of the `challenge_issued` event.

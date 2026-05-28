@@ -53,7 +53,8 @@ def generate_stats(
                 "started_at": m["started_at_iso"],
                 "duration_seconds": m["duration_seconds"],
                 "platform": m.get("platform") or "",
-                "ended_reason": m.get("ended_reason") or "",
+                "started_cause": m.get("started_cause") or "",
+                "ended_cause": m.get("ended_cause") or "",
                 "max_participants": int(max_participants.get(m["meeting_id"], 0)),
             }
             for m in meetings
@@ -69,7 +70,7 @@ def generate_stats(
 
 def _collect_meetings(events: pl.LazyFrame) -> list[dict[str, Any]]:
     start = (
-        events.filter(pl.col("event_type") == "meeting_started")
+        events.filter(pl.col("event_type") == "session_started")
         .group_by("meeting_id")
         .agg(
             pl.from_epoch(pl.col("timestamp").first(), time_unit="ms").alias(
@@ -79,21 +80,25 @@ def _collect_meetings(events: pl.LazyFrame) -> list[dict[str, Any]]:
             .str.json_path_match("$.platform")
             .first()
             .alias("platform"),
+            pl.col("metadata")
+            .str.json_path_match("$.cause")
+            .first()
+            .alias("started_cause"),
         )
     )
     duration = (
-        events.filter(pl.col("event_type") != "meeting_started")
+        events.filter(pl.col("event_type") != "session_started")
         .group_by("meeting_id")
         .agg(pl.col("timestamp").max().alias("duration_ms"))
     )
     ended = (
-        events.filter(pl.col("event_type") == "meeting_ended")
+        events.filter(pl.col("event_type") == "session_ended")
         .group_by("meeting_id")
         .agg(
             pl.col("metadata")
-            .str.json_path_match("$.reason")
+            .str.json_path_match("$.cause")
             .first()
-            .alias("ended_reason"),
+            .alias("ended_cause"),
         )
     )
     df: pl.DataFrame = (  # type: ignore  # ty limitation: collect returns InProcessQuery union

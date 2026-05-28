@@ -76,10 +76,10 @@ func writeAllToFile(path string, records []Record, compression string, rowGroupS
 		return pw.Close()
 	}
 
-	// Recover the meeting start time so timestamps are stored correctly.
+	// Recover the session start time so timestamps are stored correctly.
 	var startTime time.Time
 	for _, r := range records {
-		if r.EventType == "meeting_started" {
+		if r.EventType == "session_started" {
 			startTime = r.Timestamp
 			break
 		}

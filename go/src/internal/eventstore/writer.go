@@ -216,11 +216,11 @@ func (w *Writer) writeRowGroup(rows []Record, startTime time.Time) error {
 
 // buildRecord encodes rows into an Arrow record batch.
 // timestamp encoding (schema v2):
-//   - meeting_started row → absolute Unix ms (the anchor for other events).
-//   - all other rows → ms elapsed since startTime (the meeting start).
+//   - session_started row → absolute Unix ms (the anchor for other events).
+//   - all other rows → ms elapsed since startTime (the session start).
 //
 // If startTime is zero, all rows are stored as absolute Unix ms (safe fallback
-// when no meeting_started event was recorded).
+// when no session_started event was recorded).
 func buildRecord(rows []Record, startTime time.Time) arrow.Record {
 	pool := memory.NewGoAllocator()
 
@@ -243,7 +243,7 @@ func buildRecord(rows []Record, startTime time.Time) arrow.Record {
 	for i := range rows {
 		r := &rows[i]
 		meetingID.Append(r.MeetingID)
-		if r.EventType == "meeting_started" || startTime.IsZero() {
+		if r.EventType == "session_started" || startTime.IsZero() {
 			ts.Append(r.Timestamp.UnixMilli())
 		} else {
 			ts.Append(r.Timestamp.Sub(startTime).Milliseconds())

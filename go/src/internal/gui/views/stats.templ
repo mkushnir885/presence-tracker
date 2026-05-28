@@ -340,7 +340,7 @@ func challengeTooltip(row stats.ParticipantRow, locale Locale) string {
 	)
 }
 
-func segmentEdgeTooltip(isStart bool, seg stats.Segment, _ stats.Meeting, locale Locale) string {
+func segmentEdgeTooltip(isStart bool, seg stats.Segment, m stats.Meeting, locale Locale) string {
 	var parts []string
 	if isStart {
 		parts = append(parts, fmt.Sprintf("%s %s",
@@ -354,7 +354,7 @@ func segmentEdgeTooltip(isStart bool, seg stats.Segment, _ stats.Meeting, locale
 		}
 	} else {
 		if seg.StillPresent {
-			parts = append(parts, locale.T("stats.tooltip.still_present"))
+			parts = append(parts, locale.T(stillPresentKey(m.EndedCause)))
 		} else {
 			parts = append(parts, fmt.Sprintf("%s %s",
 				locale.T("stats.tooltip.left_at"),
@@ -368,6 +368,19 @@ func segmentEdgeTooltip(isStart bool, seg stats.Segment, _ stats.Meeting, locale
 		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+// stillPresentKey picks the right-edge tooltip key for an open presence
+// band, driven by how the session ended.
+func stillPresentKey(endedCause string) string {
+	switch endedCause {
+	case "meeting":
+		return "stats.tooltip.till_meeting_end"
+	case "tracking":
+		return "stats.tooltip.till_tracking_stopped"
+	default:
+		return "stats.tooltip.still_present"
+	}
 }
 
 func markerTooltip(mk stats.Marker, _ stats.Meeting, locale Locale) string {
@@ -412,7 +425,6 @@ func meetingDetailsTooltip(m stats.Meeting, locale Locale) string {
 	startedLabel := locale.T("stats.duration.started")
 	endedLabel := locale.T("stats.duration.ended")
 	platformLabel := locale.T("stats.duration.platform")
-	reasonLabel := locale.T("stats.duration.reason")
 	maxLabel := locale.T("stats.cross.max_participants")
 
 	startedAt := formatMeetingTime(m.StartedAt)
@@ -420,18 +432,34 @@ func meetingDetailsTooltip(m stats.Meeting, locale Locale) string {
 
 	var parts []string
 	parts = append(parts, fmt.Sprintf("%s: %s", durationLabel, formatDuration(m.DurationSeconds)))
+	startedLine := fmt.Sprintf("%s: %s", startedLabel, startedAt)
 	if m.Platform != "" {
-		parts = append(parts, fmt.Sprintf("%s: %s (%s: %s)", startedLabel, startedAt, platformLabel, m.Platform))
-	} else {
-		parts = append(parts, fmt.Sprintf("%s: %s", startedLabel, startedAt))
+		startedLine = fmt.Sprintf("%s (%s: %s)", startedLine, platformLabel, m.Platform)
 	}
-	if m.EndedReason != "" {
-		parts = append(parts, fmt.Sprintf("%s: %s (%s: %s)", endedLabel, endedAt, reasonLabel, m.EndedReason))
-	} else {
-		parts = append(parts, fmt.Sprintf("%s: %s", endedLabel, endedAt))
+	if note := causeNote(m.StartedCause, "stats.duration.started_cause", locale); note != "" {
+		startedLine = fmt.Sprintf("%s — %s", startedLine, note)
 	}
+	parts = append(parts, startedLine)
+
+	endedLine := fmt.Sprintf("%s: %s", endedLabel, endedAt)
+	if note := causeNote(m.EndedCause, "stats.duration.ended_cause", locale); note != "" {
+		endedLine = fmt.Sprintf("%s — %s", endedLine, note)
+	}
+	parts = append(parts, endedLine)
+
 	parts = append(parts, fmt.Sprintf("%s: %d", maxLabel, m.MaxParticipants))
 	return strings.Join(parts, "\n")
+}
+
+// causeNote returns a localized description of a session boundary's
+// cause for inclusion in the meeting-details popover. Empty cause
+// (legacy file with no session_started/session_ended metadata) yields
+// no note.
+func causeNote(cause, prefix string, locale Locale) string {
+	if cause == "" {
+		return ""
+	}
+	return locale.T(prefix + "." + cause)
 }
 
 func formatMeetingTime(iso string) string {
