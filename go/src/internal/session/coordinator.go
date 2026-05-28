@@ -237,11 +237,21 @@ const (
 
 // writeSessionEnded emits exactly one session_ended event. cause is
 // "meeting" when the provider reported the meeting ending before
-// shutdown, "tracking" otherwise.
+// shutdown, "tracking" otherwise. When the provider never observed the
+// meeting starting (meetingStartedAt is zero), no event is written —
+// the writer's buffer stays empty and Close leaves no Parquet file
+// behind, so tracking sessions that never saw an actual meeting do not
+// produce a phantom file.
 func (c *Coordinator) writeSessionEnded() {
 	c.mu.Lock()
+	startedAt := c.meetingStartedAt
 	endedAt := c.meetingEndedAt
 	c.mu.Unlock()
+
+	if startedAt.IsZero() {
+		slog.Info("session: no meeting observed — skipping session_ended and Parquet file")
+		return
+	}
 
 	cause := causeTracking
 	ts := time.Now().UTC()
