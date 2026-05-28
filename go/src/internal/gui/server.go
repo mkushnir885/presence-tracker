@@ -463,7 +463,7 @@ func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	locale := localeFromRequest(r)
-	_ = views.ShutdownDone(locale).Render(r.Context(), w)
+	_ = views.ShutdownDone(locale, s.cfg.Get().GUI.OpenBrowserOnStart).Render(r.Context(), w)
 	if s.shutdownFn != nil {
 		go func() {
 			time.Sleep(200 * time.Millisecond)

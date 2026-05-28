@@ -244,11 +244,19 @@ script dispatchPendingScript(path string) {
 
 // ShutdownDone is shown after POST /system/shutdown. It replaces the
 // whole body so htmx no longer polls /status (which would 404 once the
-// listener is gone).
-templ ShutdownDone(locale Locale) {
+// listener is gone). When attemptClose is true the page also tries
+// window.close() on load — it succeeds when the tab was opened by
+// ptrack (open_browser_on_start) and silently no-ops otherwise, in
+// which case the message remains visible.
+templ ShutdownDone(locale Locale, attemptClose bool) {
 	@Layout("Stopped", locale, nil) {
 		<div class="card" style="text-align:center;padding:2rem;">
 			<h2>{ locale.T("nav.shutdown_done") }</h2>
 		</div>
+		if attemptClose {
+			<script>
+				window.close();
+			</script>
+		}
 	}
 }
