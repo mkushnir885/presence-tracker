@@ -1,11 +1,10 @@
 package views
 
-templ Dashboard(data DashboardData, locale Locale) {
-	@Layout("Dashboard", locale, nil) {
-		@pageHeader(locale.T("nav.dashboard")) {
+templ Home(data HomeData, locale Locale) {
+	@Layout(locale.T("dashboard.connect.title"), locale, nil) {
+		@pageHeader(locale.T("dashboard.connect.title")) {
 		}
 		<div class="card">
-			<h2 style="margin-top:0">{ locale.T("dashboard.connect.title") }</h2>
 			if len(data.EnabledProviders) == 0 {
 				<p class="text-muted">
 					{ locale.T("dashboard.connect.no_providers") }

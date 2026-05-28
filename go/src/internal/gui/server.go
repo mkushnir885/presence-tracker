@@ -85,7 +85,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	sub, _ := fs.Sub(views.Assets, "assets")
 	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServerFS(sub)))
 
-	mux.HandleFunc("GET /", s.handleDashboard)
+	mux.HandleFunc("GET /", s.handleHome)
 	mux.HandleFunc("GET /meetings", s.handleMeetings)
 	mux.HandleFunc("POST /session", s.handleStartSession)
 	mux.HandleFunc("DELETE /session", s.handleStopSession)
@@ -129,11 +129,11 @@ func (s *Server) Challenger() *challenger.Service {
 	return s.active.challenger
 }
 
-// handleDashboard renders the Connect-form dashboard. When a session
-// is already active it redirects to /status — there is no meaningful
-// dashboard action while tracking, and the live view is what the user
-// wants.
-func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
+// handleHome renders the home page (Connect to a meeting form). When a
+// session is already active it redirects to /status — there is no
+// meaningful home action while tracking, and the live view is what the
+// user wants.
+func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	act := s.active
 	s.mu.RUnlock()
@@ -143,11 +143,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := views.DashboardData{
+	data := views.HomeData{
 		EnabledProviders: enabledProviderOptions(s.cfg.Get().Providers),
 	}
 	locale := localeFromRequest(r)
-	_ = views.Dashboard(data, locale).Render(r.Context(), w)
+	_ = views.Home(data, locale).Render(r.Context(), w)
 }
 
 // handleMeetings renders the Meeting files page, listing every Parquet

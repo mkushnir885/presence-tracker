@@ -104,10 +104,10 @@ func registryInfoClass(errors RegistryFilterErrors) string {
 	return "registry-info"
 }
 
-// DashboardData is the data model for the dashboard page.
-// The dashboard is only ever rendered when no session is active —
-// once tracking starts, GET / redirects to /status.
-type DashboardData struct {
+// HomeData is the data model for the home page (Connect to a meeting).
+// It is only rendered when no session is active — once tracking starts,
+// GET / redirects to /status.
+type HomeData struct {
 	EnabledProviders []ProviderOption
 }
 
