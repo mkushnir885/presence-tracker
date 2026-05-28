@@ -1,5 +1,15 @@
 package views
 
+// meetingFieldKey builds the i18n key for one of the per-provider
+// meeting-input strings (label, placeholder, hint). Each provider
+// accepts a different shape of meeting identifier — e.g. BBB takes
+// either a meeting ID or a Greenlight URL, Meet takes a code or
+// meet.google.com link — so the Connect form swaps these strings in
+// when the provider dropdown changes.
+func meetingFieldKey(provider, suffix string) string {
+	return "dashboard.connect.meeting_id." + provider + "." + suffix
+}
+
 templ Home(data HomeData, locale Locale) {
 	@Layout(locale.T("dashboard.connect.title"), locale, nil) {
 		@pageHeader(locale.T("dashboard.connect.title")) {
@@ -16,14 +26,19 @@ templ Home(data HomeData, locale Locale) {
 						<label for="provider">{ locale.T("dashboard.connect.provider") }</label>
 						<select id="provider" name="provider" style="width:auto">
 							for _, p := range data.EnabledProviders {
-								<option value={ p.Name }>{ p.Label }</option>
+								<option
+									value={ p.Name }
+									data-meeting-label={ locale.T(meetingFieldKey(p.Name, "label")) }
+									data-meeting-placeholder={ locale.T(meetingFieldKey(p.Name, "placeholder")) }
+									data-meeting-hint={ locale.T(meetingFieldKey(p.Name, "hint")) }
+								>{ p.Label }</option>
 							}
 						</select>
 					</div>
 					<div class="field">
-						<label for="meeting_id">{ locale.T("dashboard.connect.meeting_id") }</label>
-						<input id="meeting_id" name="meeting_id" type="text" placeholder={ locale.T("dashboard.connect.meeting_id_placeholder") } required/>
-						<small class="text-muted">{ locale.T("dashboard.connect.meeting_id_hint") }</small>
+						<label id="meeting_id_label" for="meeting_id">{ locale.T(meetingFieldKey(data.EnabledProviders[0].Name, "label")) }</label>
+						<input id="meeting_id" name="meeting_id" type="text" placeholder={ locale.T(meetingFieldKey(data.EnabledProviders[0].Name, "placeholder")) } required/>
+						<small id="meeting_id_hint" class="text-muted">{ locale.T(meetingFieldKey(data.EnabledProviders[0].Name, "hint")) }</small>
 					</div>
 					<div class="field">
 						<label for="file_name">{ locale.T("dashboard.connect.file_name") }</label>
@@ -32,7 +47,30 @@ templ Home(data HomeData, locale Locale) {
 					</div>
 					<button type="submit" class="btn btn-primary">{ locale.T("dashboard.connect.btn") }</button>
 				</form>
+				@connectMeetingFieldScript()
 			}
 		</div>
 	}
+}
+
+// connectMeetingFieldScript syncs the meeting-input label, placeholder,
+// and hint with the selected provider's data-* attributes.
+templ connectMeetingFieldScript() {
+	<script>
+		(function() {
+			const sel = document.getElementById('provider');
+			const label = document.getElementById('meeting_id_label');
+			const input = document.getElementById('meeting_id');
+			const hint = document.getElementById('meeting_id_hint');
+			if (!sel || !label || !input || !hint) return;
+			function apply() {
+				const opt = sel.options[sel.selectedIndex];
+				if (!opt) return;
+				label.textContent = opt.dataset.meetingLabel;
+				input.placeholder = opt.dataset.meetingPlaceholder;
+				hint.textContent = opt.dataset.meetingHint;
+			}
+			sel.addEventListener('change', apply);
+		})();
+	</script>
 }
