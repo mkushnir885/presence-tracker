@@ -9,8 +9,13 @@
   "messenger.join_confirm.prompt": "📍 Did you just join meeting *%s* on *%s*?",
   "messenger.join_confirm.btn.yes": "Yes, that's me",
   "messenger.join_confirm.btn.no": "No",
-  "messenger.join_confirm.yes_result": "✅ Confirmed! Challenges will be sent to you during this meeting.",
-  "messenger.join_confirm.no_result": "Not confirmed. Challenges will not be sent to you in this session.",
+  "messenger.join_confirm.yes_result": "✅ Confirmed! Your presence is being tracked for this meeting.",
+  "messenger.join_confirm.no_result": "❎ Not confirmed. Your presence will not be tracked in this session.",
+  "messenger.join_confirm.dropped": "Verification cancelled — you left the meeting before confirming.",
+  "messenger.join_confirm.timed_out": "⏰ Verification timed out. Rejoin the meeting to receive a new confirmation prompt.",
+  "messenger.join_confirm.collision": "⚠ Verification cancelled — another participant joined under the name %q. Ask your teacher to resolve the conflict, then rejoin the meeting.",
   "messenger.challenge.reply_hint.text": "\n\nPlease reply to this message with your answer.",
-  "messenger.challenge.reply_hint.numeric": "\n\nPlease reply to this message with a number."
+  "messenger.challenge.reply_hint.numeric": "\n\nPlease reply to this message with a number.",
+  "messenger.challenge.answered": "✅ Your answer was saved.",
+  "messenger.challenge.timed_out": "⏰ Time's up — no answer recorded."
 }

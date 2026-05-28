@@ -85,7 +85,7 @@ func (m *Messenger) SendChallenge(_ context.Context, handle string, c messengers
 	return ref, nil
 }
 
-func (m *Messenger) EditMessage(_ context.Context, ref messengers.MessageRef, _ string) error {
+func (m *Messenger) Notify(_ context.Context, ref messengers.MessageRef, _ messengers.NotifyKind, _ ...any) error {
 	_ = ref
 	return nil
 }

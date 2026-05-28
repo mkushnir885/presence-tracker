@@ -39,6 +39,16 @@ type EventSink interface {
 	RecordChallengeResult(ctx context.Context, challengeID string, result ScoreResult, latencyMS int64) error
 	RecordChallengeUnanswered(ctx context.Context, challengeID string) error
 	RecordChallengeSkipped(ctx context.Context, displayName, reason string) error
+
+	// NotifyAnswered edits the question message in place so the user
+	// sees that their answer landed. The message stays in chat as a
+	// receipt.
+	NotifyAnswered(ctx context.Context, ref string) error
+	// NotifyAnswerTimedOut edits the question message to show that the
+	// answer window has closed without an answer being recorded.
+	NotifyAnswerTimedOut(ctx context.Context, ref string) error
+	// DeleteMessage removes a message, used to clear the user's reply
+	// after it has been scored.
 	DeleteMessage(ctx context.Context, ref string) error
 }
 
@@ -224,8 +234,8 @@ func (p *Pipeline) awaitAnswer(ctx context.Context, cancel context.CancelFunc, c
 		if err := p.sink.RecordChallengeResult(ctx, cid, result, latency); err != nil {
 			slog.Error("challenges: record result", "err", err)
 		}
-		if err := p.sink.DeleteMessage(ctx, issued.MessageRef); err != nil {
-			slog.Warn("challenges: delete question message", "err", err)
+		if err := p.sink.NotifyAnswered(ctx, issued.MessageRef); err != nil {
+			slog.Warn("challenges: mark question answered", "err", err)
 		}
 		if answer.MessageRef != "" {
 			if err := p.sink.DeleteMessage(ctx, answer.MessageRef); err != nil {
@@ -238,8 +248,8 @@ func (p *Pipeline) awaitAnswer(ctx context.Context, cancel context.CancelFunc, c
 		if err := p.sink.RecordChallengeUnanswered(bg, cid); err != nil { //nolint:contextcheck
 			slog.Error("challenges: record unanswered", "err", err)
 		}
-		if err := p.sink.DeleteMessage(bg, issued.MessageRef); err != nil { //nolint:contextcheck
-			slog.Warn("challenges: delete question message on timeout", "err", err)
+		if err := p.sink.NotifyAnswerTimedOut(bg, issued.MessageRef); err != nil { //nolint:contextcheck
+			slog.Warn("challenges: mark question timed out", "err", err)
 		}
 	}
 }

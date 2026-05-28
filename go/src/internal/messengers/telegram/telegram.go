@@ -26,6 +26,11 @@ import (
 // disappears within the same lesson.
 const registerPromptTTL = 60 * time.Second
 
+// languageConfirmTTL is how long the "Language set to …" / "Register
+// first" reply lingers in chat after the user taps a language button.
+// Long enough to read, short enough to keep the bot's history tidy.
+const languageConfirmTTL = 8 * time.Second
+
 // Name is the canonical identifier this adapter reports through
 // Messenger.Name and registers under in the messengers catalog.
 const Name = "telegram"
@@ -88,9 +93,27 @@ func New(token string, registry participants.Registry) (*Adapter, error) {
 // already removed from the map by util.TTLMap before this callback
 // runs.
 func (a *Adapter) expireRegisterPrompt(chatID int64, messageID int) {
+	a.deleteMessageByID(chatID, messageID)
+}
+
+// discardRegisterPrompt removes the outstanding /register prompt for
+// chatID (if any) from both the TTL map and the chat itself. Telegram
+// re-applies a message's ForceReply markup every time the user opens
+// the chat, so leaving the prompt message in place after the reply has
+// been processed makes the input box keep nagging the user to "Reply
+// with your display name" — even though, from the bot's perspective,
+// registration is already complete. Always deleting the message closes
+// that gap.
+func (a *Adapter) discardRegisterPrompt(chatID int64) {
+	if msgID, ok := a.registerPrompts.Delete(chatID); ok {
+		a.deleteMessageByID(chatID, msgID)
+	}
+}
+
+func (a *Adapter) deleteMessageByID(chatID int64, messageID int) {
 	del := tgbotapi.NewDeleteMessage(chatID, messageID)
 	if _, err := a.bot.Request(del); err != nil {
-		slog.Debug("telegram: delete expired register prompt", "chat_id", chatID, "msg_id", messageID, "err", err)
+		slog.Debug("telegram: delete message", "chat_id", chatID, "msg_id", messageID, "err", err)
 	}
 }
 
@@ -217,8 +240,11 @@ func (a *Adapter) handleRegister(msg *tgbotapi.Message) {
 // promptRegister sends a ForceReply prompt asking the user for their
 // display name. Telegram focuses the input as a reply to this message,
 // so the user types only the name. The prompt's message ID is tracked
-// per chat; the next reply to it is dispatched as a registration.
+// per chat; the next reply to it is dispatched as a registration. Any
+// previous outstanding prompt is deleted first so the chat never holds
+// more than one active ForceReply marker.
 func (a *Adapter) promptRegister(chatID int64, langHint string) {
+	a.discardRegisterPrompt(chatID)
 	locale := a.locale(chatID, langHint)
 	prompt := tgbotapi.NewMessage(chatID, locale.T("messenger.telegram.register.prompt"))
 	prompt.ReplyMarkup = tgbotapi.ForceReply{
@@ -326,23 +352,32 @@ func (a *Adapter) handleLanguageCallback(cq *tgbotapi.CallbackQuery) {
 		// Not registered yet; reply in the user's currently effective language.
 		locale := a.locale(chatID, cq.From.LanguageCode)
 		if cq.Message != nil {
-			edit := tgbotapi.NewEditMessageText(chatID, cq.Message.MessageID,
-				locale.T("messenger.telegram.language.unregistered"))
-			empty := tgbotapi.NewInlineKeyboardMarkup()
-			edit.ReplyMarkup = &empty
-			_, _ = a.bot.Send(edit)
+			a.editAndAutoDelete(chatID, cq.Message.MessageID,
+				locale.T("messenger.telegram.language.unregistered"), languageConfirmTTL)
 		}
 		return
 	}
 
 	if cq.Message != nil {
 		newLocale := a.catalog.Locale(chosen)
-		edit := tgbotapi.NewEditMessageText(chatID, cq.Message.MessageID,
-			newLocale.T("messenger.telegram.language.confirm"))
-		empty := tgbotapi.NewInlineKeyboardMarkup()
-		edit.ReplyMarkup = &empty
-		_, _ = a.bot.Send(edit)
+		a.editAndAutoDelete(chatID, cq.Message.MessageID,
+			newLocale.T("messenger.telegram.language.confirm"), languageConfirmTTL)
 	}
+}
+
+// editAndAutoDelete rewrites a previously-sent message (clearing any
+// inline keyboard) and schedules its deletion after ttl. Used by the
+// language picker so its confirmation reply does not pile up in the
+// chat between sessions.
+func (a *Adapter) editAndAutoDelete(chatID int64, messageID int, text string, ttl time.Duration) {
+	edit := tgbotapi.NewEditMessageText(chatID, messageID, text)
+	empty := tgbotapi.NewInlineKeyboardMarkup()
+	edit.ReplyMarkup = &empty
+	if _, err := a.bot.Send(edit); err != nil {
+		slog.Debug("telegram: edit before auto-delete", "chat_id", chatID, "msg_id", messageID, "err", err)
+		return
+	}
+	time.AfterFunc(ttl, func() { a.deleteMessageByID(chatID, messageID) })
 }
 
 func (a *Adapter) handleWhoami(msg *tgbotapi.Message) {
@@ -370,12 +405,13 @@ func (a *Adapter) handleTextMessage(ctx context.Context, msg *tgbotapi.Message) 
 	replyTo := msg.ReplyToMessage.MessageID
 
 	if promptID, ok := a.registerPrompts.Get(chatID); ok && replyTo == promptID {
-		a.registerPrompts.Delete(chatID)
 		name := strings.TrimSpace(msg.Text)
 		if name == "" {
+			// promptRegister discards the stale prompt before sending the new one.
 			a.promptRegister(chatID, msg.From.LanguageCode)
 			return
 		}
+		a.discardRegisterPrompt(chatID)
 		a.registerDisplayName(ctx, msg, name)
 		return
 	}
@@ -558,13 +594,36 @@ func buildTextMessage(chatID int64, c messengers.ChallengePrompt, locale i18n.Lo
 	return tgbotapi.NewMessage(chatID, c.Prompt+locale.T(key))
 }
 
-// EditMessage replaces the text of a previously sent message.
-func (a *Adapter) EditMessage(_ context.Context, ref messengers.MessageRef, newText string) error {
+// notifyKeys maps every messengers.NotifyKind to its locale key. Kept
+// next to the Notify implementation so adding a new kind surfaces here.
+var notifyKeys = map[messengers.NotifyKind]string{
+	messengers.NotifyJoinDropped:       "messenger.join_confirm.dropped",
+	messengers.NotifyJoinTimedOut:      "messenger.join_confirm.timed_out",
+	messengers.NotifyJoinCollision:     "messenger.join_confirm.collision",
+	messengers.NotifyChallengeAnswered: "messenger.challenge.answered",
+	messengers.NotifyChallengeTimedOut: "messenger.challenge.timed_out",
+}
+
+// Notify edits a previously-sent message to the localized text for
+// kind. The recipient's locale is resolved from the chat associated
+// with ref; args are forwarded to fmt.Sprintf so kinds whose template
+// contains format verbs (e.g. NotifyJoinCollision's %q) render with
+// the caller-supplied values.
+func (a *Adapter) Notify(_ context.Context, ref messengers.MessageRef, kind messengers.NotifyKind, args ...any) error {
 	var r telegramRef
 	if err := json.Unmarshal([]byte(ref.Opaque), &r); err != nil {
 		return fmt.Errorf("telegram: decode ref: %w", err)
 	}
-	edit := tgbotapi.NewEditMessageText(r.ChatID, r.MessageID, newText)
+	key, ok := notifyKeys[kind]
+	if !ok {
+		return fmt.Errorf("telegram: unknown notify kind %d", kind)
+	}
+	locale := a.locale(r.ChatID, "")
+	text := locale.T(key)
+	if len(args) > 0 {
+		text = fmt.Sprintf(text, args...)
+	}
+	edit := tgbotapi.NewEditMessageText(r.ChatID, r.MessageID, text)
 	empty := tgbotapi.NewInlineKeyboardMarkup()
 	edit.ReplyMarkup = &empty
 	_, err := a.bot.Send(edit)

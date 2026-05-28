@@ -9,8 +9,13 @@
   "messenger.join_confirm.prompt": "📍 Ви щойно приєднались до зустрічі *%s* на платформі *%s*?",
   "messenger.join_confirm.btn.yes": "Так, це я",
   "messenger.join_confirm.btn.no": "Ні",
-  "messenger.join_confirm.yes_result": "✅ Підтверджено! Протягом цієї зустрічі вам надсилатимуться запитання.",
-  "messenger.join_confirm.no_result": "Не підтверджено. Протягом цієї сесії запитання вам не надсилатимуться.",
+  "messenger.join_confirm.yes_result": "✅ Підтверджено! Вашу присутність на цій зустрічі відстежують.",
+  "messenger.join_confirm.no_result": "❎ Не підтверджено. Вашу присутність у цій сесії не відстежують.",
+  "messenger.join_confirm.dropped": "Підтвердження скасовано — ви залишили зустріч до підтвердження.",
+  "messenger.join_confirm.timed_out": "⏰ Час підтвердження вичерпано. Приєднайтесь до зустрічі знову, щоб отримати новий запит.",
+  "messenger.join_confirm.collision": "⚠ Підтвердження скасовано — до зустрічі під іменем %q приєднався інший учасник. Зверніться до педагога й приєднайтесь знову.",
   "messenger.challenge.reply_hint.text": "\n\nВідповідь надішліть як reply на це повідомлення.",
-  "messenger.challenge.reply_hint.numeric": "\n\nВідповідь надішліть як reply на це повідомлення (числом)."
+  "messenger.challenge.reply_hint.numeric": "\n\nВідповідь надішліть як reply на це повідомлення (числом).",
+  "messenger.challenge.answered": "✅ Вашу відповідь збережено.",
+  "messenger.challenge.timed_out": "⏰ Час вичерпано — відповідь не зараховано."
 }

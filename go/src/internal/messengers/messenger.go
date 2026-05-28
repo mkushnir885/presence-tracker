@@ -84,6 +84,29 @@ type MessageRef struct {
 	Opaque string
 }
 
+// NotifyKind labels a semantic edit applied to a previously-sent message.
+// The messenger resolves the kind to a localized string in the
+// recipient's language and overwrites the message text (clearing inline
+// keyboards, if any).
+type NotifyKind int
+
+const (
+	// NotifyJoinDropped — verification cancelled because the participant
+	// left the meeting before tapping Yes/No.
+	NotifyJoinDropped NotifyKind = iota
+	// NotifyJoinTimedOut — the verification window elapsed with no answer.
+	// The text includes a hint to rejoin the meeting to retry.
+	NotifyJoinTimedOut
+	// NotifyJoinCollision — another participant joined under the same
+	// display name while verification was pending. arg[0] is the display
+	// name (string); the text hints at contacting the teacher.
+	NotifyJoinCollision
+	// NotifyChallengeAnswered — the participant's answer was received.
+	NotifyChallengeAnswered
+	// NotifyChallengeTimedOut — the answer window elapsed with no reply.
+	NotifyChallengeTimedOut
+)
+
 // Messenger abstracts a message delivery channel.
 //
 // Start begins processing incoming updates and returns a channel of events.
@@ -100,6 +123,11 @@ type Messenger interface {
 	SendJoinConfirmation(ctx context.Context, handle, meetingID, platform string) (MessageRef, error)
 
 	SendChallenge(ctx context.Context, handle string, c ChallengePrompt) (MessageRef, error)
-	EditMessage(ctx context.Context, ref MessageRef, newText string) error
+
+	// Notify edits a previously-sent message to a localized result text
+	// keyed by kind. Inline keyboards are cleared. args are interpreted
+	// per kind (see NotifyKind docs).
+	Notify(ctx context.Context, ref MessageRef, kind NotifyKind, args ...any) error
+
 	DeleteMessage(ctx context.Context, ref MessageRef) error
 }

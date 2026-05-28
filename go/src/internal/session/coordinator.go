@@ -16,6 +16,13 @@ import (
 	"presence-tracker/src/internal/providers"
 )
 
+// joinConfirmationTTL is how long the verification DM waits for a
+// Yes/No tap before the buffered join is discarded and the user is
+// nudged to rejoin. Generous enough that a phone left in a pocket
+// during the first minute of class still has time to ping, short
+// enough that a stale prompt does not sit in chat all lesson.
+const joinConfirmationTTL = 2 * time.Minute
+
 var _ challenges.EventSink = (*Coordinator)(nil)
 
 // bufferedJoin holds a participant_joined that has not yet been flushed
@@ -36,6 +43,7 @@ type nameState struct {
 	platformIDs        map[string]struct{}   // every current claimant (verified, pending, or ignored)
 	pending            *bufferedJoin         // buffered join awaiting verification, if any
 	confirmRef         messengers.MessageRef // ref to the verification DM, for edit on collision
+	confirmTimer       *time.Timer           // cancels the auto-expiry of pending; nil when not pending
 	verifiedPlatformID string                // platformID of the verified participant; "" if none
 	verifiedAt         time.Time
 	lastChallenge      time.Time
@@ -146,6 +154,7 @@ func (c *Coordinator) Run(ctx context.Context) error {
 
 	defer func() { //nolint:contextcheck // cleanup must run after ctx is cancelled or the provider closed; uses a fresh context
 		c.pipeline.Drain()
+		c.cancelAllConfirmTimers()
 		c.writeSessionEnded()
 		if err := c.store.Close(context.Background()); err != nil {
 			slog.Error("session: close eventstore", "err", err)
@@ -296,12 +305,11 @@ func (c *Coordinator) onJoin(ctx context.Context, evt providers.Event) {
 		state.pending = nil
 		state.confirmRef = messengers.MessageRef{}
 		state.tainted = true
+		c.cancelConfirmTimerLocked(state)
 		delete(c.pendingHandle, oldHandle)
 		c.mu.Unlock()
 
-		_ = c.messenger.EditMessage(ctx, oldRef,
-			fmt.Sprintf("⚠ Verification cancelled — another participant joined the meeting with the name %q. "+
-				"Once everyone using this name leaves, you can re-join to verify.", entry.DisplayName))
+		_ = c.messenger.Notify(ctx, oldRef, messengers.NotifyJoinCollision, entry.DisplayName)
 		slog.Info("session: collision tainted name", "name", entry.DisplayName)
 		return
 	}
@@ -330,8 +338,62 @@ func (c *Coordinator) onJoin(ctx context.Context, evt providers.Event) {
 	c.mu.Lock()
 	if state.pending != nil && state.pending.platformID == evt.PlatformID {
 		state.confirmRef = ref
+		// Pointer captured so a late-firing timer cannot expire a buffer
+		// that was already cleared (and possibly replaced) under the
+		// same name.
+		expected := state.pending
+		state.confirmTimer = time.AfterFunc(joinConfirmationTTL, func() { //nolint:contextcheck // timer fires detached from request ctx; uses background
+			c.expireJoinConfirmation(context.Background(), key, expected)
+		})
 	}
 	c.mu.Unlock()
+}
+
+// cancelConfirmTimerLocked stops the verification timer attached to
+// state (if any). Caller must hold c.mu.
+func (c *Coordinator) cancelConfirmTimerLocked(state *nameState) {
+	if state.confirmTimer != nil {
+		state.confirmTimer.Stop()
+		state.confirmTimer = nil
+	}
+}
+
+// cancelAllConfirmTimers stops every outstanding verification timer.
+// Called on session shutdown so timers do not fire against a
+// coordinator that is no longer servicing the meeting.
+func (c *Coordinator) cancelAllConfirmTimers() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, state := range c.names {
+		c.cancelConfirmTimerLocked(state)
+	}
+}
+
+// expireJoinConfirmation drops a verification buffer whose answer
+// window elapsed without a Yes/No tap. Pointer identity on expected
+// guards against firing on a buffer that was replaced by a later join.
+func (c *Coordinator) expireJoinConfirmation(ctx context.Context, key string, expected *bufferedJoin) {
+	c.mu.Lock()
+	state := c.names[key]
+	if state == nil || state.pending != expected {
+		c.mu.Unlock()
+		return
+	}
+	ref := state.confirmRef
+	handle := state.handle
+	state.pending = nil
+	state.confirmRef = messengers.MessageRef{}
+	state.confirmTimer = nil
+	delete(c.pendingHandle, handle)
+	if len(state.platformIDs) == 0 {
+		delete(c.names, key)
+	}
+	c.mu.Unlock()
+
+	if ref.Opaque != "" {
+		_ = c.messenger.Notify(ctx, ref, messengers.NotifyJoinTimedOut)
+	}
+	slog.Info("session: verification timed out", "name", state.canonicalName)
 }
 
 func (c *Coordinator) markUnregistered(evt providers.Event) {
@@ -372,6 +434,7 @@ func (c *Coordinator) onLeave(ctx context.Context, evt providers.Event) {
 	if state.pending != nil && state.pending.platformID == evt.PlatformID {
 		droppedPending = true
 		droppedConfirmRef = state.confirmRef
+		c.cancelConfirmTimerLocked(state)
 		delete(c.pendingHandle, state.handle)
 		state.pending = nil
 		state.confirmRef = messengers.MessageRef{}
@@ -387,8 +450,7 @@ func (c *Coordinator) onLeave(ctx context.Context, evt providers.Event) {
 	c.mu.Unlock()
 
 	if droppedPending && droppedConfirmRef.Opaque != "" {
-		_ = c.messenger.EditMessage(ctx, droppedConfirmRef,
-			"Verification cancelled — you left the meeting before confirming.")
+		_ = c.messenger.Notify(ctx, droppedConfirmRef, messengers.NotifyJoinDropped)
 	}
 	if verifiedLeft {
 		c.writeEvent(eventstore.Record{
@@ -471,6 +533,7 @@ func (c *Coordinator) onJoinConfirmation(_ context.Context, evt messengers.Event
 	pending := state.pending
 	state.pending = nil
 	state.confirmRef = messengers.MessageRef{}
+	c.cancelConfirmTimerLocked(state)
 
 	if !evt.Confirmed {
 		c.mu.Unlock()
@@ -648,6 +711,16 @@ func (c *Coordinator) RecordChallengeSkipped(_ context.Context, _, _ string) err
 
 func (c *Coordinator) DeleteMessage(ctx context.Context, ref string) error {
 	return c.messenger.DeleteMessage(ctx, messengers.MessageRef{Opaque: ref})
+}
+
+// NotifyAnswered edits the question message to confirm the answer was saved.
+func (c *Coordinator) NotifyAnswered(ctx context.Context, ref string) error {
+	return c.messenger.Notify(ctx, messengers.MessageRef{Opaque: ref}, messengers.NotifyChallengeAnswered)
+}
+
+// NotifyAnswerTimedOut edits the question message to mark the window expired.
+func (c *Coordinator) NotifyAnswerTimedOut(ctx context.Context, ref string) error {
+	return c.messenger.Notify(ctx, messengers.MessageRef{Opaque: ref}, messengers.NotifyChallengeTimedOut)
 }
 
 // normName matches participants.normName: case-sensitive, trims surrounding
