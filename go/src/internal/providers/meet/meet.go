@@ -3,9 +3,11 @@ package meet
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -43,6 +45,51 @@ func New(cfg *config.Config) *Adapter {
 }
 
 func (a *Adapter) Name() string { return "meet" }
+
+// ParseMeetingID accepts a Meet meeting code, a canonical "spaces/<id>"
+// resource name, or a meet.google.com URL, and returns the form that
+// [Adapter.Subscribe] can resolve to a space. Recognised shapes:
+//
+//   - a canonical "spaces/<id>" name — returned unchanged
+//   - a bare meeting code (e.g. "abc-defg-hij") — returned unchanged
+//   - a https://meet.google.com/<code> URL — code extracted from the path
+//
+// /lookup/ URLs and other non-code paths are rejected with an explicit
+// error so the teacher sees a clear message instead of an API failure.
+func (a *Adapter) ParseMeetingID(input string) (string, error) { return ParseMeetingID(input) }
+
+// ParseMeetingID is the package-level form of [Adapter.ParseMeetingID].
+func ParseMeetingID(input string) (string, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return "", errors.New("meet: empty meeting input")
+	}
+
+	if strings.HasPrefix(input, "spaces/") {
+		return input, nil
+	}
+
+	if !strings.ContainsAny(input, "/?:") {
+		return input, nil
+	}
+
+	u, err := url.Parse(input)
+	if err != nil {
+		return "", fmt.Errorf("meet: parse meeting input %q: %w", input, err)
+	}
+
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		return "", fmt.Errorf("meet: cannot extract meeting code from %q", input)
+	}
+	code := parts[0]
+	// Reserved Meet paths that are not themselves meeting codes.
+	switch code {
+	case "lookup", "new", "landing", "_meet":
+		return "", fmt.Errorf("meet: cannot extract meeting code from %q", input)
+	}
+	return code, nil
+}
 
 // Authenticate runs the PKCE OAuth flow if no valid token is stored, then
 // verifies API access by listing spaces.

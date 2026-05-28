@@ -3,10 +3,13 @@ package zoom
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"presence-tracker/src/internal/config"
@@ -41,6 +44,55 @@ func New(cfg *config.Config) *Adapter {
 }
 
 func (a *Adapter) Name() string { return "zoom" }
+
+// ParseMeetingID accepts either a bare Zoom meeting ID or a Zoom join URL
+// and returns the canonical numeric meeting ID used by the Dashboard API.
+// Recognised shapes:
+//
+//   - a bare ID with optional embedded spaces (the Zoom UI displays meeting
+//     numbers with visual grouping, e.g. "123 4567 890")
+//   - a join URL with /j/<id>, /s/<id>, /w/<id>, or /wc/join/<id> in the path
+//
+// Personal meeting room URLs (/my/<vanity>) are rejected because they cannot
+// be resolved to a meeting ID without an extra API call.
+func (a *Adapter) ParseMeetingID(input string) (string, error) { return ParseMeetingID(input) }
+
+// ParseMeetingID is the package-level form of [Adapter.ParseMeetingID].
+func ParseMeetingID(input string) (string, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return "", errors.New("zoom: empty meeting input")
+	}
+
+	if !strings.ContainsAny(input, "/?:") {
+		id := strings.Join(strings.Fields(input), "")
+		if id == "" {
+			return "", errors.New("zoom: empty meeting input")
+		}
+		return id, nil
+	}
+
+	u, err := url.Parse(input)
+	if err != nil {
+		return "", fmt.Errorf("zoom: parse meeting input %q: %w", input, err)
+	}
+
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	for i, p := range parts {
+		switch p {
+		case "j", "s", "w":
+			if i+1 < len(parts) && parts[i+1] != "" {
+				return parts[i+1], nil
+			}
+		case "wc":
+			if i+2 < len(parts) && parts[i+1] == "join" && parts[i+2] != "" {
+				return parts[i+2], nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("zoom: cannot extract meeting ID from %q", input)
+}
 
 // Authenticate runs the PKCE OAuth flow with the
 // dashboard_meetings:read:admin scope. The authorising account must be a
