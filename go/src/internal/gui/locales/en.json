@@ -9,7 +9,9 @@
 
   "dashboard.connect.title": "Connect to a meeting",
   "dashboard.connect.provider": "Provider",
-  "dashboard.connect.meeting_id": "Meeting ID",
+  "dashboard.connect.meeting_id": "Meeting ID or invite URL",
+  "dashboard.connect.meeting_id_placeholder": "my-class-2026-05-01 or https://bbb.example.com/b/abc-def-ghi",
+  "dashboard.connect.meeting_id_hint": "Paste an invite URL or the room ID inside it.",
   "dashboard.connect.file_name": "File name (optional)",
   "dashboard.connect.file_name_placeholder": "e.g. cs101-lecture3",
   "dashboard.connect.file_name_hint": "Leave blank to use a timestamp. Letters, digits, space, dot, dash, underscore only.",

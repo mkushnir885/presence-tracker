@@ -9,7 +9,9 @@
 
   "dashboard.connect.title": "Підключитись до зустрічі",
   "dashboard.connect.provider": "Провайдер",
-  "dashboard.connect.meeting_id": "ID зустрічі",
+  "dashboard.connect.meeting_id": "ID зустрічі або посилання",
+  "dashboard.connect.meeting_id_placeholder": "my-class-2026-05-01 або https://bbb.example.com/b/abc-def-ghi",
+  "dashboard.connect.meeting_id_hint": "Вставте посилання-запрошення або ID кімнати з нього.",
   "dashboard.connect.file_name": "Назва файлу (необов'язково)",
   "dashboard.connect.file_name_placeholder": "напр. cs101-lecture3",
   "dashboard.connect.file_name_hint": "Залиште порожнім для імені на основі часу. Дозволено літери, цифри, пробіл, крапку, дефіс і підкреслення.",

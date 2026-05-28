@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -45,6 +46,50 @@ func newHTTPClient(insecure bool) *http.Client {
 }
 
 func (a *Adapter) Name() string { return "bbb" }
+
+// ParseMeetingID accepts either a bare meeting ID or a BBB invite URL
+// and returns the canonical meeting ID used by the API. Three shapes are
+// recognised:
+//
+//   - a bare ID with no path separator — returned unchanged
+//   - a join URL carrying ?meetingID=<id> in the query
+//   - a Greenlight room URL with /b/<id> or /rooms/<id>[/join] in the path
+//
+// Any other URL is rejected with an explicit error so the teacher sees
+// a clear message instead of an obscure API failure later.
+func (a *Adapter) ParseMeetingID(input string) (string, error) { return ParseMeetingID(input) }
+
+// ParseMeetingID is the package-level form of [Adapter.ParseMeetingID],
+// exposed so callers without an adapter instance (tests, future helpers)
+// can reuse the same parsing rules.
+func ParseMeetingID(input string) (string, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return "", errors.New("bbb: empty meeting input")
+	}
+
+	if !strings.ContainsAny(input, "/?:") {
+		return input, nil
+	}
+
+	u, err := url.Parse(input)
+	if err != nil {
+		return "", fmt.Errorf("bbb: parse meeting input %q: %w", input, err)
+	}
+
+	if id := strings.TrimSpace(u.Query().Get("meetingID")); id != "" {
+		return id, nil
+	}
+
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	for i, p := range parts {
+		if (p == "b" || p == "rooms") && i+1 < len(parts) && parts[i+1] != "" {
+			return parts[i+1], nil
+		}
+	}
+
+	return "", fmt.Errorf("bbb: cannot extract meeting ID from %q", input)
+}
 
 // Authenticate verifies that the BBB server is reachable and the shared
 // secret is accepted by calling the getMeetings API endpoint.

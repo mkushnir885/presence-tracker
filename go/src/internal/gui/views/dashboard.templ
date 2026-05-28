@@ -42,7 +42,8 @@ templ Dashboard(data DashboardData, locale Locale) {
 						</div>
 						<div class="field">
 							<label for="meeting_id">{ locale.T("dashboard.connect.meeting_id") }</label>
-							<input id="meeting_id" name="meeting_id" type="text" placeholder="e.g. my-class-2026-05-01" required/>
+							<input id="meeting_id" name="meeting_id" type="text" placeholder={ locale.T("dashboard.connect.meeting_id_placeholder") } required/>
+							<small class="text-muted">{ locale.T("dashboard.connect.meeting_id_hint") }</small>
 						</div>
 						<div class="field">
 							<label for="file_name">{ locale.T("dashboard.connect.file_name") }</label>

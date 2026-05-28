@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -48,4 +49,23 @@ type Provider interface {
 	Name() string
 	Authenticate(ctx context.Context) error
 	Subscribe(ctx context.Context, meetingID string) (<-chan Event, error)
+}
+
+// MeetingInputParser is an optional capability for providers that can
+// accept richer input than a bare meeting ID — for example, BBB can
+// pull the ID out of an invite URL. Providers without this method get
+// the user's input passed through unchanged (after trimming).
+type MeetingInputParser interface {
+	ParseMeetingID(input string) (string, error)
+}
+
+// ParseMeetingID normalises the user-supplied meeting input. When prov
+// implements [MeetingInputParser] the call is delegated; otherwise the
+// trimmed input is returned as-is.
+func ParseMeetingID(prov Provider, input string) (string, error) {
+	input = strings.TrimSpace(input)
+	if p, ok := prov.(MeetingInputParser); ok {
+		return p.ParseMeetingID(input)
+	}
+	return input, nil
 }

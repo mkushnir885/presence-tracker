@@ -205,6 +205,13 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 		return err
 	}
 
+	if fixture == "" {
+		meetingID, err = providers.ParseMeetingID(prov, meetingID)
+		if err != nil {
+			return fmt.Errorf("meeting input: %w", err)
+		}
+	}
+
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

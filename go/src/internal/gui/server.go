@@ -212,6 +212,12 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	meetingID, err = providers.ParseMeetingID(prov, meetingID)
+	if err != nil {
+		http.Error(w, "meeting input: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	ctx := r.Context()
 	if err := prov.Authenticate(ctx); err != nil {
 		http.Error(w, "provider auth failed: "+err.Error(), http.StatusInternalServerError)
