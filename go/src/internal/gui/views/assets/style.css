@@ -38,6 +38,7 @@
 }
 *, *::before, *::after { box-sizing: border-box; }
 [hidden] { display: none !important; }
+html, body { height: 100%; }
 body {
     margin: 0;
     font-family: system-ui, -apple-system, sans-serif;
@@ -45,6 +46,9 @@ body {
     background-color: var(--bg);
     color: var(--fg);
     line-height: 1.5;
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
 }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -71,7 +75,16 @@ nav button.theme-toggle {
     color: var(--fg);
     font-size: 0.85rem;
 }
-main { padding: 1.5rem; max-width: 1100px; margin: 0 auto; }
+main {
+    padding: 1.5rem;
+    max-width: 1100px;
+    margin: 0 auto;
+    width: 100%;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
 
 .page-header {
     display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
@@ -670,11 +683,264 @@ details.menu .menu-list button.active svg { color: var(--accent); }
     transform: translateY(-50%);
 }
 
-.poll-form { display: flex; flex-direction: column; gap: 0.5rem; }
-.poll-form-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-.poll-bank-input {
-    flex: 1; min-width: 220px;
-    padding: 0.4rem 0.6rem;
+/* ── Live status page ────────────────────────────────────────────── */
+.live-status-page {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+.live-status-page .live-log-title { margin-top: 1.25rem; }
+.live-status-page .log-panel {
+    flex: 1;
+    max-height: none;
+    min-height: 8rem;
+    margin-bottom: 0;
+}
+.live-layout {
+    display: grid;
+    grid-template-columns: minmax(220px, 280px) 1fr 1fr;
+    gap: 1rem;
+    align-items: start;
+    margin-bottom: 0;
+}
+.live-controls { display: flex; flex-direction: column; gap: 0.75rem; }
+.live-roster {
+    grid-column: 2 / span 2;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+.card .card-title {
+    color: var(--fg);
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+.card.audio-card {
+    margin: 0 1.75rem;
+    padding: 0;
+    overflow: hidden;
+}
+.card.poll-card { margin-bottom: 0; }
+.card.autogen-disabled-card {
+    margin-bottom: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    align-items: flex-start;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+.audio-row { display: flex; align-items: stretch; gap: 0; }
+.audio-mic {
+    flex: 2;
+    width: auto;
+    min-width: 0;
+    height: 2.6rem;
+    padding: 0;
+    border: none;
+    border-right: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+    color: var(--fg);
+}
+.audio-mic:hover { background: var(--hover-bg); }
+.audio-mic .icon-mic-off { display: none; }
+.audio-mic[data-state="muted"],
+.audio-mic[data-state="muted"]:hover {
+    background: var(--danger);
+    color: #fff;
+}
+.audio-mic[data-state="muted"]:hover { filter: brightness(0.92); }
+.audio-mic[data-state="muted"] .icon-mic-on { display: none; }
+.audio-mic[data-state="muted"] .icon-mic-off { display: block; }
+.audio-mic[data-state="live"],
+.audio-mic[data-state="live"]:hover {
+    background: var(--success);
+    color: #fff;
+}
+.audio-mic[data-state="live"]:hover { filter: brightness(0.92); }
+.audio-device-trigger {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+    height: 2.6rem;
+    padding: 0 0.35rem;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--fg);
+}
+.audio-device-trigger:hover { background: var(--hover-bg); }
+/* Mic-options tint follows the mic state with a desaturated background. */
+.audio-mic[data-state="muted"] + details > summary.audio-device-trigger {
+    background: color-mix(in srgb, var(--danger) 22%, var(--card-bg));
+    color: var(--danger);
+}
+.audio-mic[data-state="muted"] + details > summary.audio-device-trigger:hover {
+    background: color-mix(in srgb, var(--danger) 32%, var(--card-bg));
+}
+.audio-mic[data-state="live"] + details > summary.audio-device-trigger {
+    background: color-mix(in srgb, var(--success) 22%, var(--card-bg));
+    color: var(--success);
+}
+.audio-mic[data-state="live"] + details > summary.audio-device-trigger:hover {
+    background: color-mix(in srgb, var(--success) 32%, var(--card-bg));
+}
+/* When mic access has not been granted yet, the options menu is inert. */
+.audio-mic[data-state="idle"] + details > summary.audio-device-trigger {
+    opacity: 0.5;
+    pointer-events: none;
+    filter: grayscale(0.4);
+}
+.audio-device-list { max-height: 16rem; overflow-y: auto; min-width: 14rem; }
+.audio-device-list .menu-empty {
+    padding: 0.45rem 0.55rem;
+    font-size: 0.85rem;
+}
+.poll-upload-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: stretch;
+}
+.poll-file-slot { display: flex; }
+.poll-upload-btn {
+    width: 100%;
+    height: 2.2rem;
+    box-sizing: border-box;
+}
+.poll-file-chip {
+    display: flex;
+    align-items: stretch;
+    gap: 0.4rem;
+    flex: 1;
+    min-width: 0;
+    height: 2.2rem;
+    padding: 0 0 0 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    font-size: 0.85rem;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+.poll-file-chip .poll-file-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    align-self: center;
+}
+.poll-file-chip .poll-file-clear {
+    width: 2rem;
+    height: auto;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-left: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.poll-file-chip .poll-file-clear:hover {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: #fff;
+}
+.poll-or {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin: 0.25rem 0;
+}
+.poll-generate-btn {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.1rem;
+    line-height: 1.2;
+    padding: 0.45rem 0.85rem;
+}
+.poll-generate-suffix {
+    font-size: 0.72rem;
+    font-weight: 400;
+    opacity: 0.9;
+}
+
+.roster-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 0;
+    min-height: 0;
+}
+.roster-header {
+    display: grid;
+    grid-template-columns: 40% 1fr;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0 0.25rem;
+}
+.roster-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+.roster-tracked .roster-title { color: var(--success); }
+.roster-untracked .roster-title { color: var(--danger); }
+.roster-count { font-weight: 700; letter-spacing: 0; text-transform: none; }
+.roster-filter {
+    flex: 1;
+    min-width: 0;
+    padding: 0.3rem 0.6rem;
+    font-size: 0.85rem;
     border: 1px solid var(--border); border-radius: 6px;
-    background: var(--bg); color: var(--fg); font-family: inherit;
+    background: var(--bg); color: var(--fg);
+}
+.roster-body {
+    flex: 1;
+    margin-bottom: 0;
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 18rem;
+}
+.roster-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    flex: 1;
+    overflow-y: auto;
+    font-size: 0.9rem;
+}
+.roster-list .roster-item {
+    padding: 0.3rem 0.4rem;
+    border-bottom: 1px solid var(--border);
+}
+.roster-list .roster-item:last-child { border-bottom: none; }
+.roster-list .roster-item[hidden] { display: none; }
+.roster-empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-size: 0.9rem;
+    padding: 1rem;
+}
+
+@media (max-width: 800px) {
+    .live-layout { grid-template-columns: 1fr; }
+    .live-roster { grid-column: 1; grid-template-columns: 1fr; }
 }

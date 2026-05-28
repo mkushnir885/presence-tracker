@@ -79,12 +79,15 @@ templ Meetings(data MeetingsData, locale Locale) {
 					<thead>
 						<tr>
 							<th><input type="checkbox" id="meetings-select-all" aria-label={ locale.T("meetings.select_all") }/></th>
-							<th>@sortHeader(locale.T("meetings.col_id"), "name")
-</th>
-							<th>@sortHeader(locale.T("meetings.col_modified"), "modified")
-</th>
-							<th>@sortHeader(locale.T("meetings.col_size"), "size")
-</th>
+							<th>
+								@sortHeader(locale.T("meetings.col_id"), "name")
+							</th>
+							<th>
+								@sortHeader(locale.T("meetings.col_modified"), "modified")
+							</th>
+							<th>
+								@sortHeader(locale.T("meetings.col_size"), "size")
+							</th>
 							<th class="meetings-csv-cell">
 								<button
 									type="submit"

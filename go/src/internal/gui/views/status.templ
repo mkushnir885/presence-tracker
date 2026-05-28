@@ -9,175 +9,62 @@ import (
 templ Status(data StatusData, locale Locale) {
 	@Layout("Live Status", locale, nil) {
 		<div hx-get="/status" hx-trigger="every 5s" hx-target="body" hx-swap="outerHTML"></div>
-		<header class="page-header status-page-header">
-			<div class="status-title-block">
-				<h1>
-					{ locale.T("status.title.prefix") } { data.ProviderName } { locale.T("status.title.middle") }
-					<code class="meeting-id">{ data.MeetingID }</code>
-				</h1>
-				@statusStartedLine(data, locale)
+		<div class="live-status-page">
+			<header class="page-header status-page-header">
+				<div class="status-title-block">
+					<h1>
+						{ locale.T("status.title.prefix") } { data.ProviderName } { locale.T("status.title.middle") }
+						<code class="meeting-id">{ data.MeetingID }</code>
+					</h1>
+					@statusStartedLine(data, locale)
+				</div>
+				<div style="flex:1"></div>
+				<button
+					type="button"
+					class="btn btn-danger"
+					hx-delete="/session"
+					hx-confirm={ locale.T("nav.stop_confirm") }
+					hx-target="body"
+					hx-push-url="/"
+				>{ locale.T("status.stop") }</button>
+			</header>
+			<div class="live-layout">
+				<div class="live-controls">
+					if data.AutoGenEnabled {
+						@audioControl(locale)
+					} else {
+						@autoGenDisabledCard(locale)
+					}
+					@pollCard(data, locale)
+				</div>
+				<div class="live-roster">
+					@rosterCard("untracked", locale.T("status.untracked"), unregisteredNames(data.Unregistered), locale)
+					@rosterCard("tracked", locale.T("status.tracked"), presenceNames(data.Present), locale)
+				</div>
 			</div>
-			<div style="flex:1"></div>
-			<button
-				type="button"
-				class="btn btn-danger"
-				hx-delete="/session"
-				hx-confirm={ locale.T("nav.stop_confirm") }
-				hx-target="body"
-				hx-push-url="/"
-			>{ locale.T("status.stop") }</button>
-		</header>
-		<div id="poll-card" class="card" hx-preserve="true">
-			<div class="text-muted" style="font-size:0.8rem;margin-bottom:0.5rem;">{ locale.T("status.poll.menu") }</div>
-			<div class="poll-tabs" style="display:flex;gap:0.5rem;margin-bottom:0.5rem;">
-				<button type="button" class="btn poll-tab active" data-poll-tab="custom">{ locale.T("status.poll.custom") }</button>
-				if data.AutoGenEnabled {
-					<button type="button" class="btn poll-tab" data-poll-tab="auto">{ locale.T("status.poll.auto") }</button>
+			<h2 class="live-log-title">{ locale.T("status.log.title") }</h2>
+			<div class="card log-panel">
+				if len(data.LogEntries) == 0 {
+					<div class="text-muted">{ locale.T("status.log.empty") }</div>
+				} else {
+					for _, e := range data.LogEntries {
+						<div class="log-entry">
+							<span class="log-time">{ e.Time.Format("15:04:05") }</span>
+							<span class={ "log-level-" + e.Level }>{ e.Level }</span>
+							<span>{ e.Message }</span>
+							if e.Attrs != "" {
+								<span class="text-muted">{ e.Attrs }</span>
+							}
+						</div>
+					}
 				}
 			</div>
-			<div class="poll-pane" data-poll-pane="custom">
-				<div class="poll-form-row" style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
-					<input
-						type="text"
-						id="poll-bank-path"
-						class="poll-bank-input"
-						placeholder={ locale.T("status.poll.placeholder") }
-						autocomplete="off"
-						style="flex:1;min-width:14rem;"
-					/>
-					<input type="file" id="poll-bank-picker" accept=".yaml,.yml" hidden/>
-					<button
-						type="button"
-						class="btn"
-						onclick="document.getElementById('poll-bank-picker').click()"
-					>{ locale.T("status.poll.browse") }</button>
-					<button type="button" id="poll-start-btn" class="btn btn-primary">{ locale.T("status.poll.start") }</button>
-				</div>
-				<div id="poll-feedback" class="text-muted" style="margin-top:0.5rem;"></div>
-			</div>
-			if data.AutoGenEnabled {
-				<div class="poll-pane" data-poll-pane="auto" hidden hx-get="/poll/pending" hx-trigger="load,every 10s" hx-swap="innerHTML">
-					@AutoPollPanel(data.PendingBank, locale)
-				</div>
-			}
-			<script>
-				(function() {
-					const tabs = document.querySelectorAll('.poll-tab');
-					const panes = document.querySelectorAll('.poll-pane');
-					tabs.forEach(t => t.addEventListener('click', () => {
-						tabs.forEach(x => x.classList.remove('active'));
-						t.classList.add('active');
-						const id = t.getAttribute('data-poll-tab');
-						panes.forEach(p => p.hidden = p.getAttribute('data-poll-pane') !== id);
-					}));
-					const input = document.getElementById('poll-bank-path');
-					const picker = document.getElementById('poll-bank-picker');
-					const startBtn = document.getElementById('poll-start-btn');
-					const feedback = document.getElementById('poll-feedback');
-					if (picker) {
-						picker.addEventListener('change', () => {
-							const f = picker.files && picker.files[0];
-							if (!f) return;
-							input.value = f.name;
-							input.focus();
-						});
-					}
-					if (startBtn) {
-						startBtn.addEventListener('click', () => {
-							const bank = (input.value || '').trim();
-							if (!bank) {
-								feedback.textContent = 'enter a bank path first';
-								return;
-							}
-							startBtn.disabled = true;
-							feedback.textContent = 'starting…';
-							fetch('/poll', {
-								method: 'POST',
-								headers: {'Content-Type': 'application/json'},
-								body: JSON.stringify({auto_submitted: false, bank_path: bank}),
-							}).then(async r => {
-								const body = await r.json().catch(() => ({}));
-								if (r.ok) {
-									feedback.textContent = 'scheduled ' + (body.scheduled_count ?? 0)
-										+ (body.skipped_count ? ' (skipped ' + body.skipped_count + ')' : '');
-								} else {
-									feedback.textContent = 'error: ' + (body.error || r.status);
-								}
-							}).catch(err => {
-								feedback.textContent = 'error: ' + err;
-							}).finally(() => {
-								startBtn.disabled = false;
-							});
-						});
-					}
-				})();
-			</script>
 		</div>
 		if data.AutoGenEnabled {
-			<div id="audio-card" class="card" hx-preserve="true" data-poll-interval={ strconv.Itoa(data.AutoGenIntervalS) }>
-				<div class="text-muted" style="font-size:0.8rem;margin-bottom:0.5rem;">{ locale.T("status.audio.title") }</div>
-				<div id="audio-pre" style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
-					<span class="text-muted">{ locale.T("status.audio.permission_prompt") }</span>
-					<button type="button" id="audio-grant-btn" class="btn btn-primary">{ locale.T("status.audio.grant") }</button>
-				</div>
-				<div id="audio-live" hidden style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
-					<label for="audio-device" class="text-muted">{ locale.T("status.audio.device") }</label>
-					<select id="audio-device"></select>
-					<button type="button" id="audio-mute-btn" class="btn">{ locale.T("status.audio.mute") }</button>
-					<button type="button" id="audio-trigger-btn" class="btn">{ locale.T("status.poll.auto_dispatch") }</button>
-				</div>
-				<div id="audio-status" class="text-muted" style="margin-top:0.5rem;font-size:0.85rem;">{ locale.T("status.audio.status_idle") }</div>
-				<script src="/assets/audio.js" defer></script>
-			</div>
+			<div id="audio-state" hx-preserve="true" data-poll-interval={ strconv.Itoa(data.AutoGenIntervalS) } hidden></div>
+			<script src="/assets/audio.js" defer></script>
 		}
-		<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
-			<div class="card">
-				<div class="text-muted" style="font-size:0.8rem;margin-bottom:0.25rem;">{ locale.T("status.present") }</div>
-				<div style="font-size:1.8rem;font-weight:600;">{ fmt.Sprintf("%d", len(data.Present)) }</div>
-				if len(data.Present) > 0 {
-					<ul style="margin:0.5rem 0 0;padding-left:1.25rem;font-size:0.9rem;">
-						for _, p := range data.Present {
-							<li>{ p.DisplayName } <span class="text-muted">({ p.PlatformID })</span></li>
-						}
-					</ul>
-				}
-			</div>
-			<div class="card">
-				<div class="text-muted" style="font-size:0.8rem;margin-bottom:0.25rem;">{ locale.T("status.unregistered") }</div>
-				<div style="font-size:1.8rem;font-weight:600;">{ fmt.Sprintf("%d", len(data.Unregistered)) }</div>
-				<div id="unregistered-detail">
-					if len(data.Unregistered) > 0 {
-						@UnregisteredFragment(data.Unregistered, locale)
-					}
-				</div>
-				if len(data.Unregistered) > 0 {
-					<button
-						class="btn"
-						style="margin-top:0.5rem;font-size:0.8rem;"
-						hx-get="/status/unregistered"
-						hx-target="#unregistered-detail"
-						hx-swap="innerHTML"
-					>{ locale.T("status.unregistered.refresh") }</button>
-				}
-			</div>
-		</div>
-		<h2>{ locale.T("status.log.title") }</h2>
-		<div class="card log-panel">
-			if len(data.LogEntries) == 0 {
-				<div class="text-muted">{ locale.T("status.log.empty") }</div>
-			} else {
-				for _, e := range data.LogEntries {
-					<div class="log-entry">
-						<span class="log-time">{ e.Time.Format("15:04:05") }</span>
-						<span class={ "log-level-" + e.Level }>{ e.Level }</span>
-						<span>{ e.Message }</span>
-						if e.Attrs != "" {
-							<span class="text-muted">{ e.Attrs }</span>
-						}
-					</div>
-				}
-			}
-		</div>
+		<script src="/assets/live_status.js" defer></script>
 	}
 }
 
@@ -199,63 +86,185 @@ templ statusStartedLine(data StatusData, locale Locale) {
 	}
 }
 
-templ UnregisteredFragment(participants []session.UnregisteredStatus, locale Locale) {
-	<ul style="margin:0.5rem 0 0;padding-left:1.25rem;font-size:0.9rem;">
-		for _, p := range participants {
-			<li>{ p.DisplayName } <span class="text-muted">({ p.PlatformID })</span></li>
-		}
-	</ul>
+// audioControl renders the microphone toggle and device picker. The
+// mic button is the primary mute/unmute control; the adjacent chevron
+// button opens the input-device menu, mirroring Google Meet's audio
+// control layout.
+templ audioControl(locale Locale) {
+	<div id="audio-card" class="card audio-card" hx-preserve="true">
+		<div class="audio-row">
+			<button
+				type="button"
+				id="audio-mic-btn"
+				class="icon-btn audio-mic"
+				data-state="idle"
+				data-tooltip={ locale.T("status.audio.grant") }
+				aria-label={ locale.T("status.audio.grant") }
+				data-label-grant={ locale.T("status.audio.grant") }
+				data-label-mute={ locale.T("status.audio.mute") }
+				data-label-unmute={ locale.T("status.audio.unmute") }
+			>
+				@iconMic()
+				@iconMicMuted()
+			</button>
+			<details class="menu audio-device-menu">
+				<summary
+					class="icon-btn audio-device-trigger"
+					data-tooltip={ locale.T("status.audio.device") }
+					aria-label={ locale.T("status.audio.device") }
+				>
+					@iconChevronDown()
+				</summary>
+				<ul class="menu-list audio-device-list" id="audio-device-list">
+					<li class="menu-empty text-muted">{ locale.T("status.audio.no_devices") }</li>
+				</ul>
+			</details>
+		</div>
+	</div>
 }
 
-// AutoPollPanel renders the "Auto-generated" tab body. Polled by htmx
-// every 10s so a freshly written pending bank shows up without a page
-// reload.
-templ AutoPollPanel(pending *PendingBank, locale Locale) {
+// autoGenDisabledCard replaces the audio card when auto-generation is
+// off, so the left column still tells the teacher where to switch it
+// on instead of disappearing entirely.
+templ autoGenDisabledCard(locale Locale) {
+	<div class="card autogen-disabled-card">
+		<div>{ locale.T("status.poll.auto_disabled") }</div>
+		<a href="/config">{ locale.T("status.poll.auto_disabled_link") }</a>
+	</div>
+}
+
+// GenerateNowButton is the inner fragment polled by hx-get so the
+// button's disabled state and tooltip reflect the latest pending bank
+// without a full page reload.
+templ GenerateNowButton(pending *PendingBank, locale Locale) {
 	if pending == nil {
-		<div class="text-muted">{ locale.T("status.poll.auto_empty") }</div>
+		<button type="button" class="btn btn-primary poll-generate-btn" disabled data-tooltip={ locale.T("status.poll.auto_empty") }>
+			<span>{ locale.T("status.poll.generate_now") }</span>
+			<span class="poll-generate-suffix">{ locale.T("status.poll.generate_now_suffix") }</span>
+		</button>
 	} else {
-		<div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
-			<div>
-				<div class="text-muted" style="font-size:0.8rem;">{ locale.T("status.poll.auto_pending") }</div>
-				<code>{ pending.Name }</code>
-				<span class="text-muted" style="margin-left:0.5rem;font-size:0.8rem;">{ pending.ModTime.Format("15:04:05") }</span>
-			</div>
-			<div style="flex:1"></div>
-			<button
-				type="button"
-				class="btn"
-				hx-get="/poll/pending/preview"
-				hx-target="#auto-preview"
-				hx-swap="innerHTML"
-			>{ locale.T("status.poll.auto_preview") }</button>
-			<button
-				type="button"
-				class="btn btn-primary"
-				onclick={ dispatchPendingScript(pending.Path) }
-			>{ locale.T("status.poll.auto_dispatch") }</button>
-		</div>
-		<div id="auto-preview" style="margin-top:0.5rem;"></div>
+		<button
+			type="button"
+			class="btn btn-primary poll-generate-btn"
+			data-tooltip={ pending.Name }
+			onclick={ dispatchPendingScript(pending.Path) }
+		>
+			<span>{ locale.T("status.poll.generate_now") }</span>
+			<span class="poll-generate-suffix">{ locale.T("status.poll.generate_now_suffix") }</span>
+		</button>
 	}
 }
 
+// pollCard renders the manual "Trigger poll" card: a file upload
+// control, the Start-a-poll submit button and — when auto-generation
+// is enabled — a second "or / Generate now" path that dispatches the
+// most recent auto-generated bank. The chosen file stays in the
+// browser until the teacher clicks Start; the live_status JS then
+// POSTs it as multipart/form-data to /poll/file.
+templ pollCard(data StatusData, locale Locale) {
+	<div id="poll-card" class="card poll-card" hx-preserve="true">
+		<div class="card-title">{ locale.T("status.poll.menu") }</div>
+		<form id="poll-upload-form" class="poll-upload-form" onsubmit="return false;">
+			<input type="file" id="poll-bank-picker" name="bank" accept=".yaml,.yml" hidden/>
+			<div id="poll-file-slot" class="poll-file-slot">
+				<button
+					type="button"
+					id="poll-upload-btn"
+					class="btn poll-upload-btn"
+					onclick="document.getElementById('poll-bank-picker').click()"
+				>{ locale.T("status.poll.upload") }</button>
+			</div>
+			<button type="button" id="poll-start-btn" class="btn btn-primary" disabled>
+				{ locale.T("status.poll.start") }
+			</button>
+		</form>
+		if data.AutoGenEnabled {
+			<div class="poll-or" aria-hidden="true">{ locale.T("status.poll.or") }</div>
+			<div
+				id="generate-now-wrap"
+				hx-get="/poll/pending"
+				hx-trigger="every 10s"
+				hx-swap="innerHTML"
+			>
+				@GenerateNowButton(data.PendingBank, locale)
+			</div>
+		}
+	</div>
+}
+
+// rosterCard renders one participant column (tracked / untracked) with
+// a client-side filter input. Filtering is case-insensitive on a
+// substring of the display name and runs entirely in the browser so
+// the 5 s page refresh does not race with server-side state.
+templ rosterCard(kind, title string, names []string, locale Locale) {
+	<div class={ "roster-card roster-" + kind } data-roster={ kind }>
+		<div class="roster-header">
+			<div class="roster-title">
+				<span class="roster-count">{ strconv.Itoa(len(names)) }</span> { title }
+			</div>
+			<input
+				type="search"
+				class="roster-filter"
+				data-roster-filter={ kind }
+				placeholder={ locale.T("status.roster.filter_placeholder") }
+				autocomplete="off"
+			/>
+		</div>
+		<div class="card roster-body">
+			if len(names) == 0 {
+				<div class="text-muted roster-empty">{ locale.T("status.roster.empty") }</div>
+			} else {
+				<ul class="roster-list">
+					for _, n := range names {
+						<li class="roster-item" data-name={ n }>{ n }</li>
+					}
+				</ul>
+				<div class="text-muted roster-empty roster-no-matches" hidden>{ locale.T("status.roster.no_matches") }</div>
+			}
+		</div>
+	</div>
+}
+
+// presenceNames extracts the display names of every tracked participant.
+func presenceNames(items []session.PresenceStatus) []string {
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, it.DisplayName)
+	}
+	return out
+}
+
+// unregisteredNames extracts the display names of every untracked
+// participant.
+func unregisteredNames(items []session.UnregisteredStatus) []string {
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, it.DisplayName)
+	}
+	return out
+}
+
+templ UnregisteredFragment(participants []session.UnregisteredStatus, locale Locale) {
+	@rosterCard("untracked", locale.T("status.untracked"), unregisteredNames(participants), locale)
+}
+
 script dispatchPendingScript(path string) {
+	const fb = document.getElementById('poll-feedback');
 	fetch('/poll', {
 		method: 'POST',
 		headers: {'Content-Type': 'application/json'},
 		body: JSON.stringify({auto_submitted: false, bank_path: path}),
 	}).then(async r => {
 		const body = await r.json().catch(() => ({}));
-		const el = document.getElementById('auto-preview');
-		if (!el) return;
+		if (!fb) return;
 		if (r.ok) {
-			el.textContent = 'scheduled ' + (body.scheduled_count ?? 0)
+			fb.textContent = 'scheduled ' + (body.scheduled_count ?? 0)
 				+ (body.skipped_count ? ' (skipped ' + body.skipped_count + ')' : '');
 		} else {
-			el.textContent = 'error: ' + (body.error || r.status);
+			fb.textContent = 'error: ' + (body.error || r.status);
 		}
 	}).catch(err => {
-		const el = document.getElementById('auto-preview');
-		if (el) el.textContent = 'error: ' + err;
+		if (fb) fb.textContent = 'error: ' + err;
 	});
 }
 
@@ -276,4 +285,29 @@ templ ShutdownDone(locale Locale, attemptClose bool) {
 			</script>
 		}
 	}
+}
+
+templ iconMic() {
+	<svg class="icon-mic-on" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+		<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+		<path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+		<line x1="12" y1="19" x2="12" y2="23"></line>
+		<line x1="8" y1="23" x2="16" y2="23"></line>
+	</svg>
+}
+
+templ iconMicMuted() {
+	<svg class="icon-mic-off" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+		<line x1="1" y1="1" x2="23" y2="23"></line>
+		<path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path>
+		<path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path>
+		<line x1="12" y1="19" x2="12" y2="23"></line>
+		<line x1="8" y1="23" x2="16" y2="23"></line>
+	</svg>
+}
+
+templ iconChevronDown() {
+	<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+		<polyline points="6 9 12 15 18 9"></polyline>
+	</svg>
 }

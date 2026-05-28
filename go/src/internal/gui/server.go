@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -102,6 +103,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /config", s.handleSaveConfig)
 	mux.HandleFunc("GET /poll/pending", s.handlePollPending)
 	mux.HandleFunc("GET /poll/pending/preview", s.handlePollPendingPreview)
+	mux.HandleFunc("POST /poll/file", s.handlePollFile)
 	mux.HandleFunc("POST /system/shutdown", s.handleShutdown)
 }
 
@@ -411,8 +413,9 @@ func latestPendingBank(svc *challenger.Service) *views.PendingBank {
 	}
 }
 
-// handlePollPending returns the htmx fragment for the Auto-generated
-// tab body: either the empty-state hint or the pending-bank row.
+// handlePollPending returns the htmx fragment that swaps the "Generate
+// now" button so its enabled/disabled state reflects whether a
+// freshly written auto-generated bank is pending review.
 func (s *Server) handlePollPending(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	act := s.active
@@ -422,7 +425,7 @@ func (s *Server) handlePollPending(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	locale := localeFromRequest(r)
-	_ = views.AutoPollPanel(latestPendingBank(act.challenger), locale).Render(r.Context(), w)
+	_ = views.GenerateNowButton(latestPendingBank(act.challenger), locale).Render(r.Context(), w)
 }
 
 // handlePollPendingPreview returns the pending YAML's raw text wrapped
@@ -450,6 +453,78 @@ func (s *Server) handlePollPendingPreview(w http.ResponseWriter, r *http.Request
 	_, _ = w.Write([]byte(`<pre style="white-space:pre-wrap;max-height:20rem;overflow:auto;">`))
 	_, _ = w.Write([]byte(htmlEscape(string(body))))
 	_, _ = w.Write([]byte(`</pre>`))
+}
+
+// pollFileMaxBytes caps the multipart upload from the GUI's "Trigger
+// poll" card. Question banks are plain YAML of a few KB even in the
+// worst case; 1 MiB rejects pasted binaries without truncating any
+// realistic bank.
+const pollFileMaxBytes = 1 << 20
+
+// handlePollFile accepts a YAML question bank as multipart/form-data
+// from the live status page, writes it to a temp file the active
+// session can read, dispatches it through the same RunPoll path as
+// ptrack poll, and removes the temp file afterwards. Replaces the
+// previous "type a server-side path" input on the GUI — the teacher's
+// browser is the source of truth for the file.
+func (s *Server) handlePollFile(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	act := s.active
+	s.mu.RUnlock()
+	if act == nil {
+		http.Error(w, `{"error":"no active session"}`, http.StatusConflict)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, pollFileMaxBytes)
+	if err := r.ParseMultipartForm(pollFileMaxBytes); err != nil {
+		http.Error(w, `{"error":"upload too large or malformed"}`, http.StatusBadRequest)
+		return
+	}
+	file, header, err := r.FormFile("bank")
+	if err != nil {
+		http.Error(w, `{"error":"missing bank file"}`, http.StatusBadRequest)
+		return
+	}
+	defer func() { _ = file.Close() }()
+
+	tmp, err := os.CreateTemp("", "ptrack-bank-*.yaml")
+	if err != nil {
+		http.Error(w, `{"error":"temp file: `+err.Error()+`"}`, http.StatusInternalServerError)
+		return
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+
+	if _, err := io.Copy(tmp, file); err != nil {
+		_ = tmp.Close()
+		http.Error(w, `{"error":"write bank: `+err.Error()+`"}`, http.StatusInternalServerError)
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		http.Error(w, `{"error":"close bank: `+err.Error()+`"}`, http.StatusInternalServerError)
+		return
+	}
+
+	result, err := act.coord.RunPoll(r.Context(), tmpPath, false)
+	if err != nil {
+		status := http.StatusUnprocessableEntity
+		if errors.Is(err, os.ErrNotExist) {
+			status = http.StatusNotFound
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"poll_id":         result.PollID,
+		"scheduled_count": result.ScheduledCount,
+		"skipped_count":   result.SkippedCount,
+		"file_name":       header.Filename,
+	})
 }
 
 // handleShutdown stops the active session, renders the "you can close
