@@ -75,7 +75,7 @@
   "stats.tooltip.incorrect": "incorrect",
   "stats.tooltip.unanswered": "unanswered",
   "stats.tooltip.issued_word": "issued",
-  "stats.tooltip.issued_explainer": "Challenges the participant actually had a chance to answer (correct + incorrect + unanswered). Challenges skipped before delivery are excluded.",
+  "stats.tooltip.issued_explainer": "Challenges the participant actually had a chance to answer\n(correct + incorrect + unanswered)",
   "stats.tooltip.none_issued": "No challenges issued",
   "stats.tooltip.joined_at": "Joined at",
   "stats.tooltip.left_at": "Left at",

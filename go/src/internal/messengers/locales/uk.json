@@ -6,7 +6,7 @@
   "messenger.whoami.current": "Ви зареєстровані як %q.",
   "messenger.unregister.removed": "✅ Реєстрацію скасовано.",
   "messenger.unregister.error": "Не вдалося скасувати реєстрацію: %s",
-  "messenger.join_confirm.prompt": "📍 Ви щойно приєднались до зустрічі *%s* на платформі *%s*?",
+  "messenger.join_confirm.prompt": "📍 Ви щойно приєднались до зустрічі `%s` на платформі *%s*?",
   "messenger.join_confirm.btn.yes": "Так, це я",
   "messenger.join_confirm.btn.no": "Ні",
   "messenger.join_confirm.yes_result": "✅ Підтверджено! Вашу присутність на цій зустрічі відстежують.",

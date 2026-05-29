@@ -359,16 +359,16 @@ func presenceTooltip(row stats.ParticipantRow, m stats.Meeting, locale Locale) s
 // The "none issued" state collapses to a single row so the popover
 // still says something useful instead of opening empty.
 func challengePopoverJSON(row stats.ParticipantRow, locale Locale) string {
-	issuedTip := locale.T("stats.tooltip.issued_explainer")
 	if row.ChallengesIssued == 0 {
 		payload := map[string]any{
 			"rows": []map[string]any{
-				{"text": locale.T("stats.tooltip.none_issued"), "tipLabel": locale.T("stats.tooltip.issued_word"), "tipText": issuedTip},
+				{"text": locale.T("stats.tooltip.none_issued")},
 			},
 		}
 		b, _ := json.Marshal(payload)
 		return string(b)
 	}
+	issuedTip := locale.T("stats.tooltip.issued_explainer")
 	payload := map[string]any{
 		"rows": []map[string]any{
 			{"text": fmt.Sprintf("%d %s", row.ChallengesCorrect, locale.T("stats.tooltip.correct"))},

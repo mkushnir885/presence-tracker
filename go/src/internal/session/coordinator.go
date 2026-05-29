@@ -343,7 +343,7 @@ func (c *Coordinator) onJoin(ctx context.Context, evt providers.Event) {
 	c.pendingHandle[handle] = key
 	c.mu.Unlock()
 
-	ref, err := c.messenger.SendJoinConfirmation(ctx, handle, c.cfg.MeetingID, c.provider.Name())
+	ref, err := c.messenger.SendJoinConfirmation(ctx, handle, c.cfg.PlatformMeetingID, c.provider.Name())
 	if err != nil {
 		slog.Warn("session: send join confirmation", "err", err)
 		c.mu.Lock()
@@ -487,23 +487,34 @@ func (c *Coordinator) Status() CoordStatus {
 	defer c.mu.Unlock()
 
 	present := make([]PresenceStatus, 0, len(c.names))
-	for _, state := range c.names {
-		if state.verifiedPlatformID == "" {
-			continue
-		}
-		present = append(present, PresenceStatus{
-			DisplayName: state.canonicalName,
-			PlatformID:  state.verifiedPlatformID,
-			JoinedAt:    state.verifiedAt,
-		})
-	}
-
-	unreg := make([]UnregisteredStatus, 0, len(c.unregistered))
+	unreg := make([]UnregisteredStatus, 0, len(c.unregistered)+len(c.names))
 	for _, evt := range c.unregistered {
 		unreg = append(unreg, UnregisteredStatus{
 			DisplayName: evt.DisplayName,
 			PlatformID:  evt.PlatformID,
 		})
+	}
+	// Registered names split into tracked (verified) and untracked
+	// (pending, denied, post-verification colliders, or tainted), so
+	// every platformID currently in the meeting appears in exactly one
+	// roster.
+	for _, state := range c.names {
+		if state.verifiedPlatformID != "" {
+			present = append(present, PresenceStatus{
+				DisplayName: state.canonicalName,
+				PlatformID:  state.verifiedPlatformID,
+				JoinedAt:    state.verifiedAt,
+			})
+		}
+		for pid := range state.platformIDs {
+			if pid == state.verifiedPlatformID {
+				continue
+			}
+			unreg = append(unreg, UnregisteredStatus{
+				DisplayName: state.canonicalName,
+				PlatformID:  pid,
+			})
+		}
 	}
 
 	return CoordStatus{

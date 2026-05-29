@@ -1032,6 +1032,8 @@ details.menu .menu-list button.active svg { color: var(--accent); }
 }
 
 .status-waiting {
+    flex: 1;
+    min-height: 0;
     display: flex;
     align-items: center;
     justify-content: center;

@@ -6,7 +6,7 @@
   "messenger.whoami.current": "You are registered as %q.",
   "messenger.unregister.removed": "✅ Registration removed.",
   "messenger.unregister.error": "Could not remove registration: %s",
-  "messenger.join_confirm.prompt": "📍 Did you just join meeting *%s* on *%s*?",
+  "messenger.join_confirm.prompt": "📍 Did you just join meeting `%s` on *%s*?",
   "messenger.join_confirm.btn.yes": "Yes, that's me",
   "messenger.join_confirm.btn.no": "No",
   "messenger.join_confirm.yes_result": "✅ Confirmed! Your presence is being tracked for this meeting.",

@@ -75,7 +75,7 @@
   "stats.tooltip.incorrect": "неправильних",
   "stats.tooltip.unanswered": "без відповіді",
   "stats.tooltip.issued_word": "надіслано",
-  "stats.tooltip.issued_explainer": "Питання, на які слухач мав можливість відповісти (правильні + неправильні + без відповіді). Пропущені до надсилання питання не враховуються.",
+  "stats.tooltip.issued_explainer": "Питання, на які слухач мав можливість відповісти\n(правильні + неправильні + без відповіді)",
   "stats.tooltip.none_issued": "Питань не надсилалось",
   "stats.tooltip.joined_at": "Долучився(лась) о",
   "stats.tooltip.left_at": "Вийшов(шла) о",
