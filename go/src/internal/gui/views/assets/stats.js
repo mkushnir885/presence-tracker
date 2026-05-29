@@ -269,6 +269,11 @@
       openMeeting(trigger, meetingJSON);
       return;
     }
+    const challengeJSON = trigger.getAttribute('data-popover-challenge');
+    if (challengeJSON) {
+      openChallenge(trigger, challengeJSON);
+      return;
+    }
     const text = trigger.getAttribute('data-popover');
     if (!text) return;
     close();
@@ -276,6 +281,36 @@
     pop.className = 'stat-popover';
     pop.setAttribute('role', 'dialog');
     pop.textContent = text;
+    document.body.appendChild(pop);
+    position(trigger, pop);
+    popoverEl = pop;
+    triggerEl = trigger;
+    trigger.setAttribute('aria-expanded', 'true');
+  }
+
+  function openChallenge(trigger, json) {
+    let data;
+    try { data = JSON.parse(json); } catch (_) { return; }
+    close();
+    const pop = document.createElement('div');
+    pop.className = 'stat-popover stat-popover-challenge';
+    pop.setAttribute('role', 'dialog');
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+    for (const row of rows) {
+      if (!row) continue;
+      const line = document.createElement('div');
+      line.className = 'challenge-row';
+      if (row.text) line.appendChild(document.createTextNode(row.text));
+      if (row.tipLabel) {
+        const tip = document.createElement('span');
+        tip.className = 'challenge-tip';
+        tip.setAttribute('data-tooltip', row.tipText || '');
+        tip.setAttribute('tabindex', '0');
+        tip.textContent = row.tipLabel;
+        line.appendChild(tip);
+      }
+      pop.appendChild(line);
+    }
     document.body.appendChild(pop);
     position(trigger, pop);
     popoverEl = pop;
@@ -360,6 +395,13 @@
       pop.appendChild(stateLine);
     }
 
+    if (data.reason && data.reason.value) {
+      const reasonLine = document.createElement('div');
+      reasonLine.className = 'marker-reason-line';
+      reasonLine.appendChild(makeKV(data.reason.label, data.reason.value));
+      pop.appendChild(reasonLine);
+    }
+
     const body = document.createElement('div');
     body.className = 'marker-body';
     let bodyHasContent = false;
@@ -410,7 +452,7 @@
   }
 
   document.addEventListener('click', (ev) => {
-    const trigger = ev.target.closest('[data-popover], [data-popover-marker], [data-popover-meeting]');
+    const trigger = ev.target.closest('[data-popover], [data-popover-marker], [data-popover-meeting], [data-popover-challenge]');
     if (trigger) {
       ev.preventDefault();
       ev.stopPropagation();

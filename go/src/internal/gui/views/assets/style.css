@@ -9,6 +9,7 @@
     --card-bg: #f8f9fa;
     --danger: #dc3545;
     --success: #198754;
+    --skipped: #c2399e;
 }
 [data-theme=dark] {
     --bg: #0d1117;
@@ -21,6 +22,7 @@
     --card-bg: #161b22;
     --danger: #f85149;
     --success: #3fb950;
+    --skipped: #e879c8;
 }
 @media (prefers-color-scheme: dark) {
     :root:not([data-theme]) {
@@ -34,6 +36,7 @@
         --card-bg: #161b22;
         --danger: #f85149;
         --success: #3fb950;
+        --skipped: #e879c8;
     }
 }
 *, *::before, *::after { box-sizing: border-box; }
@@ -552,7 +555,7 @@ details.menu .menu-list button.active svg { color: var(--accent); }
 .band-marker-correct .band-marker-shape { background: var(--success); }
 .band-marker-incorrect .band-marker-shape { background: var(--danger); }
 .band-marker-unanswered .band-marker-shape { background: var(--muted); }
-.band-marker-skipped .band-marker-shape { background: color-mix(in srgb, var(--muted) 60%, transparent); }
+.band-marker-skipped .band-marker-shape { background: var(--skipped); }
 
 .popover-trigger {
     background: none;
@@ -619,6 +622,17 @@ details.menu .menu-list button.active svg { color: var(--accent); }
 .stat-popover-marker .marker-state-correct    { color: var(--success); }
 .stat-popover-marker .marker-state-incorrect  { color: var(--danger); }
 .stat-popover-marker .marker-state-unanswered { color: var(--muted); }
+.stat-popover-marker .marker-state-skipped    { color: var(--skipped); }
+
+.stat-popover-challenge { display: flex; flex-direction: column; gap: 0.15rem; }
+.stat-popover-challenge .challenge-row { white-space: nowrap; }
+.stat-popover-challenge .challenge-tip {
+    text-decoration: underline dotted;
+    text-underline-offset: 2px;
+    text-decoration-color: color-mix(in srgb, currentColor 50%, transparent);
+    cursor: help;
+}
+.stat-popover-challenge .challenge-tip:hover { text-decoration-color: currentColor; }
 .stat-popover-marker .marker-hint {
     color: var(--muted);
     font-size: 0.78rem;

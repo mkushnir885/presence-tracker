@@ -302,7 +302,13 @@ def _collect_markers(
     meetings: list[dict[str, Any]],
     questions: pl.LazyFrame | None,
 ) -> dict[tuple[str, str], list[dict[str, Any]]]:
-    """Per-(display_name, meeting_id) list of challenge markers."""
+    """Per-(display_name, meeting_id) list of challenge markers.
+
+    Issued challenges (correct/incorrect/unanswered) and skipped
+    challenges are rendered as markers; the latter never reached the
+    participant and so carry a ``skip_reason`` instead of question/
+    answer fields.
+    """
     durations = pl.LazyFrame(
         {
             "meeting_id": [m["meeting_id"] for m in meetings],
@@ -310,7 +316,7 @@ def _collect_markers(
         }
     )
 
-    base = (
+    issued = (
         _challenge_frame(events)
         .join(durations, on="meeting_id", how="left")
         .with_columns(
@@ -318,6 +324,7 @@ def _collect_markers(
             .clip(0.0, 100.0)
             .alias("x_pct"),
             pl.col("state").fill_null("unanswered").alias("result"),
+            pl.lit("").alias("skip_reason"),
         )
     )
 
@@ -331,20 +338,23 @@ def _collect_markers(
             pl.col("match_mode"),
             pl.col("tolerance"),
         ).unique(subset=["question_id"])
-        base = base.join(q, on="question_id", how="left")
+        issued = issued.join(q, on="question_id", how="left")
 
-    df: pl.DataFrame = base.sort(  # type: ignore  # ty limitation
+    issued_df: pl.DataFrame = issued.sort(  # type: ignore  # ty limitation
         ["display_name", "meeting_id", "issued_ms"]
     ).collect()
 
+    skipped_df = _collect_skipped(events, durations)
+
     out: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    for row in df.to_dicts():
+    for row in issued_df.to_dicts():
         key = (row["display_name"], row["meeting_id"])
         out.setdefault(key, []).append(
             {
                 "x_pct": float(row["x_pct"]),
                 "auto_submitted": bool(row["auto_submitted"]),
                 "result": row["result"],
+                "skip_reason": "",
                 "challenge_id": row["challenge_id"],
                 "question_id": row["question_id"],
                 "timestamp_ms": int(row["issued_ms"]),
@@ -362,7 +372,62 @@ def _collect_markers(
                 "submitted_answer": row.get("submitted_answer") or "",
             }
         )
+    for row in skipped_df.to_dicts():
+        key = (row["display_name"], row["meeting_id"])
+        out.setdefault(key, []).append(
+            {
+                "x_pct": float(row["x_pct"]),
+                "auto_submitted": bool(row["auto_submitted"]),
+                "result": "skipped",
+                "skip_reason": row["skip_reason"] or "",
+                "challenge_id": row["challenge_id"],
+                "question_id": "",
+                "timestamp_ms": int(row["skipped_ms"]),
+                "latency_ms": 0,
+                "prompt": "",
+                "question_type": "",
+                "choices": [],
+                "correct_answer": "",
+                "match_mode": "",
+                "tolerance": 0.0,
+                "submitted_answer": "",
+            }
+        )
+    for key, markers in out.items():
+        markers.sort(key=lambda m: m["timestamp_ms"])
+        out[key] = markers
     return out
+
+
+def _collect_skipped(
+    events: pl.LazyFrame, durations: pl.LazyFrame
+) -> pl.DataFrame:
+    """One row per challenge_skipped event with x_pct + skip_reason."""
+    df: pl.DataFrame = (  # type: ignore  # ty limitation: collect() return includes InProcessQuery
+        events.filter(pl.col("event_type") == "challenge_skipped")
+        .select(
+            pl.col("display_name"),
+            pl.col("meeting_id"),
+            pl.col("challenge_id"),
+            pl.col("timestamp").alias("skipped_ms"),
+            pl.col("metadata")
+            .str.json_path_match("$.reason")
+            .fill_null("")
+            .alias("skip_reason"),
+            pl.col("metadata")
+            .str.json_path_match("$.auto_submitted")
+            .eq("true")
+            .alias("auto_submitted"),
+        )
+        .join(durations, on="meeting_id", how="left")
+        .with_columns(
+            (pl.col("skipped_ms") / pl.col("duration_ms") * 100.0)
+            .clip(0.0, 100.0)
+            .alias("x_pct"),
+        )
+        .collect()
+    )
+    return df
 
 
 def _stringify_answer(value: object) -> str:

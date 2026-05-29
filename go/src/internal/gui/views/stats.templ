@@ -137,8 +137,8 @@ templ meetingRow(displayName string, row stats.ParticipantRow, m stats.Meeting, 
 				locale.T("stats.tooltip.presence_pct"),
 				fmt.Sprintf("%d%%", int(row.PresenceRatio*100)),
 			)
-			@statPopover(
-				challengeTooltip(row, locale),
+			@challengePopover(
+				challengePopoverJSON(row, locale),
 				locale.T("stats.tooltip.challenge_summary"),
 				fmt.Sprintf("%d/%d", row.ChallengesCorrect, row.ChallengesIssued),
 			)
@@ -167,8 +167,8 @@ templ crossMeetingRow(data StatsData, m stats.Meeting, row stats.ParticipantRow,
 					locale.T("stats.tooltip.presence_pct"),
 					fmt.Sprintf("%d%%", int(row.PresenceRatio*100)),
 				)
-				@statPopover(
-					challengeTooltip(row, locale),
+				@challengePopover(
+					challengePopoverJSON(row, locale),
 					locale.T("stats.tooltip.challenge_summary"),
 					fmt.Sprintf("%d/%d", row.ChallengesCorrect, row.ChallengesIssued),
 				)
@@ -186,6 +186,19 @@ templ statPopover(popoverText string, tooltipText string, label string) {
 		type="button"
 		class="popover-trigger"
 		data-popover={ popoverText }
+		data-tooltip={ tooltipText }
+		aria-label={ tooltipText }
+	>{ label }</button>
+}
+
+// challengePopover renders the challenge-summary chip whose click
+// reveals the structured "N correct / M issued" popover with a hover
+// tooltip on the "issued" word.
+templ challengePopover(payloadJSON string, tooltipText string, label string) {
+	<button
+		type="button"
+		class="popover-trigger"
+		data-popover-challenge={ payloadJSON }
 		data-tooltip={ tooltipText }
 		aria-label={ tooltipText }
 	>{ label }</button>
@@ -337,15 +350,33 @@ func presenceTooltip(row stats.ParticipantRow, m stats.Meeting, locale Locale) s
 	)
 }
 
-func challengeTooltip(row stats.ParticipantRow, locale Locale) string {
+// challengePopoverJSON builds the payload consumed by the
+// data-popover-challenge JS renderer. Two lines:
+//
+//	N correct
+//	M issued    ← hover tooltip explains the term
+//
+// The "none issued" state collapses to a single row so the popover
+// still says something useful instead of opening empty.
+func challengePopoverJSON(row stats.ParticipantRow, locale Locale) string {
+	issuedTip := locale.T("stats.tooltip.issued_explainer")
 	if row.ChallengesIssued == 0 {
-		return locale.T("stats.tooltip.none_issued")
+		payload := map[string]any{
+			"rows": []map[string]any{
+				{"text": locale.T("stats.tooltip.none_issued"), "tipLabel": locale.T("stats.tooltip.issued_word"), "tipText": issuedTip},
+			},
+		}
+		b, _ := json.Marshal(payload)
+		return string(b)
 	}
-	return fmt.Sprintf("%d %s\n%d %s\n%d %s",
-		row.ChallengesCorrect, locale.T("stats.tooltip.correct"),
-		row.ChallengesIncorrect, locale.T("stats.tooltip.incorrect"),
-		row.ChallengesUnanswered, locale.T("stats.tooltip.unanswered"),
-	)
+	payload := map[string]any{
+		"rows": []map[string]any{
+			{"text": fmt.Sprintf("%d %s", row.ChallengesCorrect, locale.T("stats.tooltip.correct"))},
+			{"text": fmt.Sprintf("%d ", row.ChallengesIssued), "tipLabel": locale.T("stats.tooltip.issued_word"), "tipText": issuedTip},
+		},
+	}
+	b, _ := json.Marshal(payload)
+	return string(b)
 }
 
 func segmentEdgeTooltip(isStart bool, seg stats.Segment, m stats.Meeting, locale Locale) string {
@@ -407,7 +438,7 @@ func markerPopoverJSON(mk stats.Marker, _ stats.Meeting, locale Locale) string {
 		state = mk.Result
 	}
 	latencyHint := ""
-	if mk.LatencyMS > 0 && mk.Result != "unanswered" {
+	if mk.LatencyMS > 0 && mk.Result != "unanswered" && mk.Result != "skipped" {
 		secs := int((float64(mk.LatencyMS) + 500) / 1000.0)
 		latencyHint = fmt.Sprintf("%s %ds",
 			locale.T("stats.tooltip.latency"),
@@ -427,13 +458,14 @@ func markerPopoverJSON(mk stats.Marker, _ stats.Meeting, locale Locale) string {
 			"color": mk.Result,
 			"hint":  latencyHint,
 		},
+		"reason": markerSkipReason(mk, locale),
 		"prompt": map[string]string{
 			"label": locale.T("stats.tooltip.question"),
 			"value": mk.Prompt,
 		},
-		"extras":      markerExtras(mk, locale),
-		"answer":      markerAnswer(mk, locale),
-		"submitted":   markerSubmitted(mk, locale),
+		"extras":    markerExtras(mk, locale),
+		"answer":    markerAnswer(mk, locale),
+		"submitted": markerSubmitted(mk, locale),
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {
@@ -498,11 +530,30 @@ func markerAnswer(mk stats.Marker, locale Locale) map[string]string {
 	}
 }
 
+// markerSkipReason renders the "reason" line for skipped markers. The
+// per-reason locale key falls back to the raw snake_case value so
+// future skip reasons (unknown to the current locale file) still
+// surface readably.
+func markerSkipReason(mk stats.Marker, locale Locale) map[string]string {
+	if mk.Result != "skipped" || mk.SkipReason == "" {
+		return map[string]string{}
+	}
+	reasonKey := "stats.marker.skip_reason." + mk.SkipReason
+	reasonValue := locale.T(reasonKey)
+	if reasonValue == reasonKey {
+		reasonValue = mk.SkipReason
+	}
+	return map[string]string{
+		"label": locale.T("stats.marker.skip_reason"),
+		"value": reasonValue,
+	}
+}
+
 // markerSubmitted formats the student-supplied answer line. Empty when
 // the challenge was unanswered or no submitted_answer was recorded (e.g.
 // pre-feature events).
 func markerSubmitted(mk stats.Marker, locale Locale) map[string]string {
-	if mk.Result == "unanswered" || mk.SubmittedAnswer == "" {
+	if mk.Result == "unanswered" || mk.Result == "skipped" || mk.SubmittedAnswer == "" {
 		return map[string]string{}
 	}
 	value := mk.SubmittedAnswer

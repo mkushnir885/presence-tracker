@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"presence-tracker/src/internal/challenges"
 	"presence-tracker/src/internal/eventstore"
 	"presence-tracker/src/internal/messengers"
@@ -610,7 +612,16 @@ func (c *Coordinator) RunPollBank(ctx context.Context, bank challenges.Bank, aut
 }
 
 func (c *Coordinator) runPollBank(ctx context.Context, bank challenges.Bank, autoSubmitted bool) (challenges.PollResult, error) {
-	eligible := c.eligibleParticipants()
+	eligible, ineligible := c.eligibleParticipants()
+	for _, sk := range ineligible {
+		_ = c.RecordChallengeSkipped(ctx, challenges.SkippedChallenge{
+			ChallengeID:   uuid.Must(uuid.NewV7()).String(),
+			DisplayName:   sk.DisplayName,
+			Reason:        sk.Reason,
+			AutoSubmitted: autoSubmitted,
+			SkippedAt:     time.Now().UTC(),
+		})
+	}
 
 	sendFn := func(ctx context.Context, handle, challengeID string, q challenges.Question) (string, error) {
 		mp := messengers.ChallengePrompt{
@@ -639,27 +650,47 @@ func (c *Coordinator) RecordGeneratorFailed(_ context.Context, reason string) {
 	})
 }
 
-func (c *Coordinator) eligibleParticipants() []challenges.EligibleParticipant {
+// skippedParticipant captures one participant excluded from a poll
+// round, with the snake_case reason that goes into the
+// challenge_skipped event metadata.
+type skippedParticipant struct {
+	DisplayName string
+	Reason      string
+}
+
+// eligibleParticipants partitions the registered roster for the next
+// poll round into participants who should receive a challenge and
+// those who should be skipped (with a reason). Unverified or
+// name-tainted participants are silently dropped — they are not in
+// the meeting from the event-log point of view (no
+// participant_joined was written for them) and a skip marker with no
+// presence band would be misleading.
+func (c *Coordinator) eligibleParticipants() ([]challenges.EligibleParticipant, []skippedParticipant) {
 	minGap := time.Duration(c.cfg.MinGapBetweenChallengesSecs) * time.Second
 	now := time.Now()
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	var out []challenges.EligibleParticipant
+	var eligible []challenges.EligibleParticipant
+	var skipped []skippedParticipant
 	for _, state := range c.names {
 		if state.verifiedPlatformID == "" || state.tainted {
 			continue
 		}
 		if !state.lastChallenge.IsZero() && now.Sub(state.lastChallenge) < minGap {
+			skipped = append(skipped, skippedParticipant{
+				DisplayName: state.canonicalName,
+				Reason:      "min_gap",
+			})
 			continue
 		}
-		out = append(out, challenges.EligibleParticipant{
+		eligible = append(eligible, challenges.EligibleParticipant{
 			DisplayName: state.canonicalName,
 			Handle:      state.handle,
 		})
 	}
-	return out
+	return eligible, skipped
 }
 
 func (c *Coordinator) writeEvent(r eventstore.Record) {
@@ -729,10 +760,27 @@ func (c *Coordinator) RecordChallengeUnanswered(_ context.Context, challengeID s
 	return nil
 }
 
-// RecordChallengeSkipped is a no-op: the eligible list is filtered to verified
-// participants before dispatch, so no skip reason produced by the pipeline
-// today warrants a Parquet record. Kept to satisfy challenges.EventSink.
-func (c *Coordinator) RecordChallengeSkipped(_ context.Context, _, _ string) error {
+// RecordChallengeSkipped writes a challenge_skipped event for one
+// participant excluded from a poll round. Reason is a snake_case key
+// (e.g. min_gap, delivery_failed) stored under the metadata "reason"
+// field; AutoSubmitted travels alongside so analytics can keep skip
+// markers distinguished by producer the same way issued challenges
+// are.
+func (c *Coordinator) RecordChallengeSkipped(_ context.Context, sk challenges.SkippedChallenge) error {
+	ts := sk.SkippedAt
+	if ts.IsZero() {
+		ts = time.Now().UTC()
+	}
+	c.writeEvent(eventstore.Record{
+		EventType:   "challenge_skipped",
+		Timestamp:   ts,
+		ChallengeID: sk.ChallengeID,
+		DisplayName: sk.DisplayName,
+		Metadata: map[string]string{
+			"reason":         sk.Reason,
+			"auto_submitted": strconv.FormatBool(sk.AutoSubmitted),
+		},
+	})
 	return nil
 }
 

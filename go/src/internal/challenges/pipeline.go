@@ -32,13 +32,24 @@ type IssuedChallenge struct {
 	IssuedAt      time.Time
 }
 
+// SkippedChallenge records one challenge that never reached the
+// participant. Reason is a snake_case key (delivery_failed, min_gap,
+// …) written to the challenge_skipped event metadata.
+type SkippedChallenge struct {
+	ChallengeID   string
+	DisplayName   string
+	Reason        string
+	AutoSubmitted bool
+	SkippedAt     time.Time
+}
+
 // EventSink receives scored challenge results and side effects. Implemented
 // by session.Coordinator.
 type EventSink interface {
 	RecordChallengeIssued(ctx context.Context, c IssuedChallenge) error
 	RecordChallengeResult(ctx context.Context, challengeID string, result ScoreResult, submitted Answer, latencyMS int64) error
 	RecordChallengeUnanswered(ctx context.Context, challengeID string) error
-	RecordChallengeSkipped(ctx context.Context, displayName, reason string) error
+	RecordChallengeSkipped(ctx context.Context, sk SkippedChallenge) error
 
 	// NotifyAnswered acknowledges a received answer. It deletes the
 	// question message and, for text/numeric answers, the user's reply,
@@ -188,7 +199,13 @@ func (p *Pipeline) deliver(
 	ref, err := send(ctx, ep.Handle, cid, q)
 	if err != nil {
 		slog.Warn("challenges: delivery failed", "participant", ep.DisplayName, "err", err)
-		_ = p.sink.RecordChallengeSkipped(ctx, ep.DisplayName, "delivery_failed")
+		_ = p.sink.RecordChallengeSkipped(ctx, SkippedChallenge{
+			ChallengeID:   cid,
+			DisplayName:   ep.DisplayName,
+			Reason:        "delivery_failed",
+			AutoSubmitted: autoSubmitted,
+			SkippedAt:     time.Now().UTC(),
+		})
 		return false
 	}
 

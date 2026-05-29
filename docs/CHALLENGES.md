@@ -396,7 +396,9 @@ A participant is eligible for a given poll iff:
 - They haven't received a challenge within the past `min_gap_seconds`
   (default 60).
 
-Ineligible participants produce `challenge_skipped_*` events. A poll
+Ineligible participants produce `challenge_skipped` events (with a
+`reason` metadata key — `min_gap` for the eligibility filter above,
+`delivery_failed` when the messenger send fails after assignment). A poll
 round with zero eligible participants is skipped and emits
 `challenge_poll_skipped_no_participants`.
 
@@ -410,7 +412,10 @@ round with zero eligible participants is skipped and emits
 
 Additional diagnostic events (not counted in challenge stats):
 
-- `challenge_skipped_offline` — messenger delivery failed.
+- `challenge_skipped` — the participant was excluded from this poll
+  round. `reason` metadata distinguishes `delivery_failed` from
+  eligibility skips (`min_gap`, …). Rendered as a distinct marker on
+  the timeband.
 - `challenge_generator_failed` — auto-generation produced no usable
   questions for a scheduled batch.
 

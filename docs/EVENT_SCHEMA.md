@@ -120,7 +120,7 @@ event-type-specific metadata.
 | `challenge_answered_correct`   | null           | set            | null          | `latency_ms`, `submitted_answer` |
 | `challenge_answered_incorrect` | null           | set            | null          | `latency_ms`, `submitted_answer` |
 | `challenge_unanswered`         | null           | set            | null          | —                                |
-| `challenge_skipped_offline`    | set            | set            | null          | `auto_submitted`, `delivery_error` |
+| `challenge_skipped`            | set            | set            | null          | `auto_submitted`, `reason`       |
 | `challenge_generator_failed`   | null           | null           | null          | `error_class`                    |
 
 `challenge_id` threads the lifecycle events for one participant's
@@ -137,6 +137,15 @@ field on `POST /poll` set this value; the GUI's **Custom bank…** and
 **Auto-generated** menu options always submit `"false"` because the
 teacher selected the bank. Analytics use this flag to distinguish
 unreviewed questions from the rest.
+
+`reason` on `challenge_skipped` records why the participant did not
+receive a question. Current values: `delivery_failed` (messenger send
+returned an error after the challenge was assigned), `min_gap` (the
+participant received a challenge within the past `min_gap_seconds`).
+Future eligibility filters add their own snake_case reason strings;
+analytics surface unknown values verbatim. Skipped events are excluded
+from the "issued" tally (correct + incorrect + unanswered) but still
+appear as markers on the per-participant timeband.
 
 `question_id` is a UUIDv4 referencing a record in the meeting's
 `<meeting_id>.jsonl` file in `questions_dir`. To retrieve the full

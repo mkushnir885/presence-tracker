@@ -68,10 +68,16 @@ type Segment struct {
 // questions JSONL when one exists; they're empty/zero when the file is
 // missing. SubmittedAnswer is the student's verbatim response captured
 // on result events (empty string for unanswered challenges).
+//
+// Result values: "correct" | "incorrect" | "unanswered" | "skipped".
+// For skipped markers SkipReason carries the metadata "reason" value
+// (delivery_failed, min_gap, …) and the question fields are blank
+// because the participant never received the question.
 type Marker struct {
 	XPct            float64  `json:"x_pct"`
 	AutoSubmitted   bool     `json:"auto_submitted"`
 	Result          string   `json:"result"`
+	SkipReason      string   `json:"skip_reason"`
 	ChallengeID     string   `json:"challenge_id"`
 	QuestionID      string   `json:"question_id"`
 	TimestampMS     int64    `json:"timestamp_ms"`
