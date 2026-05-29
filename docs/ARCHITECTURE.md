@@ -327,20 +327,14 @@ whatever registration is active at the time.
 - The **JSON control plane** — always on. The same routes serve the
   GUI's htmx form submissions and CLI thin clients.
 
-### Listener port discovery
+### Listener port
 
-Every running daemon appends its loopback HTTP port to the
-`PTRACK_PORTS` environment variable (comma-separated). `ptrack serve`
-uses the configured `gui.bind_addr` port (default 8080); `ptrack track`
-(headless) binds a random free loopback port. The exported list is
-inherited by any child the daemon spawns and by shells launched from
-inside the daemon, so a `ptrack poll` invocation finds its way back
-without an on-disk descriptor.
-
-Because the daemon supervises exactly one meeting at a time, running
-multiple `ptrack` processes in parallel is the supported way to track
-multiple meetings. `ptrack poll` then uses `--port=<port>` to pick the
-right daemon.
+Both `ptrack serve` and `ptrack track` bind to `gui.port` from
+`config.json` (or the `--port` flag override; the flag does not persist
+to the config file). There is no random-port fallback: if the chosen
+port is already in use the daemon refuses to start with a hint to pass
+`--port=<free port>`. The user is responsible for assigning distinct
+ports when running multiple daemons in parallel.
 
 ### `ptrack poll` CLI (thin client)
 
@@ -355,9 +349,9 @@ without teacher review. See `@docs/CHALLENGES.md` for the endpoint body
 and the error codes.
 
 Port resolution priority: `--server=URL` flag, `--port=<port>` flag,
-single entry in `PTRACK_PORTS`, config.yaml `gui.port`, `8080`. If
-`PTRACK_PORTS` lists more than one port and `--port` is not set, the
-CLI errors and asks the user to disambiguate.
+config `gui.port`. When more than one daemon is running, the user
+passes `--port=<port>` to pick which one — there is no env-based
+auto-discovery.
 
 ### Lifecycle endpoints
 

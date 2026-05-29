@@ -15,8 +15,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -67,20 +65,22 @@ func trackCmd() *cobra.Command {
 		providerName string
 		meetingID    string
 		fixture      string
+		port         int
 	)
 
 	cmd := &cobra.Command{
 		Use:   "track",
 		Short: "Track presence for a meeting",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runTrack(cmd.Context(), cfgPath, providerName, meetingID, fixture)
+			return runTrack(cmd.Context(), cfgPath, providerName, meetingID, fixture, port)
 		},
 	}
 
-	cmd.Flags().StringVar(&cfgPath, "config", "", "path to config.yaml (default: search standard locations)")
+	cmd.Flags().StringVar(&cfgPath, "config", "", "path to config.json (default: search standard locations)")
 	cmd.Flags().StringVar(&providerName, "provider", "bbb", "video-conferencing provider (bbb, meet, zoom)")
 	cmd.Flags().StringVar(&meetingID, "meeting", "", "meeting ID (required when not using --fixture)")
 	cmd.Flags().StringVar(&fixture, "fixture", "", "path to a recorded fixture directory for offline replay")
+	cmd.Flags().IntVar(&port, "port", 0, "control-plane port; overrides gui.port from config")
 
 	return cmd
 }
@@ -103,7 +103,7 @@ func pollCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&cfgPath, "config", "", "path to config.yaml (used only to discover the daemon port when PTRACK_PORTS is unset)")
+	cmd.Flags().StringVar(&cfgPath, "config", "", "path to config.json (used only to discover the daemon's gui.port)")
 	cmd.Flags().BoolVar(&autoSubmitted, "auto-submitted", false, "mark the poll as dispatched without teacher review")
 	cmd.Flags().IntVar(&port, "port", 0, "daemon port; required when several ptrack processes are running")
 	cmd.Flags().StringVar(&serverURL, "server", "", "override the daemon URL (e.g. http://127.0.0.1:8080)")
@@ -125,7 +125,7 @@ func reloadCmd() *cobra.Command {
 			return runReload(cmd.Context(), cfgPath, serverURL, port)
 		},
 	}
-	cmd.Flags().StringVar(&cfgPath, "config", "", "path to config.json (used only to discover the daemon port when PTRACK_PORTS is unset)")
+	cmd.Flags().StringVar(&cfgPath, "config", "", "path to config.json (used only to discover the daemon's gui.port)")
 	cmd.Flags().IntVar(&port, "port", 0, "daemon port; required when several ptrack processes are running")
 	cmd.Flags().StringVar(&serverURL, "server", "", "override the daemon URL (e.g. http://127.0.0.1:8080)")
 	return cmd
@@ -183,7 +183,7 @@ func runReport(ctx context.Context, inputs []string) error {
 	return err
 }
 
-func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture string) error {
+func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture string, portOverride int) error {
 	cfg, err := loadConfig(cfgPath)
 	if err != nil {
 		return err
@@ -191,6 +191,10 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 
 	v := cfg.Get()
 	setupLogging(v.Logging)
+	bindPort := v.GUI.Port
+	if portOverride != 0 {
+		bindPort = portOverride
+	}
 
 	if fixture != "" {
 		if meetingID == "" {
@@ -285,18 +289,14 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 	mountReloadHandler(mux, cfg)
 	mountAudioHandler(mux, func() *challenger.Service { return chSvc })
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	addr := fmt.Sprintf("127.0.0.1:%d", bindPort)
+	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("listen: %w", err)
-	}
-	chosen := ln.Addr().(*net.TCPAddr).Port
-	if err := appendCurrentPort(chosen); err != nil {
-		_ = ln.Close()
-		return err
+		return wrapPortBindError(addr, err)
 	}
 	go runHTTPServer(ctx, ln, mux, nil)
 
-	slog.Info("tracking started", "meeting_id", internalMeetingID, "platform_meeting", meetingID, "provider", prov.Name(), "control_port", chosen)
+	slog.Info("tracking started", "meeting_id", internalMeetingID, "platform_meeting", meetingID, "provider", prov.Name(), "control_port", bindPort)
 
 	return coord.Run(ctx)
 }
@@ -432,16 +432,14 @@ func mountAudioHandler(mux *http.ServeMux, challengerFn func() *challenger.Servi
 	})
 }
 
-// appendCurrentPort appends port to the PTRACK_PORTS environment variable
-// (comma-separated). Child processes the daemon spawns inherit the list,
-// which is how ptrack poll finds its way back to the daemon.
-func appendCurrentPort(port int) error {
-	existing := os.Getenv("PTRACK_PORTS")
-	portStr := strconv.Itoa(port)
-	if existing == "" {
-		return os.Setenv("PTRACK_PORTS", portStr)
+// wrapPortBindError annotates a net.Listen failure on addr with a hint
+// when the port is already in use, so the user knows to pass --port
+// (instead of being told to read syscall numbers).
+func wrapPortBindError(addr string, err error) error {
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return fmt.Errorf("listen %s: address already in use — another ptrack daemon is likely running on this port; pass --port=<free port> or stop the other daemon", addr)
 	}
-	return os.Setenv("PTRACK_PORTS", existing+","+portStr)
+	return fmt.Errorf("listen %s: %w", addr, err)
 }
 
 // runPoll posts to the running daemon's POST /poll endpoint.
@@ -478,9 +476,9 @@ func runPoll(ctx context.Context, cfgPath, serverURL string, autoSubmitted bool,
 }
 
 // resolveDaemonURL picks the daemon's base URL in priority order:
-// --server flag, --port flag, PTRACK_PORTS env (when it lists exactly one
-// port), config.yaml gui.port, 8080. If PTRACK_PORTS lists several ports
-// and --port is not set, returns a helpful error.
+// --server flag, --port flag, config gui.port. When the user is running
+// multiple daemons on different ports they must pass --port (or
+// --server) explicitly; there is no env-based discovery any more.
 func resolveDaemonURL(serverURL, cfgPath string, port int) (string, error) {
 	if serverURL != "" {
 		return serverURL, nil
@@ -488,28 +486,16 @@ func resolveDaemonURL(serverURL, cfgPath string, port int) (string, error) {
 	if port != 0 {
 		return fmt.Sprintf("http://127.0.0.1:%d", port), nil
 	}
-	if v := os.Getenv("PTRACK_PORTS"); v != "" {
-		parts := strings.Split(v, ",")
-		if len(parts) == 1 {
-			p, err := strconv.Atoi(strings.TrimSpace(parts[0]))
-			if err != nil {
-				return "", fmt.Errorf("invalid PTRACK_PORTS=%q: %w", v, err)
-			}
-			return fmt.Sprintf("http://127.0.0.1:%d", p), nil
-		}
-		return "", fmt.Errorf("multiple ptrack daemons running (PTRACK_PORTS=%s); pass --port=<port>", v)
-	}
-	fallback := 8080
 	if cfgPath != "" {
 		if cfg, err := config.Load(cfgPath); err == nil && cfg.Get().GUI.Port != 0 {
-			fallback = cfg.Get().GUI.Port
+			return fmt.Sprintf("http://127.0.0.1:%d", cfg.Get().GUI.Port), nil
 		}
 	} else if path, ok := config.Default(); ok {
 		if cfg, err := config.Load(path); err == nil && cfg.Get().GUI.Port != 0 {
-			fallback = cfg.Get().GUI.Port
+			return fmt.Sprintf("http://127.0.0.1:%d", cfg.Get().GUI.Port), nil
 		}
 	}
-	return fmt.Sprintf("http://127.0.0.1:%d", fallback), nil
+	return "", fmt.Errorf("cannot determine daemon URL: pass --port=<port> (or --server=<url>), or set gui.port in config")
 }
 
 // serveCmd starts the GUI web server.
@@ -525,7 +511,7 @@ func serveCmd() *cobra.Command {
 			return runServe(cmd.Context(), cfgPath, port)
 		},
 	}
-	cmd.Flags().StringVar(&cfgPath, "config", "", "path to config.yaml")
+	cmd.Flags().StringVar(&cfgPath, "config", "", "path to config.json")
 	cmd.Flags().IntVar(&port, "port", 0, "override GUI port from config")
 	return cmd
 }
@@ -535,13 +521,14 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 	if err != nil {
 		return err
 	}
-	if portOverride != 0 {
-		if err := cfg.Apply(func(v *config.Values) { v.GUI.Port = portOverride }); err != nil {
-			return fmt.Errorf("apply --port override: %w", err)
-		}
-	}
 	v := cfg.Get()
 	setupLogging(v.Logging)
+	// --port is a one-shot binding override; do not persist it to
+	// config.json (the user's value there is what reload restores).
+	bindPort := v.GUI.Port
+	if portOverride != 0 {
+		bindPort = portOverride
+	}
 
 	registry, err := participants.OpenBolt(config.DataDir())
 	if err != nil {
@@ -585,15 +572,10 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 	// its ctx.
 	srv.OnShutdown(stop)
 
-	addr := fmt.Sprintf("%s:%d", v.GUI.BindAddr, v.GUI.Port)
+	addr := fmt.Sprintf("%s:%d", v.GUI.BindAddr, bindPort)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("gui: listen %s: %w", addr, err)
-	}
-	chosen := ln.Addr().(*net.TCPAddr).Port
-	if err := appendCurrentPort(chosen); err != nil {
-		_ = ln.Close()
-		return err
+		return wrapPortBindError(addr, err)
 	}
 
 	slog.Info("gui: server started", "addr", "http://"+addr)

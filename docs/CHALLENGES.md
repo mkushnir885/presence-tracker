@@ -68,8 +68,8 @@ opens a localhost HTTP connection, and posts the poll request.
   review. Defaults to false; pass it only from automated producers that
   bypass the teacher.
 - `--port` selects a daemon when several `ptrack` processes are running
-  in parallel (one meeting per process). When exactly one daemon is
-  reachable via `PTRACK_PORTS`, `--port` is optional.
+  in parallel (one meeting per process). Optional when the daemon binds
+  the configured `gui.port` and that value lives in the local config.
 - `--wait` keeps the CLI attached until the poll's `answer_window`
   elapses, then prints `delivered N, correct K, incorrect M, unanswered U`
   to stdout and uses the exit code accordingly. Without `--wait`, the
@@ -81,24 +81,18 @@ The same code path serves the GUI's **Trigger poll** menu (see
 `@docs/GUI.md`). Both invocations end up calling `POST /poll` on the
 running daemon's HTTP API.
 
-### Listener port discovery
+### Listener port
 
-On startup, `ptrack serve` and `ptrack track` append the port they
-bound to onto the `PTRACK_PORTS` environment variable (comma-separated):
+`ptrack serve` and `ptrack track` both bind to `gui.port` from
+`config.json` (or the `--port` flag override). The flag overrides only
+for the current run — it never writes to `config.json`. If the chosen
+port is already taken, the daemon refuses to start with a hint to pass
+`--port=<free port>` instead of falling back to a random port.
 
-- `ptrack serve` — the configured `gui.bind_addr` port (default 8080).
-- `ptrack track` (headless) — a random free loopback port.
-
-Every child process the daemon spawns inherits this variable, so any
-`ptrack poll` invocation re-entered from a child (or launched by the
-teacher from a daemon-spawned shell) finds the right daemon without an
-on-disk descriptor.
-
-When the teacher runs `ptrack poll` directly from a fresh shell
-(`PTRACK_PORTS` unset), the CLI falls back to the port from
-`config.yaml`, then to `8080`. The CLI's `--server=URL` flag overrides
-everything else. When `PTRACK_PORTS` lists more than one port and
-`--port` is not supplied, the CLI errors with a helpful message.
+`ptrack poll` (and `ptrack reload`) find the daemon via, in order:
+`--server=URL`, `--port=<port>`, the local config's `gui.port`. When
+running multiple daemons in parallel, the user picks the target by
+passing `--port` explicitly.
 
 ### Endpoint shape
 

@@ -393,8 +393,7 @@ audio capture, and the BBB/Zoom polling rewrite are still pending.
   per-session `Pipeline` with `RunPoll`/`HandleAnswer`), BoltDB
   participant registry, Arrow/Parquet event store, session coordinator,
   `POST /poll` HTTP endpoint mounted by both `ptrack track` and
-  `ptrack serve` (handler lives in `cmd/ptrack/main.go`), `PTRACK_PORTS`
-  env var that lists every running daemon's port, `ptrack track` /
+  `ptrack serve` (handler lives in `cmd/ptrack/main.go`), `ptrack track` /
   `ptrack serve` / `ptrack poll` / `ptrack report` CLI commands (the
   report path shells out to `ptrack_py report` directly via
   `internal/ptrackpy`). Telegram messenger and registry use the
