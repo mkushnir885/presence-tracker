@@ -2,9 +2,12 @@ package eventstore
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -17,8 +20,14 @@ import (
 // matches oldName, replacing it with newName. Matching is exact (no case
 // folding or trim) — the GUI sends back the value it showed the teacher.
 //
-// This is called by the GUI when the teacher renames a participant in the
-// meeting analysis view.
+// The file is overwritten in place (same inode) so its birth time stays
+// stable — that's what the Meetings page's "Created" column reads. A
+// sibling "<path>.backup" is created beforehand and removed only after
+// the truncated write completes; if the write fails, the original is
+// restored from that backup.
+//
+// This is called by the GUI when the teacher renames a participant in
+// the meeting analysis view.
 func UpdateDisplayName(parquetPath, oldName, newName string) error {
 	records, err := ReadAll(context.Background(), parquetPath)
 	if err != nil {
@@ -31,24 +40,34 @@ func UpdateDisplayName(parquetPath, oldName, newName string) error {
 		}
 	}
 
-	tmpPath := parquetPath + ".tmp"
-	if err := writeAllToFile(tmpPath, records, "zstd", defaultRowGroupSize); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("eventstore: write tmp file: %w", err)
+	var buf bytes.Buffer
+	if err := writeAllTo(&buf, records, "zstd", defaultRowGroupSize); err != nil {
+		return fmt.Errorf("eventstore: encode parquet: %w", err)
 	}
 
-	if err := os.Rename(tmpPath, parquetPath); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("eventstore: rename tmp file: %w", err)
+	backupPath := parquetPath + ".backup"
+	if err := copyFile(parquetPath, backupPath); err != nil {
+		return fmt.Errorf("eventstore: create backup: %w", err)
 	}
 
+	if err := overwriteFile(parquetPath, buf.Bytes()); err != nil {
+		if rerr := copyFile(backupPath, parquetPath); rerr != nil {
+			return fmt.Errorf("eventstore: overwrite failed (%w); restore from %s failed (%v) — restore manually", err, backupPath, rerr)
+		}
+		_ = os.Remove(backupPath)
+		return fmt.Errorf("eventstore: overwrite parquet: %w", err)
+	}
+
+	if err := os.Remove(backupPath); err != nil {
+		slog.Warn("eventstore: could not remove backup", "path", backupPath, "err", err)
+	}
 	return nil
 }
 
 const defaultRowGroupSize = 10000
 
-// writeAllToFile writes all records to path, overwriting any existing file.
-func writeAllToFile(path string, records []Record, compression string, rowGroupSize int) error {
+// writeAllTo encodes records as a complete Parquet stream into w.
+func writeAllTo(w io.Writer, records []Record, compression string, rowGroupSize int) error {
 	codec, err := parseCompression(compression)
 	if err != nil {
 		return err
@@ -60,23 +79,15 @@ func writeAllToFile(path string, records []Record, compression string, rowGroupS
 	)
 	arrowProps := pqarrow.NewArrowWriterProperties()
 
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		return fmt.Errorf("eventstore: create %s: %w", path, err)
-	}
-	defer func() { _ = f.Close() }()
-
-	pw, err := pqarrow.NewFileWriter(Schema, f, props, arrowProps)
+	pw, err := pqarrow.NewFileWriter(Schema, w, props, arrowProps)
 	if err != nil {
 		return fmt.Errorf("eventstore: parquet writer: %w", err)
 	}
-	defer func() { _ = pw.Close() }()
 
 	if len(records) == 0 {
 		return pw.Close()
 	}
 
-	// Recover the session start time so timestamps are stored correctly.
 	var startTime time.Time
 	for _, r := range records {
 		if r.EventType == "session_started" {
@@ -89,9 +100,42 @@ func writeAllToFile(path string, records []Record, compression string, rowGroupS
 	defer rec.Release()
 
 	if err := pw.Write(rec); err != nil {
+		_ = pw.Close()
 		return fmt.Errorf("eventstore: write record: %w", err)
 	}
 	return pw.Close()
+}
+
+// overwriteFile truncates the existing file at path and writes data,
+// preserving the inode (and therefore its birth time).
+func overwriteFile(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
+	if err != nil {
+		return fmt.Errorf("eventstore: open %s: %w", path, err)
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("eventstore: write %s: %w", path, err)
+	}
+	return f.Close()
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("eventstore: open %s: %w", src, err)
+	}
+	defer func() { _ = in.Close() }()
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return fmt.Errorf("eventstore: create %s: %w", dst, err)
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return fmt.Errorf("eventstore: copy to %s: %w", dst, err)
+	}
+	return out.Close()
 }
 
 // ReadQuestion scans all *.jsonl files in questionsDir for a record whose

@@ -27,7 +27,7 @@
   "meetings.title": "Meeting files",
   "meetings.empty": "No meeting files found in the meetings directory.",
   "meetings.col_id": "File name",
-  "meetings.col_modified": "Created",
+  "meetings.col_created": "Created",
   "meetings.col_size": "Size",
   "meetings.select_all": "Select all meetings",
   "meetings.view_stats": "View stats",

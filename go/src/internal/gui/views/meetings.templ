@@ -4,10 +4,10 @@ import "fmt"
 
 // initialSortClass returns the active-state class for a sort header on
 // initial render. The server hands the meetings rows back already
-// sorted by modification time descending, so only the "modified"
-// header starts active.
+// sorted by creation time descending, so only the "created" header
+// starts active.
 func initialSortClass(field string) string {
-	if field == "modified" {
+	if field == "created" {
 		return "meetings-sort-desc"
 	}
 	return "meetings-sort-none"
@@ -83,7 +83,7 @@ templ Meetings(data MeetingsData, locale Locale) {
 								@sortHeader(locale.T("meetings.col_id"), "name")
 							</th>
 							<th>
-								@sortHeader(locale.T("meetings.col_modified"), "modified")
+								@sortHeader(locale.T("meetings.col_created"), "created")
 							</th>
 							<th>
 								@sortHeader(locale.T("meetings.col_size"), "size")
@@ -107,12 +107,12 @@ templ Meetings(data MeetingsData, locale Locale) {
 						for _, m := range data.Meetings {
 							<tr
 								data-name={ m.ID }
-								data-modified={ fmt.Sprintf("%d", m.ModTime.Unix()) }
+								data-created={ fmt.Sprintf("%d", m.CreatedAt.Unix()) }
 								data-size={ fmt.Sprintf("%d", m.SizeKB) }
 							>
 								<td><input type="checkbox" name="file" value={ m.ID + ".parquet" } class="meetings-select" aria-label={ m.ID }/></td>
 								<td><a href={ templ.SafeURL("/stats?file=" + m.ID + ".parquet") }>{ m.ID }</a></td>
-								<td class="text-muted">{ m.ModTime.Format("2006-01-02 15:04") }</td>
+								<td class="text-muted">{ m.CreatedAt.Format("2006-01-02 15:04") }</td>
 								<td class="text-muted">{ fmt.Sprintf("%d KB", m.SizeKB) }</td>
 								<td>
 									<a
@@ -142,7 +142,7 @@ templ Meetings(data MeetingsData, locale Locale) {
 							if (h.classList.contains('meetings-sort-asc')) return { field: h.dataset.field, order: 'asc' };
 							if (h.classList.contains('meetings-sort-desc')) return { field: h.dataset.field, order: 'desc' };
 						}
-						return { field: 'modified', order: 'desc' };
+						return { field: 'created', order: 'desc' };
 					}
 					function applySort(field, order) {
 						headers.forEach(h => {

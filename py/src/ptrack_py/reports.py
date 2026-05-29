@@ -5,7 +5,6 @@ from __future__ import annotations
 import polars as pl
 
 from ptrack_analytics.frames import challenge_results as _challenge_frame
-from ptrack_analytics.frames import presence as _presence_frame
 
 
 def generate_csv(events: pl.LazyFrame) -> str:
@@ -15,23 +14,17 @@ def generate_csv(events: pl.LazyFrame) -> str:
     Expects *events* to contain data for exactly one meeting. For multiple
     meetings use generate_aggregate_csv instead.
 
-    Output columns: display_name, presence_ratio, challenges_issued,
-    challenges_correct. Sorted case-insensitively by display_name.
+    Output columns: name, presence_ratio, challenges_correct,
+    challenges_issued. Sorted case-insensitively by name.
     """
     meeting_times = _meeting_times(events)
 
     pres = (
-        _presence_frame(events)
+        _presence_seconds(events, meeting_times)
         .join(
-            meeting_times.select(["meeting_id", "duration_ms", "duration_seconds"]),
+            meeting_times.select(["meeting_id", "duration_seconds"]),
             on="meeting_id",
             how="left",
-        )
-        .with_columns(
-            pl.when(pl.col("left_ms").is_null())
-            .then((pl.col("duration_ms") - pl.col("joined_ms")) / 1_000.0)
-            .otherwise(pl.col("presence_seconds"))
-            .alias("presence_seconds")
         )
         .group_by("display_name")
         .agg(
@@ -51,12 +44,10 @@ def generate_csv(events: pl.LazyFrame) -> str:
         )
         .sort(pl.col("display_name").str.to_lowercase())
         .select(
-            [
-                "display_name",
-                "presence_ratio",
-                "challenges_issued",
-                "challenges_correct",
-            ]
+            pl.col("display_name").alias("name"),
+            pl.col("presence_ratio"),
+            pl.col("challenges_correct"),
+            pl.col("challenges_issued"),
         )
         .collect()
     )
@@ -67,33 +58,18 @@ def generate_aggregate_csv(events: pl.LazyFrame) -> str:
     """
     Generate a cross-meeting CSV report.
 
-    Output columns: display_name, meeting, presence_ratio, challenges_issued,
-    challenges_correct. 'meeting' is ISO-8601 UTC of the meeting start time.
-    Sorted by display_name (case-insensitive) then meeting (chronological).
+    Output columns: name, meeting, presence_ratio, challenges_correct,
+    challenges_issued. 'meeting' is ISO-8601 UTC of the meeting start time.
+    Sorted by name (case-insensitive) then meeting (chronological).
     """
     meeting_times = _meeting_times(events)
 
-    pres = (
-        _presence_frame(events)
-        .join(
-            meeting_times.select(
-                ["meeting_id", "started_at", "duration_ms", "duration_seconds"]
-            ),
-            on="meeting_id",
-            how="left",
-        )
-        .with_columns(
-            pl.when(pl.col("left_ms").is_null())
-            .then((pl.col("duration_ms") - pl.col("joined_ms")) / 1_000.0)
-            .otherwise(pl.col("presence_seconds"))
-            .alias("presence_seconds")
-        )
-        .group_by(["display_name", "meeting_id"])
-        .agg(
-            pl.col("presence_seconds").sum(),
-            pl.col("duration_seconds").first(),
-            pl.col("started_at").first(),
-        )
+    pres = _presence_seconds(events, meeting_times).join(
+        meeting_times.select(
+            ["meeting_id", "started_at", "duration_seconds"]
+        ),
+        on="meeting_id",
+        how="left",
     )
 
     chal = _challenge_stats(events, group_by=["display_name", "meeting_id"])
@@ -108,13 +84,11 @@ def generate_aggregate_csv(events: pl.LazyFrame) -> str:
         )
         .sort([pl.col("display_name").str.to_lowercase(), pl.col("started_at")])
         .select(
-            [
-                "display_name",
-                "meeting",
-                "presence_ratio",
-                "challenges_issued",
-                "challenges_correct",
-            ]
+            pl.col("display_name").alias("name"),
+            pl.col("meeting"),
+            pl.col("presence_ratio"),
+            pl.col("challenges_correct"),
+            pl.col("challenges_issued"),
         )
         .collect()
     )
@@ -132,7 +106,8 @@ def _meeting_times(events: pl.LazyFrame) -> pl.LazyFrame:
              duration_seconds (Float64, floored at 1 s).
 
     The session_started event stores an absolute Unix ms timestamp; all other
-    events store ms offsets, so the maximum offset equals the session duration.
+    events store ms offsets, so duration_ms is taken from session_ended when
+    available, otherwise the max offset across non-started rows.
     """
     start = (
         events.filter(pl.col("event_type") == "session_started")
@@ -143,14 +118,90 @@ def _meeting_times(events: pl.LazyFrame) -> pl.LazyFrame:
             )
         )
     )
-    duration = events.group_by("meeting_id").agg(
-        pl.col("timestamp").max().alias("duration_ms")
+    ended = (
+        events.filter(pl.col("event_type") == "session_ended")
+        .group_by("meeting_id")
+        .agg(pl.col("timestamp").first().alias("ended_ms"))
+    )
+    tail = (
+        events.filter(pl.col("event_type") != "session_started")
+        .group_by("meeting_id")
+        .agg(pl.col("timestamp").max().alias("tail_ms"))
+    )
+    duration = tail.join(ended, on="meeting_id", how="left").select(
+        pl.col("meeting_id"),
+        pl.coalesce([pl.col("ended_ms"), pl.col("tail_ms")]).alias("duration_ms"),
     )
     return start.join(duration, on="meeting_id").with_columns(
         pl.when(pl.col("duration_ms") > 0)
         .then(pl.col("duration_ms") / 1_000.0)
         .otherwise(pl.lit(1.0))
         .alias("duration_seconds")
+    )
+
+
+def _presence_seconds(
+    events: pl.LazyFrame, meeting_times: pl.LazyFrame
+) -> pl.LazyFrame:
+    """
+    Per-(display_name, meeting_id) total presence time in seconds.
+
+    Joins and leaves are paired positionally per (display_name, meeting_id):
+    the n-th join matches the n-th leave so a rejoin becomes its own band.
+    A surplus join (no matching leave) or a leave beyond meeting duration
+    closes at duration_ms. Matches stats.py's segment math so CSV
+    presence_ratio agrees with the GUI.
+    """
+    durations = meeting_times.select(["meeting_id", "duration_ms"])
+
+    joined = (
+        events.filter(pl.col("event_type") == "participant_joined")
+        .select(
+            pl.col("display_name"),
+            pl.col("meeting_id"),
+            pl.col("timestamp").alias("joined_ms"),
+        )
+        .sort(["display_name", "meeting_id", "joined_ms"])
+        .with_columns(
+            pl.int_range(pl.len(), dtype=pl.UInt32)
+            .over(["display_name", "meeting_id"])
+            .alias("pair_idx"),
+        )
+    )
+    left = (
+        events.filter(pl.col("event_type") == "participant_left")
+        .select(
+            pl.col("display_name"),
+            pl.col("meeting_id"),
+            pl.col("timestamp").alias("left_ms"),
+        )
+        .sort(["display_name", "meeting_id", "left_ms"])
+        .with_columns(
+            pl.int_range(pl.len(), dtype=pl.UInt32)
+            .over(["display_name", "meeting_id"])
+            .alias("pair_idx"),
+        )
+    )
+    paired = joined.join(
+        left, on=["display_name", "meeting_id", "pair_idx"], how="left"
+    ).drop("pair_idx")
+
+    return (
+        paired.join(durations, on="meeting_id", how="left")
+        .with_columns(
+            pl.when(
+                pl.col("left_ms").is_null()
+                | (pl.col("left_ms") > pl.col("duration_ms"))
+            )
+            .then(pl.col("duration_ms"))
+            .otherwise(pl.col("left_ms"))
+            .alias("end_ms"),
+        )
+        .with_columns(
+            ((pl.col("end_ms") - pl.col("joined_ms")) / 1_000.0).alias("band_seconds")
+        )
+        .group_by(["display_name", "meeting_id"])
+        .agg(pl.col("band_seconds").sum().alias("presence_seconds"))
     )
 
 

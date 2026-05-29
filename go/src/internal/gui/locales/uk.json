@@ -27,7 +27,7 @@
   "meetings.title": "Файли зустрічей",
   "meetings.empty": "Файли зустрічей не знайдено.",
   "meetings.col_id": "Назва файлу",
-  "meetings.col_modified": "Створено",
+  "meetings.col_created": "Створено",
   "meetings.col_size": "Розмір",
   "meetings.select_all": "Вибрати всі зустрічі",
   "meetings.view_stats": "Переглянути статистику",

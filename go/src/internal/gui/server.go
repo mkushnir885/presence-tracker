@@ -189,15 +189,16 @@ func (s *Server) handleMeetings(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		id := strings.TrimSuffix(e.Name(), ".parquet")
+		path := filepath.Join(s.cfg.Get().MeetingsDir, e.Name())
 		meetings = append(meetings, views.MeetingFile{
-			ID:      id,
-			ModTime: info.ModTime(),
-			SizeKB:  info.Size() / 1024,
+			ID:        id,
+			CreatedAt: fileCreatedAt(path, info.ModTime()),
+			SizeKB:    info.Size() / 1024,
 		})
 	}
 
 	sort.Slice(meetings, func(i, j int) bool {
-		return meetings[i].ModTime.After(meetings[j].ModTime)
+		return meetings[i].CreatedAt.After(meetings[j].CreatedAt)
 	})
 
 	locale := localeFromRequest(r)

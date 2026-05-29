@@ -125,10 +125,12 @@ type ProviderOption struct {
 }
 
 // MeetingFile represents one Parquet file in the meetings directory.
+// CreatedAt is the file's birth time on the filesystem (so it is stable
+// across in-place rewrites such as the display-name PATCH).
 type MeetingFile struct {
-	ID      string // filename without .parquet
-	ModTime time.Time
-	SizeKB  int64
+	ID        string // filename without .parquet
+	CreatedAt time.Time
+	SizeKB    int64
 }
 
 // StatusData is the data model for the live status page.
