@@ -264,6 +264,11 @@
       openMarker(trigger, markerJSON);
       return;
     }
+    const meetingJSON = trigger.getAttribute('data-popover-meeting');
+    if (meetingJSON) {
+      openMeeting(trigger, meetingJSON);
+      return;
+    }
     const text = trigger.getAttribute('data-popover');
     if (!text) return;
     close();
@@ -271,6 +276,38 @@
     pop.className = 'stat-popover';
     pop.setAttribute('role', 'dialog');
     pop.textContent = text;
+    document.body.appendChild(pop);
+    position(trigger, pop);
+    popoverEl = pop;
+    triggerEl = trigger;
+    trigger.setAttribute('aria-expanded', 'true');
+  }
+
+  function openMeeting(trigger, json) {
+    let data;
+    try { data = JSON.parse(json); } catch (_) { return; }
+    close();
+    const pop = document.createElement('div');
+    pop.className = 'stat-popover stat-popover-meeting';
+    pop.setAttribute('role', 'dialog');
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+    for (const row of rows) {
+      if (!row) continue;
+      if (row.type === 'hint') {
+        const hint = document.createElement('div');
+        hint.className = 'meeting-hint';
+        hint.textContent = row.value || '';
+        pop.appendChild(hint);
+        continue;
+      }
+      const line = document.createElement('div');
+      line.className = 'meeting-row';
+      const k = document.createElement('strong');
+      k.textContent = (row.label || '') + ': ';
+      line.appendChild(k);
+      line.appendChild(document.createTextNode(row.value || ''));
+      pop.appendChild(line);
+    }
     document.body.appendChild(pop);
     position(trigger, pop);
     popoverEl = pop;
@@ -368,7 +405,7 @@
   }
 
   document.addEventListener('click', (ev) => {
-    const trigger = ev.target.closest('[data-popover], [data-popover-marker]');
+    const trigger = ev.target.closest('[data-popover], [data-popover-marker], [data-popover-meeting]');
     if (trigger) {
       ev.preventDefault();
       ev.stopPropagation();

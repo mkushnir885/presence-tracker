@@ -34,7 +34,7 @@ templ statsMeeting(data StatsData, locale Locale) {
 				<button
 					type="button"
 					class="popover-trigger stats-file-name"
-					data-popover={ meetingDetailsTooltip(*m, locale) }
+					data-popover-meeting={ meetingDetailsJSON(*m, locale) }
 					data-tooltip={ locale.T("stats.tooltip.meeting_details") }
 					aria-label={ locale.T("stats.tooltip.meeting_details") }
 				>{ data.FirstFileLabel() }</button>
@@ -154,7 +154,7 @@ templ crossMeetingRow(data StatsData, m stats.Meeting, row stats.ParticipantRow,
 		<button
 			type="button"
 			class="popover-trigger row-filename"
-			data-popover={ meetingDetailsTooltip(m, locale) }
+			data-popover-meeting={ meetingDetailsJSON(m, locale) }
 			data-tooltip={ locale.T("stats.tooltip.meeting_details") }
 			aria-label={ locale.T("stats.tooltip.meeting_details") }
 		>{ data.FileLabelForMeeting(m.MeetingID) }</button>
@@ -518,39 +518,44 @@ func markerSubmitted(mk stats.Marker, locale Locale) map[string]string {
 	}
 }
 
-// meetingDetailsTooltip is the popover body shown when the user clicks
-// a meeting's file-name button. It carries duration, start/end times
-// (with platform / shutdown reason where known), and the peak
-// concurrent attendance count.
-func meetingDetailsTooltip(m stats.Meeting, locale Locale) string {
-	durationLabel := locale.T("stats.tooltip.duration_label")
-	startedLabel := locale.T("stats.duration.started")
-	endedLabel := locale.T("stats.duration.ended")
-	platformLabel := locale.T("stats.duration.platform")
-	maxLabel := locale.T("stats.cross.max_participants")
+// meetingDetailsJSON encodes the structured payload for the meeting
+// details popover: a list of rows the JS renders, where each row is
+// either a label/value pair or a small dimmed hint sentence. Rendered
+// order: platform, duration, started time + start hint, ended time +
+// end hint, max participants.
+func meetingDetailsJSON(m stats.Meeting, locale Locale) string {
+	var rows []map[string]string
 
-	startedAt := formatMeetingTime(m.StartedAt)
-	endedAt := computeEndTime(m.StartedAt, m.DurationSeconds)
-
-	var parts []string
-	parts = append(parts, fmt.Sprintf("%s: %s", durationLabel, formatDuration(m.DurationSeconds)))
-	startedLine := fmt.Sprintf("%s: %s", startedLabel, startedAt)
 	if m.Platform != "" {
-		startedLine = fmt.Sprintf("%s (%s: %s)", startedLine, platformLabel, m.Platform)
+		rows = append(rows, kvRow(locale.T("stats.duration.platform"), m.Platform))
 	}
+	rows = append(rows, kvRow(locale.T("stats.tooltip.duration_label"), formatDuration(m.DurationSeconds)))
+
+	startedAt, endedAt := meetingBoundaries(m.StartedAt, m.DurationSeconds)
+	rows = append(rows, kvRow(locale.T("stats.duration.started"), startedAt))
 	if note := causeNote(m.StartedCause, "stats.duration.started_cause", locale); note != "" {
-		startedLine = fmt.Sprintf("%s — %s", startedLine, note)
+		rows = append(rows, hintRow(note))
 	}
-	parts = append(parts, startedLine)
-
-	endedLine := fmt.Sprintf("%s: %s", endedLabel, endedAt)
+	rows = append(rows, kvRow(locale.T("stats.duration.ended"), endedAt))
 	if note := causeNote(m.EndedCause, "stats.duration.ended_cause", locale); note != "" {
-		endedLine = fmt.Sprintf("%s — %s", endedLine, note)
+		rows = append(rows, hintRow(note))
 	}
-	parts = append(parts, endedLine)
 
-	parts = append(parts, fmt.Sprintf("%s: %d", maxLabel, m.MaxParticipants))
-	return strings.Join(parts, "\n")
+	rows = append(rows, kvRow(locale.T("stats.cross.max_participants"), fmt.Sprintf("%d", m.MaxParticipants)))
+
+	b, err := json.Marshal(map[string]any{"rows": rows})
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func kvRow(label, value string) map[string]string {
+	return map[string]string{"type": "kv", "label": label, "value": value}
+}
+
+func hintRow(text string) map[string]string {
+	return map[string]string{"type": "hint", "value": text}
 }
 
 // causeNote returns a localized description of a session boundary's
@@ -564,22 +569,16 @@ func causeNote(cause, prefix string, locale Locale) string {
 	return locale.T(prefix + "." + cause)
 }
 
-func formatMeetingTime(iso string) string {
-	if iso == "" {
-		return ""
-	}
-	t, err := time.Parse(time.RFC3339, iso)
-	if err != nil {
-		return iso
-	}
-	return t.UTC().Format("2006-01-02 15:04:05 UTC")
-}
-
-func computeEndTime(startISO string, durationSeconds float64) string {
+// meetingBoundaries renders the meeting's start and computed end in the
+// server's local time zone. The popover is read on the same machine
+// that runs the daemon, so local time matches the operator's wall clock.
+func meetingBoundaries(startISO string, durationSeconds float64) (string, string) {
 	t, err := time.Parse(time.RFC3339, startISO)
 	if err != nil {
-		return ""
+		return startISO, ""
 	}
-	end := t.Add(time.Duration(durationSeconds * float64(time.Second)))
-	return end.UTC().Format("2006-01-02 15:04:05 UTC")
+	start := t.Local()
+	end := start.Add(time.Duration(durationSeconds * float64(time.Second)))
+	const layout = "2006-01-02 15:04:05 MST"
+	return start.Format(layout), end.Format(layout)
 }

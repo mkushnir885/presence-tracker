@@ -621,6 +621,15 @@ details.menu .menu-list button.active svg { color: var(--accent); }
 .stat-popover-marker .marker-body,
 .stat-popover-marker .marker-submitted { display: flex; flex-direction: column; gap: 0.2rem; }
 
+.stat-popover-meeting { white-space: normal; display: flex; flex-direction: column; gap: 0.15rem; }
+.stat-popover-meeting .meeting-row { line-height: 1.35; }
+.stat-popover-meeting .meeting-hint {
+    color: var(--muted);
+    font-size: 0.75rem;
+    line-height: 1.3;
+    margin: 0 0 0.15rem 0.25rem;
+}
+
 @media (max-width: 600px) {
     .participant-row {
         grid-template-columns: auto 1fr;
