@@ -259,6 +259,11 @@
   }
 
   function open(trigger) {
+    const markerJSON = trigger.getAttribute('data-popover-marker');
+    if (markerJSON) {
+      openMarker(trigger, markerJSON);
+      return;
+    }
     const text = trigger.getAttribute('data-popover');
     if (!text) return;
     close();
@@ -273,8 +278,97 @@
     trigger.setAttribute('aria-expanded', 'true');
   }
 
+  function openMarker(trigger, json) {
+    let data;
+    try {
+      data = JSON.parse(json);
+    } catch (_) {
+      return;
+    }
+    close();
+    const pop = document.createElement('div');
+    pop.className = 'stat-popover stat-popover-marker';
+    pop.setAttribute('role', 'dialog');
+
+    const title = document.createElement('div');
+    title.className = 'marker-title';
+    if (data.chip) {
+      const chip = document.createElement('code');
+      chip.className =
+        'marker-chip marker-chip-' + data.chip.shape +
+        ' marker-chip-' + (data.chip.color || 'unanswered');
+      const glyph = document.createElement('span');
+      glyph.className = 'marker-chip-glyph';
+      chip.appendChild(glyph);
+      chip.appendChild(document.createTextNode(data.chip.label || ''));
+      title.appendChild(chip);
+    }
+    const when = document.createElement('span');
+    when.className = 'marker-when';
+    when.textContent = ' ' + (data.whenPrefix || '') + ' ' + (data.when || '');
+    title.appendChild(when);
+    pop.appendChild(title);
+
+    if (data.state && data.state.label) {
+      const stateLine = document.createElement('div');
+      stateLine.className = 'marker-state marker-state-' + (data.state.color || '');
+      stateLine.textContent = data.state.extra
+        ? data.state.label + ' ' + data.state.extra
+        : data.state.label;
+      pop.appendChild(stateLine);
+    }
+
+    const body = document.createElement('div');
+    body.className = 'marker-body';
+    let bodyHasContent = false;
+
+    if (data.prompt && data.prompt.value) {
+      body.appendChild(makeKV(data.prompt.label, data.prompt.value));
+      bodyHasContent = true;
+    }
+    if (Array.isArray(data.extras)) {
+      for (const e of data.extras) {
+        if (e && e.value) {
+          body.appendChild(makeKV(e.label, e.value));
+          bodyHasContent = true;
+        }
+      }
+    }
+    if (data.answer && data.answer.value) {
+      body.appendChild(makeKV(data.answer.label, data.answer.value));
+      bodyHasContent = true;
+    }
+    if (bodyHasContent) {
+      pop.appendChild(document.createElement('hr'));
+      pop.appendChild(body);
+    }
+
+    if (data.submitted && data.submitted.value) {
+      pop.appendChild(document.createElement('hr'));
+      const submitted = document.createElement('div');
+      submitted.className = 'marker-submitted';
+      submitted.appendChild(makeKV(data.submitted.label, data.submitted.value));
+      pop.appendChild(submitted);
+    }
+
+    document.body.appendChild(pop);
+    position(trigger, pop);
+    popoverEl = pop;
+    triggerEl = trigger;
+    trigger.setAttribute('aria-expanded', 'true');
+  }
+
+  function makeKV(label, value) {
+    const line = document.createElement('div');
+    const k = document.createElement('strong');
+    k.textContent = (label || '') + ': ';
+    line.appendChild(k);
+    line.appendChild(document.createTextNode(value));
+    return line;
+  }
+
   document.addEventListener('click', (ev) => {
-    const trigger = ev.target.closest('[data-popover]');
+    const trigger = ev.target.closest('[data-popover], [data-popover-marker]');
     if (trigger) {
       ev.preventDefault();
       ev.stopPropagation();

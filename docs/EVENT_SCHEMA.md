@@ -117,8 +117,8 @@ event-type-specific metadata.
 | Event type                     | `display_name` | `challenge_id` | `question_id` | Key metadata fields              |
 |--------------------------------|----------------|----------------|---------------|----------------------------------|
 | `challenge_issued`             | set            | set            | set           | `auto_submitted`, `answer_window_s` |
-| `challenge_answered_correct`   | null           | set            | null          | `latency_ms`                     |
-| `challenge_answered_incorrect` | null           | set            | null          | `latency_ms`, `submitted_hash`   |
+| `challenge_answered_correct`   | null           | set            | null          | `latency_ms`, `submitted_answer` |
+| `challenge_answered_incorrect` | null           | set            | null          | `latency_ms`, `submitted_answer` |
 | `challenge_unanswered`         | null           | set            | null          | —                                |
 | `challenge_skipped_offline`    | set            | set            | null          | `auto_submitted`, `delivery_error` |
 | `challenge_generator_failed`   | null           | null           | null          | `error_class`                    |

@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -689,7 +690,7 @@ func (c *Coordinator) RecordChallengeIssued(_ context.Context, issued challenges
 	return nil
 }
 
-func (c *Coordinator) RecordChallengeResult(_ context.Context, challengeID string, result challenges.ScoreResult, latencyMS int64) error {
+func (c *Coordinator) RecordChallengeResult(_ context.Context, challengeID string, result challenges.ScoreResult, submitted challenges.Answer, latencyMS int64) error {
 	evtType := "challenge_answered_correct"
 	if result == challenges.ScoreIncorrect {
 		evtType = "challenge_answered_incorrect"
@@ -698,10 +699,26 @@ func (c *Coordinator) RecordChallengeResult(_ context.Context, challengeID strin
 		EventType:   evtType,
 		ChallengeID: challengeID,
 		Metadata: map[string]string{
-			"latency_ms": strconv.FormatInt(latencyMS, 10),
+			"latency_ms":       strconv.FormatInt(latencyMS, 10),
+			"submitted_answer": encodeSubmittedAnswer(submitted),
 		},
 	})
 	return nil
+}
+
+// encodeSubmittedAnswer serializes a student's response into a single
+// metadata string. Multiple-choice answers are JSON-encoded so the array
+// shape survives the round-trip into analytics; free-text answers (numeric,
+// short_text) go through verbatim.
+func encodeSubmittedAnswer(a challenges.Answer) string {
+	if len(a.Selected) > 0 {
+		buf, err := json.Marshal(a.Selected)
+		if err != nil {
+			return ""
+		}
+		return string(buf)
+	}
+	return a.Text
 }
 
 func (c *Coordinator) RecordChallengeUnanswered(_ context.Context, challengeID string) error {

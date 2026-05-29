@@ -437,7 +437,7 @@ details.menu .menu-list button.active svg { color: var(--accent); }
     padding: 0.55rem 0.75rem;
     border-bottom: 1px solid var(--border);
 }
-.participant-row:last-child { border-bottom: none; }
+.participant-row:last-of-type { border-bottom: none; }
 .participant-row[hidden] { display: none; }
 .participant-row-meeting {
     grid-template-columns: auto 1fr auto 55%;
@@ -539,10 +539,10 @@ details.menu .menu-list button.active svg { color: var(--accent); }
 .band-marker .band-marker-shape {
     width: 9px;
     height: 9px;
-    transform: rotate(45deg);
-    border-radius: 1px;
     pointer-events: none;
 }
+.band-marker-auto .band-marker-shape { transform: rotate(45deg); border-radius: 1px; }
+.band-marker-curated .band-marker-shape { border-radius: 50%; }
 .band-marker:hover .band-marker-shape,
 .band-marker[aria-expanded="true"] .band-marker-shape { filter: brightness(1.15); }
 .band-marker:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -583,6 +583,43 @@ details.menu .menu-list button.active svg { color: var(--accent); }
     word-wrap: break-word;
     overflow-wrap: anywhere;
 }
+
+.stat-popover-marker { white-space: normal; display: flex; flex-direction: column; gap: 0.35rem; }
+.stat-popover-marker hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 0.1rem 0;
+}
+.stat-popover-marker .marker-title { display: flex; align-items: center; flex-wrap: wrap; gap: 0.35rem; }
+.stat-popover-marker .marker-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.1rem 0.4rem;
+    background: var(--hover-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.78rem;
+}
+.stat-popover-marker .marker-chip-glyph {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+}
+.stat-popover-marker .marker-chip-diamond .marker-chip-glyph { transform: rotate(45deg); border-radius: 1px; }
+.stat-popover-marker .marker-chip-circle  .marker-chip-glyph { border-radius: 50%; }
+.stat-popover-marker .marker-chip-correct    .marker-chip-glyph { background: var(--success); }
+.stat-popover-marker .marker-chip-incorrect  .marker-chip-glyph { background: var(--danger); }
+.stat-popover-marker .marker-chip-unanswered .marker-chip-glyph { background: var(--muted); }
+.stat-popover-marker .marker-chip-skipped    .marker-chip-glyph { background: color-mix(in srgb, var(--muted) 60%, transparent); }
+.stat-popover-marker .marker-when { color: var(--muted); }
+.stat-popover-marker .marker-state { font-weight: 600; }
+.stat-popover-marker .marker-state-correct    { color: var(--success); }
+.stat-popover-marker .marker-state-incorrect  { color: var(--danger); }
+.stat-popover-marker .marker-state-unanswered { color: var(--muted); }
+.stat-popover-marker .marker-body,
+.stat-popover-marker .marker-submitted { display: flex; flex-direction: column; gap: 0.2rem; }
 
 @media (max-width: 600px) {
     .participant-row {

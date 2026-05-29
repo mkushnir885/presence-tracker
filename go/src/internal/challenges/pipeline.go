@@ -36,7 +36,7 @@ type IssuedChallenge struct {
 // by session.Coordinator.
 type EventSink interface {
 	RecordChallengeIssued(ctx context.Context, c IssuedChallenge) error
-	RecordChallengeResult(ctx context.Context, challengeID string, result ScoreResult, latencyMS int64) error
+	RecordChallengeResult(ctx context.Context, challengeID string, result ScoreResult, submitted Answer, latencyMS int64) error
 	RecordChallengeUnanswered(ctx context.Context, challengeID string) error
 	RecordChallengeSkipped(ctx context.Context, displayName, reason string) error
 
@@ -231,7 +231,7 @@ func (p *Pipeline) awaitAnswer(ctx context.Context, cancel context.CancelFunc, c
 		}
 		latency := time.Since(issued.IssuedAt).Milliseconds()
 		result := Score(issued.Question, answer)
-		if err := p.sink.RecordChallengeResult(ctx, cid, result, latency); err != nil {
+		if err := p.sink.RecordChallengeResult(ctx, cid, result, answer, latency); err != nil {
 			slog.Error("challenges: record result", "err", err)
 		}
 		if err := p.sink.NotifyAnswered(ctx, issued.MessageRef); err != nil {

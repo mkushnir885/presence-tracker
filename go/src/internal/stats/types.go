@@ -64,16 +64,23 @@ type Segment struct {
 }
 
 // Marker is a challenge event positioned along the meeting timeline.
-// Prompt and CorrectAnswer come from the meeting's questions JSONL
-// when one exists; they're empty strings when the file is missing.
+// Prompt and the type-specific question fields come from the meeting's
+// questions JSONL when one exists; they're empty/zero when the file is
+// missing. SubmittedAnswer is the student's verbatim response captured
+// on result events (empty string for unanswered challenges).
 type Marker struct {
-	XPct          float64 `json:"x_pct"`
-	AutoSubmitted bool    `json:"auto_submitted"`
-	Result        string  `json:"result"`
-	ChallengeID   string  `json:"challenge_id"`
-	QuestionID    string  `json:"question_id"`
-	TimestampMS   int64   `json:"timestamp_ms"`
-	LatencyMS     int64   `json:"latency_ms"`
-	Prompt        string  `json:"prompt"`
-	CorrectAnswer string  `json:"correct_answer"`
+	XPct            float64  `json:"x_pct"`
+	AutoSubmitted   bool     `json:"auto_submitted"`
+	Result          string   `json:"result"`
+	ChallengeID     string   `json:"challenge_id"`
+	QuestionID      string   `json:"question_id"`
+	TimestampMS     int64    `json:"timestamp_ms"`
+	LatencyMS       int64    `json:"latency_ms"`
+	Prompt          string   `json:"prompt"`
+	QuestionType    string   `json:"question_type"`
+	Choices         []string `json:"choices"`
+	CorrectAnswer   string   `json:"correct_answer"`
+	MatchMode       string   `json:"match_mode"`
+	Tolerance       float64  `json:"tolerance"`
+	SubmittedAnswer string   `json:"submitted_answer"`
 }

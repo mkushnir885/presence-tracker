@@ -14,6 +14,7 @@ docs/GUI.md for the consumer contract.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import polars as pl
@@ -324,7 +325,11 @@ def _collect_markers(
         q = questions.select(
             pl.col("question_id"),
             pl.col("prompt").alias("question_prompt"),
+            pl.col("question_type"),
+            pl.col("choices"),
             pl.col("correct_answer").alias("question_correct_answer"),
+            pl.col("match_mode"),
+            pl.col("tolerance"),
         ).unique(subset=["question_id"])
         base = base.join(q, on="question_id", how="left")
 
@@ -347,10 +352,35 @@ def _collect_markers(
                 if row.get("latency_ms") is not None
                 else 0,
                 "prompt": row.get("question_prompt") or "",
-                "correct_answer": row.get("question_correct_answer") or "",
+                "question_type": row.get("question_type") or "",
+                "choices": list(row.get("choices") or []),
+                "correct_answer": _stringify_answer(row.get("question_correct_answer")),
+                "match_mode": row.get("match_mode") or "",
+                "tolerance": float(row["tolerance"])
+                if row.get("tolerance") is not None
+                else 0.0,
+                "submitted_answer": row.get("submitted_answer") or "",
             }
         )
     return out
+
+
+def _stringify_answer(value: object) -> str:
+    """Coerce a question's correct-answer cell to a single string.
+
+    JSONL stores MCQ/short-text answers as JSON arrays and numeric answers
+    as numbers; Polars surfaces them as Python list/float/str depending on
+    inferred dtype. The GUI marker payload carries a single string field,
+    so multi-choice arrays are re-encoded as JSON and numerics are
+    stringified verbatim.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return json.dumps(value)
+    return str(value)
 
 
 def _assemble_participants(

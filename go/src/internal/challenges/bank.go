@@ -154,6 +154,12 @@ func buildQuestion(i int, rq *rawQuestion) (Question, error) {
 		if err := json.Unmarshal(rq.Answer, &ans); err != nil {
 			return Question{}, fmt.Errorf("%s: MCQ answer: %w", prefix, err)
 		}
+		if dup := firstDuplicate(rq.Choices); dup != "" {
+			return Question{}, fmt.Errorf("%s: duplicate choice %q", prefix, dup)
+		}
+		if dup := firstDuplicate(ans); dup != "" {
+			return Question{}, fmt.Errorf("%s: duplicate answer %q", prefix, dup)
+		}
 		for _, a := range ans {
 			found := slices.Contains(rq.Choices, a)
 			if !found {
@@ -185,4 +191,19 @@ func buildQuestion(i int, rq *rawQuestion) (Question, error) {
 	}
 
 	return q, nil
+}
+
+// firstDuplicate returns the first repeated element in ss, or "" if all
+// elements are unique. MCQ banks rely on this: a duplicate in choices makes
+// the user's selection ambiguous, and a duplicate in the answer key would
+// silently inflate scoring.
+func firstDuplicate(ss []string) string {
+	seen := make(map[string]struct{}, len(ss))
+	for _, s := range ss {
+		if _, ok := seen[s]; ok {
+			return s
+		}
+		seen[s] = struct{}{}
+	}
+	return ""
 }

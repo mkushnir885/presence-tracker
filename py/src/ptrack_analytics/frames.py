@@ -65,8 +65,11 @@ def challenge_results(events: pl.LazyFrame) -> pl.LazyFrame:
     One row per challenge_issued event, annotated with its final state.
 
     Columns: display_name, meeting_id, challenge_id, question_id,
-             auto_submitted, issued_ms, state, latency_ms.
+             auto_submitted, issued_ms, state, latency_ms, submitted_answer.
     issued_ms is a ms offset from the meeting start.
+    submitted_answer is the student's verbatim response (JSON-encoded
+    array for MCQ, plain text otherwise); empty string when no answer
+    was submitted.
     """
     issued = events.filter(pl.col("event_type") == "challenge_issued").select(
         pl.col("display_name"),
@@ -95,6 +98,10 @@ def challenge_results(events: pl.LazyFrame) -> pl.LazyFrame:
         .str.json_path_match("$.latency_ms")
         .cast(pl.Int64, strict=False)
         .alias("latency_ms"),
+        pl.col("metadata")
+        .str.json_path_match("$.submitted_answer")
+        .fill_null("")
+        .alias("submitted_answer"),
     )
 
     result_events = result_events.with_columns(

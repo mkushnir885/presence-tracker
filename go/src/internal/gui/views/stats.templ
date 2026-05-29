@@ -1,6 +1,7 @@
 package views
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -38,15 +39,17 @@ templ statsMeeting(data StatsData, locale Locale) {
 					aria-label={ locale.T("stats.tooltip.meeting_details") }
 				>{ data.FirstFileLabel() }</button>
 			</h1>
-			<div class="stats-search-wrap stats-filter-wrap">
-				<input
-					type="search"
-					id="stats-filter-input"
-					placeholder={ locale.T("stats.filter.placeholder") }
-					autocomplete="off"
-				/>
-				<ul id="stats-filter-results" class="search-results"></ul>
-			</div>
+			if len(data.Doc.Participants) > 0 {
+				<div class="stats-search-wrap stats-filter-wrap">
+					<input
+						type="search"
+						id="stats-filter-input"
+						placeholder={ locale.T("stats.filter.placeholder") }
+						autocomplete="off"
+					/>
+					<ul id="stats-filter-results" class="search-results"></ul>
+				</div>
+			}
 		</header>
 		if len(data.Doc.Participants) == 0 {
 			<p class="text-muted">{ locale.T("stats.empty_meeting") }</p>
@@ -251,7 +254,7 @@ templ bandMarker(mk stats.Marker, m stats.Meeting, locale Locale) {
 		type="button"
 		class={ markerButtonClass(mk) }
 		style={ fmt.Sprintf("left:%.4f%%", mk.XPct) }
-		data-popover={ markerTooltip(mk, m, locale) }
+		data-popover-marker={ markerPopoverJSON(mk, m, locale) }
 		aria-label={ locale.T("stats.tooltip.challenge_at") }
 	>
 		<span class="band-marker-shape"></span>
@@ -312,6 +315,11 @@ func markerButtonClass(m stats.Marker) string {
 		parts = append(parts, "band-marker-unanswered")
 	default:
 		parts = append(parts, "band-marker-skipped")
+	}
+	if m.AutoSubmitted {
+		parts = append(parts, "band-marker-auto")
+	} else {
+		parts = append(parts, "band-marker-curated")
 	}
 	return strings.Join(parts, " ")
 }
@@ -383,37 +391,131 @@ func stillPresentKey(endedCause string) string {
 	}
 }
 
-func markerTooltip(mk stats.Marker, _ stats.Meeting, locale Locale) string {
-	var parts []string
-	parts = append(parts, fmt.Sprintf("%s %s",
-		locale.T("stats.tooltip.challenge_at"),
-		formatOffsetMS(mk.TimestampMS),
-	))
+// markerPopoverJSON encodes the structured payload rendered by the
+// marker popover JS. Each text field is a plain string the JS injects via
+// textContent so user-supplied prompts/answers can't leak HTML.
+func markerPopoverJSON(mk stats.Marker, _ stats.Meeting, locale Locale) string {
+	chipLabelKey := "stats.marker.curated"
+	chipShape := "circle"
+	if mk.AutoSubmitted {
+		chipLabelKey = "stats.marker.auto_submitted"
+		chipShape = "diamond"
+	}
 
 	state := locale.T("stats.tooltip.state." + mk.Result)
 	if state == "stats.tooltip.state."+mk.Result {
 		state = mk.Result
 	}
-	stateLine := state
+	stateExtra := ""
 	if mk.LatencyMS > 0 && mk.Result != "unanswered" {
-		stateLine = fmt.Sprintf("%s (%s %.1fs)",
-			state, locale.T("stats.tooltip.latency"),
+		stateExtra = fmt.Sprintf("(%s %.1fs)",
+			locale.T("stats.tooltip.latency"),
 			float64(mk.LatencyMS)/1000.0,
 		)
 	}
-	parts = append(parts, stateLine)
 
-	if mk.Prompt != "" {
-		parts = append(parts, fmt.Sprintf("%s: %s",
-			locale.T("stats.tooltip.question"), mk.Prompt,
-		))
+	payload := map[string]any{
+		"chip": map[string]string{
+			"shape":  chipShape,
+			"color":  mk.Result,
+			"label":  locale.T(chipLabelKey),
+		},
+		"whenPrefix": locale.T("stats.tooltip.challenge_at_prefix"),
+		"when":       formatOffsetMS(mk.TimestampMS),
+		"state": map[string]string{
+			"label": state,
+			"color": mk.Result,
+			"extra": stateExtra,
+		},
+		"prompt": map[string]string{
+			"label": locale.T("stats.tooltip.question"),
+			"value": mk.Prompt,
+		},
+		"extras":      markerExtras(mk, locale),
+		"answer":      markerAnswer(mk, locale),
+		"submitted":   markerSubmitted(mk, locale),
 	}
-	if mk.CorrectAnswer != "" {
-		parts = append(parts, fmt.Sprintf("%s: %s",
-			locale.T("stats.tooltip.answer"), mk.CorrectAnswer,
-		))
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return ""
 	}
-	return strings.Join(parts, "\n")
+	return string(b)
+}
+
+// markerExtras assembles type-specific question metadata rows shown
+// between the prompt and the correct answer (MCQ choices, numeric
+// tolerance, short-text match mode). Returns nil when nothing extra is
+// applicable.
+func markerExtras(mk stats.Marker, locale Locale) []map[string]string {
+	var extras []map[string]string
+	switch mk.QuestionType {
+	case "multiple_choice":
+		if len(mk.Choices) > 0 {
+			extras = append(extras, map[string]string{
+				"label": locale.T("stats.marker.choices"),
+				"value": strings.Join(mk.Choices, ", "),
+			})
+		}
+	case "numeric":
+		if mk.Tolerance > 0 {
+			extras = append(extras, map[string]string{
+				"label": locale.T("stats.marker.tolerance"),
+				"value": fmt.Sprintf("±%s", formatNum(mk.Tolerance)),
+			})
+		}
+	case "short_text":
+		if mk.MatchMode != "" {
+			matchLabel := locale.T("stats.marker.match_mode." + mk.MatchMode)
+			if matchLabel == "stats.marker.match_mode."+mk.MatchMode {
+				matchLabel = mk.MatchMode
+			}
+			extras = append(extras, map[string]string{
+				"label": locale.T("stats.marker.match"),
+				"value": matchLabel,
+			})
+		}
+	}
+	return extras
+}
+
+// markerAnswer formats the canonical correct-answer line, decoding MCQ
+// JSON arrays into a readable comma-separated list. Returns a zero-value
+// map when no answer is known so the JS can skip rendering.
+func markerAnswer(mk stats.Marker, locale Locale) map[string]string {
+	if mk.CorrectAnswer == "" {
+		return map[string]string{}
+	}
+	value := mk.CorrectAnswer
+	if mk.QuestionType == "multiple_choice" {
+		var arr []string
+		if err := json.Unmarshal([]byte(mk.CorrectAnswer), &arr); err == nil {
+			value = strings.Join(arr, ", ")
+		}
+	}
+	return map[string]string{
+		"label": locale.T("stats.tooltip.answer"),
+		"value": value,
+	}
+}
+
+// markerSubmitted formats the student-supplied answer line. Empty when
+// the challenge was unanswered or no submitted_answer was recorded (e.g.
+// pre-feature events).
+func markerSubmitted(mk stats.Marker, locale Locale) map[string]string {
+	if mk.Result == "unanswered" || mk.SubmittedAnswer == "" {
+		return map[string]string{}
+	}
+	value := mk.SubmittedAnswer
+	if mk.QuestionType == "multiple_choice" {
+		var arr []string
+		if err := json.Unmarshal([]byte(mk.SubmittedAnswer), &arr); err == nil {
+			value = strings.Join(arr, ", ")
+		}
+	}
+	return map[string]string{
+		"label": locale.T("stats.marker.submitted"),
+		"value": value,
+	}
 }
 
 // meetingDetailsTooltip is the popover body shown when the user clicks
