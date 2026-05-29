@@ -74,8 +74,10 @@ type Adapter struct {
 
 	// registerPrompts tracks the message ID of an outstanding /register
 	// prompt per chat. Its presence marks the chat as awaiting a
-	// display-name message; the stored ID is used to delete the prompt
-	// once the name arrives or the entry expires.
+	// display-name message. When the display name arrives the entry is
+	// removed but the prompt is left in chat as a record of the flow;
+	// if no reply arrives the entry expires and the prompt is
+	// auto-deleted so it doesn't keep nagging the user.
 	registerPrompts *util.TTLMap[int64, int]
 
 	// languagePrompts tracks the message ID of an outstanding /language
@@ -462,7 +464,7 @@ func (a *Adapter) handleTextMessage(ctx context.Context, msg *tgbotapi.Message) 
 		if name == "" {
 			return
 		}
-		a.discardRegisterPrompt(chatID)
+		a.registerPrompts.Delete(chatID)
 		a.registerDisplayName(ctx, msg, name)
 		return
 	}
