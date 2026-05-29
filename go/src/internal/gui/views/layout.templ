@@ -97,15 +97,8 @@ templ Layout(title string, locale Locale, navExtras templ.Component) {
 					// POST /system/shutdown returns 204 + an HX-Trigger
 					// header that fires this event. Routing through
 					// showStopped here keeps the GUI-shutdown UX
-					// identical to the SIGINT/Ctrl-C path. When the
-					// tab was opened by ptrack itself, attemptClose
-					// asks the browser to close it.
-					document.body.addEventListener('ptrack-shutdown', function(ev) {
-						showStopped();
-						if (ev && ev.detail && ev.detail.attemptClose) {
-							try { window.close(); } catch (_) {}
-						}
-					});
+					// identical to the SIGINT/Ctrl-C path.
+					document.body.addEventListener('ptrack-shutdown', showStopped);
 					if (typeof EventSource !== 'undefined') {
 						es = new EventSource('/events');
 						var connected = false;

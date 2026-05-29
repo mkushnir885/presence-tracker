@@ -750,8 +750,6 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 // body — instead an HX-Trigger header fires `ptrack-shutdown` on the
 // client, which routes through the same showStopped() detector used
 // for SIGINT/Ctrl-C, so both shutdown paths produce identical UI.
-// The trigger payload carries attemptClose so the client can try
-// window.close() when the tab was opened by ptrack.
 func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	act := s.active
@@ -763,12 +761,7 @@ func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 		case <-time.After(10 * time.Second):
 		}
 	}
-	trigger := map[string]map[string]bool{
-		"ptrack-shutdown": {"attemptClose": s.cfg.Get().GUI.OpenBrowserOnStart},
-	}
-	if b, err := json.Marshal(trigger); err == nil {
-		w.Header().Set("HX-Trigger", string(b))
-	}
+	w.Header().Set("HX-Trigger", "ptrack-shutdown")
 	w.WriteHeader(http.StatusNoContent)
 	if s.shutdownFn != nil {
 		go func() {
