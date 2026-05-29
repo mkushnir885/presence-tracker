@@ -521,24 +521,27 @@ details.menu .menu-list button.active svg { color: var(--accent); }
 
 .band-marker {
     position: absolute;
-    top: -7px;
-    height: calc(100% + 14px);
+    top: 50%;
     width: 18px;
-    transform: translateX(-50%);
+    height: 18px;
+    transform: translate(-50%, -50%);
     padding: 0;
     margin: 0;
     background: none;
     border: none;
     cursor: pointer;
     pointer-events: auto;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     border-radius: 4px;
+    line-height: 0;
 }
 .band-marker .band-marker-shape {
-    width: 9px;
-    height: 9px;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    display: block;
+    width: 10px;
+    height: 10px;
+    transform: translate(-50%, -50%);
     pointer-events: none;
 }
 .band-marker-auto .band-marker-shape { transform: rotate(45deg); border-radius: 1px; }
@@ -606,18 +609,21 @@ details.menu .menu-list button.active svg { color: var(--accent); }
     display: inline-block;
     width: 9px;
     height: 9px;
+    background: currentColor;
 }
 .stat-popover-marker .marker-chip-diamond .marker-chip-glyph { transform: rotate(45deg); border-radius: 1px; }
 .stat-popover-marker .marker-chip-circle  .marker-chip-glyph { border-radius: 50%; }
-.stat-popover-marker .marker-chip-correct    .marker-chip-glyph { background: var(--success); }
-.stat-popover-marker .marker-chip-incorrect  .marker-chip-glyph { background: var(--danger); }
-.stat-popover-marker .marker-chip-unanswered .marker-chip-glyph { background: var(--muted); }
-.stat-popover-marker .marker-chip-skipped    .marker-chip-glyph { background: color-mix(in srgb, var(--muted) 60%, transparent); }
-.stat-popover-marker .marker-when { color: var(--muted); }
+.stat-popover-marker .marker-when { color: inherit; }
+.stat-popover-marker .marker-state-line { display: flex; align-items: baseline; gap: 0.4rem; flex-wrap: wrap; }
 .stat-popover-marker .marker-state { font-weight: 600; }
 .stat-popover-marker .marker-state-correct    { color: var(--success); }
 .stat-popover-marker .marker-state-incorrect  { color: var(--danger); }
 .stat-popover-marker .marker-state-unanswered { color: var(--muted); }
+.stat-popover-marker .marker-hint {
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 400;
+}
 .stat-popover-marker .marker-body,
 .stat-popover-marker .marker-submitted { display: flex; flex-direction: column; gap: 0.2rem; }
 

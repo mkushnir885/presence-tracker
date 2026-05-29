@@ -331,9 +331,7 @@
     title.className = 'marker-title';
     if (data.chip) {
       const chip = document.createElement('code');
-      chip.className =
-        'marker-chip marker-chip-' + data.chip.shape +
-        ' marker-chip-' + (data.chip.color || 'unanswered');
+      chip.className = 'marker-chip marker-chip-' + data.chip.shape;
       const glyph = document.createElement('span');
       glyph.className = 'marker-chip-glyph';
       chip.appendChild(glyph);
@@ -348,10 +346,17 @@
 
     if (data.state && data.state.label) {
       const stateLine = document.createElement('div');
-      stateLine.className = 'marker-state marker-state-' + (data.state.color || '');
-      stateLine.textContent = data.state.extra
-        ? data.state.label + ' ' + data.state.extra
-        : data.state.label;
+      stateLine.className = 'marker-state-line';
+      const stateLabel = document.createElement('span');
+      stateLabel.className = 'marker-state marker-state-' + (data.state.color || '');
+      stateLabel.textContent = data.state.label;
+      stateLine.appendChild(stateLabel);
+      if (data.state.hint) {
+        const hint = document.createElement('span');
+        hint.className = 'marker-hint';
+        hint.textContent = data.state.hint;
+        stateLine.appendChild(hint);
+      }
       pop.appendChild(stateLine);
     }
 

@@ -68,7 +68,9 @@ func (l *Loader) Load(ctx context.Context, files []string) (*Document, error) {
 
 // tryReadCache returns the cached Document iff the cache file exists
 // and is at least as new as every input. Cache misses and stale entries
-// both come back as (nil, false) without error.
+// both come back as (nil, false) without error. Sibling
+// `../questions/<meeting_id>.jsonl` files are checked too, so a newly
+// added or rewritten question bank invalidates the cached marker bodies.
 func (l *Loader) tryReadCache(cachePath string, inputs []string) (*Document, bool) {
 	cacheInfo, err := os.Stat(cachePath)
 	if err != nil {
@@ -83,6 +85,11 @@ func (l *Loader) tryReadCache(cachePath string, inputs []string) (*Document, boo
 		}
 		if info.ModTime().After(cacheMTime) {
 			return nil, false
+		}
+		if qPath := questionsPathFor(f); qPath != "" {
+			if qi, err := os.Stat(qPath); err == nil && qi.ModTime().After(cacheMTime) {
+				return nil, false
+			}
 		}
 	}
 
@@ -140,6 +147,20 @@ func absSorted(files []string) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// questionsPathFor mirrors the sibling-directory convention used by
+// ptrack_py: `<base>/meetings/<id>.parquet` pairs with
+// `<base>/questions/<id>.jsonl`. Returns "" when the input doesn't
+// match the convention.
+func questionsPathFor(parquetPath string) string {
+	dir := filepath.Dir(parquetPath)
+	base := filepath.Base(parquetPath)
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	if stem == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(dir), "questions", stem+".jsonl")
 }
 
 // cacheName derives a short, filesystem-safe filename from the sorted

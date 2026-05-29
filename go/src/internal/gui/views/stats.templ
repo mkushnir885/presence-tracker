@@ -406,26 +406,26 @@ func markerPopoverJSON(mk stats.Marker, _ stats.Meeting, locale Locale) string {
 	if state == "stats.tooltip.state."+mk.Result {
 		state = mk.Result
 	}
-	stateExtra := ""
+	latencyHint := ""
 	if mk.LatencyMS > 0 && mk.Result != "unanswered" {
-		stateExtra = fmt.Sprintf("(%s %.1fs)",
+		secs := int((float64(mk.LatencyMS) + 500) / 1000.0)
+		latencyHint = fmt.Sprintf("%s %ds",
 			locale.T("stats.tooltip.latency"),
-			float64(mk.LatencyMS)/1000.0,
+			secs,
 		)
 	}
 
 	payload := map[string]any{
 		"chip": map[string]string{
-			"shape":  chipShape,
-			"color":  mk.Result,
-			"label":  locale.T(chipLabelKey),
+			"shape": chipShape,
+			"label": locale.T(chipLabelKey),
 		},
 		"whenPrefix": locale.T("stats.tooltip.challenge_at_prefix"),
 		"when":       formatOffsetMS(mk.TimestampMS),
 		"state": map[string]string{
 			"label": state,
 			"color": mk.Result,
-			"extra": stateExtra,
+			"hint":  latencyHint,
 		},
 		"prompt": map[string]string{
 			"label": locale.T("stats.tooltip.question"),
