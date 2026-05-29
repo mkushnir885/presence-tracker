@@ -104,8 +104,13 @@ h1 { font-size: 1.4rem; margin: 0 0 1rem; }
     margin-left: 0.25rem;
 }
 .status-started { color: var(--muted); font-size: 0.9rem; }
-.status-started + small { color: var(--muted); font-size: 0.8rem; }
-.status-body .status-started { margin-bottom: 0.75rem; }
+.status-started-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.4rem;
+}
+.status-started-row small { color: var(--muted); font-size: 0.8rem; }
 h2 { font-size: 1.1rem; margin: 1.25rem 0 0.5rem; }
 .card {
     background: var(--card-bg);

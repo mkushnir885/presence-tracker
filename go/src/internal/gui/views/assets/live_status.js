@@ -186,10 +186,48 @@
 		refreshPollCard();
 	}
 
+	// connectStatusStream subscribes to the per-region SSE feed served
+	// by ptrack. Each named event carries the fragment HTML for one
+	// stable wrapper (matched via data-sse=<name>), so unchanged
+	// regions are never touched and the audio + poll cards survive
+	// across updates. The body event is reserved for the waiting↔live
+	// phase swap; sub-region events handle everything else.
+	function connectStatusStream() {
+		if (typeof EventSource === "undefined") return;
+		const es = new EventSource("/status/stream");
+		const swap = (name) => (ev) => {
+			document
+				.querySelectorAll('[data-sse="' + name + '"]')
+				.forEach((el) => {
+					el.innerHTML = ev.data;
+				});
+			onReady();
+		};
+		es.addEventListener("started", swap("started"));
+		es.addEventListener("roster", swap("roster"));
+		es.addEventListener("log", swap("log"));
+		es.addEventListener("pending", swap("pending"));
+		es.addEventListener("body", (ev) => {
+			const body = document.getElementById("status-body");
+			if (body) body.innerHTML = ev.data;
+			onReady();
+			// Audio + roster filter init normally piggyback on htmx
+			// settle; dispatch the same event so they re-bind to the
+			// fresh nodes the phase swap just introduced.
+			document.body.dispatchEvent(new Event("htmx:afterSettle"));
+		});
+		es.addEventListener("session-ended", () => {
+			es.close();
+			window.location.href = "/";
+		});
+	}
+
 	if (document.readyState === "loading") {
 		document.addEventListener("DOMContentLoaded", onReady);
+		document.addEventListener("DOMContentLoaded", connectStatusStream);
 	} else {
 		onReady();
+		connectStatusStream();
 	}
 	document.body.addEventListener("htmx:afterSettle", onReady);
 })();

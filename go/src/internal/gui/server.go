@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/a-h/templ"
 	"github.com/google/uuid"
 
 	"presence-tracker/src/internal/challenger"
@@ -107,7 +108,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /session", s.handleStartSession)
 	mux.HandleFunc("DELETE /session", s.handleStopSession)
 	mux.HandleFunc("GET /status", s.handleStatus)
-	mux.HandleFunc("GET /status/body", s.handleStatusBody)
+	mux.HandleFunc("GET /status/stream", s.handleStatusStream)
 	mux.HandleFunc("GET /stats", s.handleStats)
 	mux.HandleFunc("GET /report", s.handleReport)
 	mux.HandleFunc("PATCH /participants/{p}/display-name", s.handleRenameParticipant)
@@ -117,7 +118,6 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /questions/{id}", s.handleQuestion)
 	mux.HandleFunc("GET /config", s.handleConfig)
 	mux.HandleFunc("POST /config", s.handleSaveConfig)
-	mux.HandleFunc("GET /poll/pending", s.handlePollPending)
 	mux.HandleFunc("GET /poll/pending/preview", s.handlePollPendingPreview)
 	mux.HandleFunc("POST /poll/file", s.handlePollFile)
 	mux.HandleFunc("POST /system/shutdown", s.handleShutdown)
@@ -356,21 +356,171 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	_ = views.Status(data, locale).Render(r.Context(), w)
 }
 
-// handleStatusBody returns the polled inner fragment of the live
-// status page (waiting card or full live layout, depending on
-// session state). Replaces the previous full-body /status poll, so
-// the navbar, audio card and poll card no longer flicker every tick.
-func (s *Server) handleStatusBody(w http.ResponseWriter, r *http.Request) {
-	data, ok := s.statusData()
+// statusStreamTick is how often the SSE handler re-renders each
+// region and compares it to the last sent payload. A 2 s tick keeps
+// the perceived lag low for log lines and roster joins while leaving
+// the network idle when nothing has changed (a render that matches
+// the previous send is suppressed).
+const statusStreamTick = 2 * time.Second
+
+// handleStatusStream is the live-status SSE stream. The page renders
+// itself once on GET /status; this stream then pushes finer-grained
+// fragment updates as the underlying state changes:
+//
+//	started → the "Tracking/Meeting started at …" line in the header
+//	body    → the entire #status-body (sent on the waiting↔live phase
+//	          transition; rebuilds the controls and roster wrappers)
+//	roster  → the two roster cards' contents
+//	log     → the system log entries
+//	pending → the auto-generated bank "Generate now" button state
+//
+// Each fragment is only emitted when it differs from the last value
+// sent on this connection, so an idle session produces no events
+// beyond the periodic SSE keep-alive comment. The handler returns when
+// the request is cancelled, the daemon is shutting down, or the
+// session has stopped (the session-ended event tells the client to
+// navigate back to /).
+func (s *Server) handleStatusStream(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
 	if !ok {
-		// The session is gone (Stop tracking was clicked). Tell htmx to
-		// reload the page so it lands back on the home view.
-		w.Header().Set("HX-Redirect", "/")
-		w.WriteHeader(http.StatusNoContent)
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("Connection", "keep-alive")
+	h.Set("X-Accel-Buffering", "no")
+
 	locale := localeFromRequest(r)
-	_ = views.StatusBody(data, locale).Render(r.Context(), w)
+	ctx := r.Context()
+
+	if _, err := io.WriteString(w, ": hello\n\n"); err != nil {
+		return
+	}
+	flusher.Flush()
+
+	render := func(c templ.Component) string {
+		var buf strings.Builder
+		if err := c.Render(ctx, &buf); err != nil {
+			return ""
+		}
+		return buf.String()
+	}
+
+	phaseOf := func(data views.StatusData) string {
+		if data.MeetingStartedAt.IsZero() {
+			return "waiting"
+		}
+		return "live"
+	}
+
+	// Seed every region with the page's initial render so we only emit
+	// on real changes — the first connect carries the same HTML that's
+	// already in the DOM, so re-sending it would just churn the client.
+	// lastPhase is tracked separately from the body fragment because
+	// the body event is gated solely on the waiting↔live transition,
+	// and sub-region events are responsible for everything else.
+	var lastStarted, lastRoster, lastLog, lastPending, lastPhase string
+	if data, ok := s.statusData(); ok {
+		lastPhase = phaseOf(data)
+		lastStarted = render(views.StatusStartedRow(data, locale))
+		lastRoster = render(views.StatusRosters(data, locale))
+		lastLog = render(views.StatusLog(data, locale))
+		if data.AutoGenEnabled {
+			lastPending = render(views.GenerateNowButton(data.PendingBank, locale))
+		}
+	}
+
+	push := func() bool {
+		data, ok := s.statusData()
+		if !ok {
+			writeSSEEvent(w, "session-ended", "ok")
+			flusher.Flush()
+			return false
+		}
+
+		phase := phaseOf(data)
+
+		started := render(views.StatusStartedRow(data, locale))
+		if started != lastStarted {
+			writeSSEEvent(w, "started", started)
+			lastStarted = started
+		}
+
+		if phase != lastPhase {
+			body := render(views.StatusBodyInner(data, locale))
+			writeSSEEvent(w, "body", body)
+			lastPhase = phase
+			// The new body carries fresh roster/log/pending content;
+			// seed the per-region caches so the next tick only emits
+			// on subsequent changes.
+			lastRoster = render(views.StatusRosters(data, locale))
+			lastLog = render(views.StatusLog(data, locale))
+			if data.AutoGenEnabled {
+				lastPending = render(views.GenerateNowButton(data.PendingBank, locale))
+			}
+			flusher.Flush()
+			return true
+		}
+
+		if phase == "live" {
+			roster := render(views.StatusRosters(data, locale))
+			if roster != lastRoster {
+				writeSSEEvent(w, "roster", roster)
+				lastRoster = roster
+			}
+			if data.AutoGenEnabled {
+				pending := render(views.GenerateNowButton(data.PendingBank, locale))
+				if pending != lastPending {
+					writeSSEEvent(w, "pending", pending)
+					lastPending = pending
+				}
+			}
+		}
+
+		log := render(views.StatusLog(data, locale))
+		if log != lastLog {
+			writeSSEEvent(w, "log", log)
+			lastLog = log
+		}
+
+		flusher.Flush()
+		return true
+	}
+
+	tick := time.NewTicker(statusStreamTick)
+	defer tick.Stop()
+	keepalive := time.NewTicker(20 * time.Second)
+	defer keepalive.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.stopCh:
+			return
+		case <-tick.C:
+			if !push() {
+				return
+			}
+		case <-keepalive.C:
+			if _, err := io.WriteString(w, ": keep-alive\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}
+
+// writeSSEEvent writes one SSE message. Multi-line payloads (templ
+// renders HTML with embedded newlines) get one data: line per
+// physical line, per the SSE wire format.
+func writeSSEEvent(w io.Writer, event, payload string) {
+	_, _ = fmt.Fprintf(w, "event: %s\n", event)
+	for _, line := range strings.Split(payload, "\n") {
+		_, _ = fmt.Fprintf(w, "data: %s\n", line)
+	}
+	_, _ = io.WriteString(w, "\n")
 }
 
 // statusData captures the current session state into a StatusData
@@ -451,21 +601,6 @@ func latestPendingBank(svc *challenger.Service) *views.PendingBank {
 		Name:    newestName,
 		ModTime: newest.ModTime(),
 	}
-}
-
-// handlePollPending returns the htmx fragment that swaps the "Generate
-// now" button so its enabled/disabled state reflects whether a
-// freshly written auto-generated bank is pending review.
-func (s *Server) handlePollPending(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	act := s.active
-	s.mu.RUnlock()
-	if act == nil {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	locale := localeFromRequest(r)
-	_ = views.GenerateNowButton(latestPendingBank(act.challenger), locale).Render(r.Context(), w)
 }
 
 // handlePollPendingPreview returns the pending YAML's raw text wrapped
