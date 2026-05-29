@@ -149,30 +149,44 @@ func (w *Writer) SetStartTime(t time.Time) {
 	w.mu.Unlock()
 }
 
+// BaseName returns the current Parquet file basename without the
+// .parquet extension. Sidecar files (questions JSONL, etc.) follow this
+// name so they stay paired with the meeting events. Close may change
+// the basename via rename — call BaseName before Close to obtain the
+// pre-close value and use Close's return value for the post-close one.
+func (w *Writer) BaseName() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return strings.TrimSuffix(filepath.Base(w.tmpPath), ".parquet")
+}
+
 // Close flushes remaining buffered records and, for the default
 // timestamp-named file, renames it from <start>.parquet to
 // <start>-<end>.parquet. When the Writer was constructed with a custom
 // file name, the file is already at its final path and no rename
-// happens.
-func (w *Writer) Close(ctx context.Context) error {
+// happens. The returned basename is the final file's basename without
+// the .parquet extension (or "" when no Parquet file ended up on disk).
+func (w *Writer) Close(ctx context.Context) (string, error) {
 	if err := w.Flush(ctx); err != nil {
-		return err
+		return "", err
 	}
 	if w.customName != "" {
 		slog.Info("eventstore: closed", "path", w.tmpPath)
-		return nil
+		return w.customName, nil
+	}
+	if _, err := os.Stat(w.tmpPath); os.IsNotExist(err) {
+		return "", nil
 	}
 	endStr := time.Now().UTC().Format(fileTimeFormat)
 	startStr := w.startTime.UTC().Format(fileTimeFormat)
-	finalPath := filepath.Join(w.dir, startStr+"-"+endStr+".parquet")
+	finalBase := startStr + "-" + endStr
+	finalPath := filepath.Join(w.dir, finalBase+".parquet")
 	if err := os.Rename(w.tmpPath, finalPath); err != nil {
-		if !os.IsNotExist(err) {
-			slog.Warn("eventstore: could not rename meeting file", "from", w.tmpPath, "to", finalPath, "err", err)
-		}
-		return nil
+		slog.Warn("eventstore: could not rename meeting file", "from", w.tmpPath, "to", finalPath, "err", err)
+		return strings.TrimSuffix(filepath.Base(w.tmpPath), ".parquet"), nil
 	}
 	slog.Info("eventstore: closed", "path", finalPath)
-	return nil
+	return finalBase, nil
 }
 
 func (w *Writer) writeRowGroup(rows []Record, startTime time.Time) error {

@@ -93,6 +93,7 @@
   "stats.tooltip.state.incorrect": "Incorrect",
   "stats.tooltip.state.unanswered": "Unanswered",
   "stats.tooltip.state.skipped": "Skipped",
+  "stats.marker.missing_question": "Question details unavailable — the matching questions file is missing.",
   "stats.marker.skip_reason": "Reason",
   "stats.marker.skip_reason.delivery_failed": "Messenger delivery failed",
   "stats.marker.skip_reason.min_gap": "Within minimum gap between challenges",

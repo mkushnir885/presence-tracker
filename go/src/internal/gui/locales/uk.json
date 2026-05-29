@@ -93,6 +93,7 @@
   "stats.tooltip.state.incorrect": "Неправильно",
   "stats.tooltip.state.unanswered": "Без відповіді",
   "stats.tooltip.state.skipped": "Пропущено",
+  "stats.marker.missing_question": "Деталі питання недоступні — відповідний файл питань відсутній.",
   "stats.marker.skip_reason": "Причина",
   "stats.marker.skip_reason.delivery_failed": "Не вдалося доставити повідомлення",
   "stats.marker.skip_reason.min_gap": "Не минув мінімальний інтервал між питаннями",

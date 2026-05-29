@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -159,8 +161,13 @@ func (c *Coordinator) Run(ctx context.Context) error {
 		c.pipeline.Drain()
 		c.cancelAllConfirmTimers()
 		c.writeSessionEnded()
-		if err := c.store.Close(context.Background()); err != nil {
+		oldBase := c.store.BaseName()
+		newBase, err := c.store.Close(context.Background())
+		if err != nil {
 			slog.Error("session: close eventstore", "err", err)
+		}
+		if newBase != "" && newBase != oldBase && c.cfg.QuestionsDir != "" {
+			c.renameQuestionsSidecar(oldBase, newBase)
 		}
 	}()
 
@@ -460,12 +467,13 @@ func (c *Coordinator) onLeave(ctx context.Context, evt providers.Event) {
 	if len(state.platformIDs) == 0 {
 		delete(c.names, key)
 	}
+	meetingEnded := !c.meetingEndedAt.IsZero()
 	c.mu.Unlock()
 
 	if droppedPending && droppedConfirmRef.Opaque != "" {
 		_ = c.messenger.Notify(ctx, droppedConfirmRef, messengers.NotifyJoinDropped)
 	}
-	if verifiedLeft {
+	if verifiedLeft && !meetingEnded {
 		c.writeEvent(eventstore.Record{
 			EventType:   "participant_left",
 			DisplayName: leftDisplayName,
@@ -557,10 +565,16 @@ func (c *Coordinator) onJoinConfirmation(_ context.Context, evt messengers.Event
 	state.verifiedPlatformID = pending.platformID
 	state.verifiedAt = evt.Timestamp
 	canonicalName := state.canonicalName
+	meetingStartedAt := c.meetingStartedAt
 	c.mu.Unlock()
 
+	joinedAt := pending.joinedAt
+	if !meetingStartedAt.IsZero() && joinedAt.Before(meetingStartedAt) {
+		joinedAt = meetingStartedAt
+	}
+
 	c.writeEvent(eventstore.Record{
-		Timestamp:   pending.joinedAt,
+		Timestamp:   joinedAt,
 		EventType:   "participant_joined",
 		DisplayName: canonicalName,
 		Metadata:    pending.metadata,
@@ -637,7 +651,22 @@ func (c *Coordinator) runPollBank(ctx context.Context, bank challenges.Bank, aut
 		}
 		return ref.Opaque, nil
 	}
-	return c.pipeline.RunPoll(ctx, bank, autoSubmitted, eligible, sendFn, c.cfg.QuestionsDir, c.cfg.MeetingID)
+	return c.pipeline.RunPoll(ctx, bank, autoSubmitted, eligible, sendFn, c.cfg.QuestionsDir, c.store.BaseName())
+}
+
+// renameQuestionsSidecar keeps the meeting's questions JSONL paired with
+// the Parquet file when Close renames the latter to its <start>-<end>
+// final form. Missing sidecar (no questions were issued) is the common
+// case and not an error.
+func (c *Coordinator) renameQuestionsSidecar(oldBase, newBase string) {
+	oldPath := filepath.Join(c.cfg.QuestionsDir, oldBase+".jsonl")
+	newPath := filepath.Join(c.cfg.QuestionsDir, newBase+".jsonl")
+	if err := os.Rename(oldPath, newPath); err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
+		slog.Warn("session: rename questions sidecar", "from", oldPath, "to", newPath, "err", err)
+	}
 }
 
 // RecordGeneratorFailed records a challenger generator failure so the

@@ -422,6 +422,13 @@
       body.appendChild(makeKV(data.answer.label, data.answer.value));
       bodyHasContent = true;
     }
+    if (!bodyHasContent && data.missing && data.missing.value) {
+      const notice = document.createElement('div');
+      notice.className = 'marker-missing';
+      notice.textContent = data.missing.value;
+      body.appendChild(notice);
+      bodyHasContent = true;
+    }
     if (bodyHasContent) {
       pop.appendChild(document.createElement('hr'));
       pop.appendChild(body);

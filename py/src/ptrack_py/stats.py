@@ -14,7 +14,6 @@ docs/GUI.md for the consumer contract.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import polars as pl
@@ -25,7 +24,6 @@ from ptrack_analytics.frames import challenge_results as _challenge_frame
 def generate_stats(
     events: pl.LazyFrame,
     mode: str,
-    questions: pl.LazyFrame | None = None,
 ) -> dict[str, Any]:
     """
     Build the JSON-serialisable stats document for *events*.
@@ -36,14 +34,14 @@ def generate_stats(
     placeholder rows; cross-meeting mode includes one row per (participant,
     meeting) cell with `absent: true` when the participant did not appear.
 
-    *questions* is an optional LazyFrame loaded from the meeting's
-    `.jsonl` file(s); when supplied, marker tooltips include the prompt
-    and the canonical correct answer.
+    Markers carry only the event-side fields (timestamps, result,
+    submitted_answer, …). Prompt/choices/correct_answer are merged in
+    by the Go stats loader from the paired questions JSONL file.
     """
     meetings = _collect_meetings(events)
     segments = _collect_segments(events, meetings)
     summary = _collect_summary(events, meetings, segments)
-    markers = _collect_markers(events, meetings, questions)
+    markers = _collect_markers(events, meetings)
     max_participants = _collect_max_participants(events)
 
     return {
@@ -87,20 +85,29 @@ def _collect_meetings(events: pl.LazyFrame) -> list[dict[str, Any]]:
             .alias("started_cause"),
         )
     )
-    duration = (
-        events.filter(pl.col("event_type") != "session_started")
-        .group_by("meeting_id")
-        .agg(pl.col("timestamp").max().alias("duration_ms"))
-    )
     ended = (
         events.filter(pl.col("event_type") == "session_ended")
         .group_by("meeting_id")
         .agg(
+            pl.col("timestamp").first().alias("ended_ms"),
             pl.col("metadata")
             .str.json_path_match("$.cause")
             .first()
             .alias("ended_cause"),
         )
+    )
+    # session_ended is the meeting's true upper bound. Tail max() is the
+    # fallback when the file has no session_ended yet (e.g. crash) or
+    # carries pre-asymmetric-rule late leaves whose timestamp overshoots
+    # the real end — we still want a duration but capped to the bound.
+    tail = (
+        events.filter(pl.col("event_type") != "session_started")
+        .group_by("meeting_id")
+        .agg(pl.col("timestamp").max().alias("tail_ms"))
+    )
+    duration = tail.join(ended, on="meeting_id", how="left").select(
+        pl.col("meeting_id"),
+        pl.coalesce([pl.col("ended_ms"), pl.col("tail_ms")]).alias("duration_ms"),
     )
     df: pl.DataFrame = (  # type: ignore  # ty limitation: collect returns InProcessQuery union
         start.join(duration, on="meeting_id", how="left")
@@ -132,6 +139,13 @@ def _collect_segments(
     offsets + the source events' metadata fields (for tooltip text).
     Segments are pulled directly from participant_joined / _left rows so
     the metadata columns ride along without re-parsing.
+
+    Joins and leaves are paired positionally per (display_name,
+    meeting_id): the n-th join matches the n-th leave so a rejoin after
+    a leave becomes its own segment. Surplus joins (still present at
+    session end) get a null left_ms; surplus leaves (no matching join)
+    are dropped — the latter shouldn't happen for verified participants
+    but the join shape tolerates it.
     """
     durations = pl.LazyFrame(
         {
@@ -140,45 +154,76 @@ def _collect_segments(
         }
     )
 
-    joined = events.filter(pl.col("event_type") == "participant_joined").select(
-        pl.col("display_name"),
-        pl.col("meeting_id"),
-        pl.col("timestamp").alias("joined_ms"),
-        pl.col("metadata").str.json_path_match("$.join_method").alias("join_method"),
+    joined = (
+        events.filter(pl.col("event_type") == "participant_joined")
+        .select(
+            pl.col("display_name"),
+            pl.col("meeting_id"),
+            pl.col("timestamp").alias("joined_ms"),
+            pl.col("metadata")
+            .str.json_path_match("$.join_method")
+            .alias("join_method"),
+        )
+        .sort(["display_name", "meeting_id", "joined_ms"])
+        .with_columns(
+            pl.int_range(pl.len(), dtype=pl.UInt32)
+            .over(["display_name", "meeting_id"])
+            .alias("pair_idx"),
+        )
     )
-    left = events.filter(pl.col("event_type") == "participant_left").select(
-        pl.col("display_name"),
-        pl.col("meeting_id"),
-        pl.col("timestamp").alias("left_ms"),
-        pl.col("metadata").str.json_path_match("$.reason").alias("leave_reason"),
+    left = (
+        events.filter(pl.col("event_type") == "participant_left")
+        .select(
+            pl.col("display_name"),
+            pl.col("meeting_id"),
+            pl.col("timestamp").alias("left_ms"),
+            pl.col("metadata").str.json_path_match("$.reason").alias("leave_reason"),
+        )
+        .sort(["display_name", "meeting_id", "left_ms"])
+        .with_columns(
+            pl.int_range(pl.len(), dtype=pl.UInt32)
+            .over(["display_name", "meeting_id"])
+            .alias("pair_idx"),
+        )
     )
 
-    paired = (
-        joined.join(left, on=["display_name", "meeting_id"], how="left")
-        .filter(
-            pl.col("left_ms").is_null() | (pl.col("left_ms") >= pl.col("joined_ms"))
-        )
-        .sort(["display_name", "meeting_id", "joined_ms", "left_ms"])
-        .group_by(["display_name", "meeting_id", "joined_ms", "join_method"])
-        .agg(
-            pl.col("left_ms").first(),
-            pl.col("leave_reason").first(),
-        )
-    )
+    paired = joined.join(
+        left, on=["display_name", "meeting_id", "pair_idx"], how="left"
+    ).drop("pair_idx")
 
     df: pl.DataFrame = (  # type: ignore  # ty limitation
         paired.join(durations, on="meeting_id", how="left")
         .with_columns(
-            pl.col("left_ms").fill_null(pl.col("duration_ms")).alias("end_ms"),
-            pl.col("left_ms").is_null().alias("still_present"),
+            # A leave beyond duration is the legacy "provider tore down
+            # its roster after session_ended" noise. New writers drop
+            # those, but old files still carry them — treat them as
+            # still-present so the right-edge tooltip says "till meeting
+            # end" instead of a confusing post-end "Left at".
+            (pl.col("left_ms").is_null() | (pl.col("left_ms") > pl.col("duration_ms")))
+            .alias("still_present"),
         )
         .with_columns(
+            pl.when(pl.col("still_present"))
+            .then(pl.col("duration_ms"))
+            .otherwise(pl.col("left_ms"))
+            .alias("end_ms"),
+        )
+        .with_columns(
+            # Clip start and end independently, then derive width from
+            # the clipped endpoints. Computing width as a single clipped
+            # delta loses the real end position for segments that began
+            # before the session_started anchor (cause=tracking joins
+            # carry negative joined_ms) and visually stretches them
+            # across the whole band.
             (pl.col("joined_ms") / pl.col("duration_ms") * 100.0)
             .clip(0.0, 100.0)
             .alias("start_pct"),
-            ((pl.col("end_ms") - pl.col("joined_ms")) / pl.col("duration_ms") * 100.0)
+            (pl.col("end_ms") / pl.col("duration_ms") * 100.0)
             .clip(0.0, 100.0)
-            .alias("width_pct"),
+            .alias("end_pct"),
+        )
+        .with_columns(
+            (pl.col("end_pct") - pl.col("start_pct")).alias("width_pct"),
         )
         .sort(["display_name", "meeting_id", "joined_ms"])
         .collect()
@@ -300,14 +345,15 @@ def _collect_max_participants(events: pl.LazyFrame) -> dict[str, int]:
 def _collect_markers(
     events: pl.LazyFrame,
     meetings: list[dict[str, Any]],
-    questions: pl.LazyFrame | None,
 ) -> dict[tuple[str, str], list[dict[str, Any]]]:
     """Per-(display_name, meeting_id) list of challenge markers.
 
     Issued challenges (correct/incorrect/unanswered) and skipped
     challenges are rendered as markers; the latter never reached the
-    participant and so carry a ``skip_reason`` instead of question/
-    answer fields.
+    participant and so carry a ``skip_reason`` instead of a
+    ``question_id``. The question payload (prompt, choices, correct
+    answer, …) is filled in by the Go stats loader from the paired
+    JSONL file.
     """
     durations = pl.LazyFrame(
         {
@@ -316,7 +362,7 @@ def _collect_markers(
         }
     )
 
-    issued = (
+    issued_df: pl.DataFrame = (  # type: ignore  # ty limitation
         _challenge_frame(events)
         .join(durations, on="meeting_id", how="left")
         .with_columns(
@@ -324,25 +370,10 @@ def _collect_markers(
             .clip(0.0, 100.0)
             .alias("x_pct"),
             pl.col("state").fill_null("unanswered").alias("result"),
-            pl.lit("").alias("skip_reason"),
         )
+        .sort(["display_name", "meeting_id", "issued_ms"])
+        .collect()
     )
-
-    if questions is not None:
-        q = questions.select(
-            pl.col("question_id"),
-            pl.col("prompt").alias("question_prompt"),
-            pl.col("question_type"),
-            pl.col("choices"),
-            pl.col("correct_answer").alias("question_correct_answer"),
-            pl.col("match_mode"),
-            pl.col("tolerance"),
-        ).unique(subset=["question_id"])
-        issued = issued.join(q, on="question_id", how="left")
-
-    issued_df: pl.DataFrame = issued.sort(  # type: ignore  # ty limitation
-        ["display_name", "meeting_id", "issued_ms"]
-    ).collect()
 
     skipped_df = _collect_skipped(events, durations)
 
@@ -361,14 +392,6 @@ def _collect_markers(
                 "latency_ms": int(row["latency_ms"])
                 if row.get("latency_ms") is not None
                 else 0,
-                "prompt": row.get("question_prompt") or "",
-                "question_type": row.get("question_type") or "",
-                "choices": list(row.get("choices") or []),
-                "correct_answer": _stringify_answer(row.get("question_correct_answer")),
-                "match_mode": row.get("match_mode") or "",
-                "tolerance": float(row["tolerance"])
-                if row.get("tolerance") is not None
-                else 0.0,
                 "submitted_answer": row.get("submitted_answer") or "",
             }
         )
@@ -384,12 +407,6 @@ def _collect_markers(
                 "question_id": "",
                 "timestamp_ms": int(row["skipped_ms"]),
                 "latency_ms": 0,
-                "prompt": "",
-                "question_type": "",
-                "choices": [],
-                "correct_answer": "",
-                "match_mode": "",
-                "tolerance": 0.0,
                 "submitted_answer": "",
             }
         )
@@ -428,24 +445,6 @@ def _collect_skipped(
         .collect()
     )
     return df
-
-
-def _stringify_answer(value: object) -> str:
-    """Coerce a question's correct-answer cell to a single string.
-
-    JSONL stores MCQ/short-text answers as JSON arrays and numeric answers
-    as numbers; Polars surfaces them as Python list/float/str depending on
-    inferred dtype. The GUI marker payload carries a single string field,
-    so multi-choice arrays are re-encoded as JSON and numerics are
-    stringified verbatim.
-    """
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value
-    if isinstance(value, list):
-        return json.dumps(value)
-    return str(value)
 
 
 def _assemble_participants(

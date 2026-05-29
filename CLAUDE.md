@@ -201,7 +201,9 @@ Three result states are recorded per challenge:
 ignored.
 
 **Questions are stored as JSON Lines files** — one `.jsonl` file per
-meeting in `<questions_dir>/`, named by meeting ID. Each line is a JSON
+meeting in `<questions_dir>/`, named after the Parquet basename (so
+`meetings/<start>-<end>.parquet` pairs with
+`questions/<start>-<end>.jsonl`). Each line is a JSON
 object with the full question content (prompt, type, choices, correct
 answer, etc.) and a UUIDv4 `question_id`. `challenge_issued` events in
 the Parquet reference that UUID. `ptrack_analytics.load()` automatically

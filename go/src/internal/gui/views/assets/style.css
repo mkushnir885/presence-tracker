@@ -640,6 +640,11 @@ details.menu .menu-list button.active svg { color: var(--accent); }
 }
 .stat-popover-marker .marker-body,
 .stat-popover-marker .marker-submitted { display: flex; flex-direction: column; gap: 0.2rem; }
+.stat-popover-marker .marker-missing {
+    color: var(--muted);
+    font-style: italic;
+    font-size: 0.85rem;
+}
 
 .stat-popover-meeting { white-space: normal; display: flex; flex-direction: column; gap: 0.15rem; }
 .stat-popover-meeting .meeting-row { line-height: 1.35; }

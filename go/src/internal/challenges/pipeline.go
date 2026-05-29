@@ -110,7 +110,7 @@ func (p *Pipeline) RunPoll(
 	autoSubmitted bool,
 	eligible []EligibleParticipant,
 	send SendFn,
-	questionsDir, meetingID string,
+	questionsDir, fileBaseName string,
 ) (PollResult, error) {
 	if len(bank.Questions) == 0 {
 		return PollResult{}, fmt.Errorf("challenges: empty bank")
@@ -159,14 +159,14 @@ func (p *Pipeline) RunPoll(
 		}
 	}
 
-	if questionsDir != "" && meetingID != "" {
-		p.saveQuestions(assignments, autoSubmitted, questionsDir, meetingID, issuedAt)
+	if questionsDir != "" && fileBaseName != "" {
+		p.saveQuestions(assignments, autoSubmitted, questionsDir, fileBaseName, issuedAt)
 	}
 
 	return res, nil
 }
 
-func (p *Pipeline) saveQuestions(questions []Question, autoSubmitted bool, questionsDir, meetingID string, issuedAt time.Time) {
+func (p *Pipeline) saveQuestions(questions []Question, autoSubmitted bool, questionsDir, fileBaseName string, issuedAt time.Time) {
 	ts := issuedAt.Format(time.RFC3339)
 	records := make([]eventstore.QuestionRecord, 0, len(questions))
 	for _, q := range questions {
@@ -182,7 +182,7 @@ func (p *Pipeline) saveQuestions(questions []Question, autoSubmitted bool, quest
 			IssuedAt:      ts,
 		})
 	}
-	if err := eventstore.AppendQuestions(questionsDir, meetingID, records); err != nil {
+	if err := eventstore.AppendQuestions(questionsDir, fileBaseName, records); err != nil {
 		slog.Error("challenges: save questions", "err", err)
 	}
 }

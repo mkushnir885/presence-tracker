@@ -466,6 +466,7 @@ func markerPopoverJSON(mk stats.Marker, _ stats.Meeting, locale Locale) string {
 		"extras":    markerExtras(mk, locale),
 		"answer":    markerAnswer(mk, locale),
 		"submitted": markerSubmitted(mk, locale),
+		"missing":   markerMissingNotice(mk, locale),
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {
@@ -528,6 +529,17 @@ func markerAnswer(mk stats.Marker, locale Locale) map[string]string {
 		"label": locale.T("stats.tooltip.answer"),
 		"value": value,
 	}
+}
+
+// markerMissingNotice fires when an issued challenge's marker has a
+// question_id but no question payload — typically because the matching
+// JSONL file was deleted or moved out of questions_dir. The popover
+// should still acknowledge the marker rather than render an empty body.
+func markerMissingNotice(mk stats.Marker, locale Locale) map[string]string {
+	if mk.Result == "skipped" || mk.QuestionID == "" || mk.Prompt != "" {
+		return map[string]string{}
+	}
+	return map[string]string{"value": locale.T("stats.marker.missing_question")}
 }
 
 // markerSkipReason renders the "reason" line for skipped markers. The

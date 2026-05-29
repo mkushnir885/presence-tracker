@@ -19,7 +19,7 @@ from pathlib import Path
 import polars as pl
 import typer
 
-from ptrack_analytics.load import LoadError, load_questions
+from ptrack_analytics.load import LoadError
 from ptrack_analytics.schema import EVENT_SCHEMA
 
 from .reports import generate_aggregate_csv, generate_csv
@@ -79,7 +79,13 @@ def stats(
         ),
     ),
 ) -> None:
-    """Emit the GUI stats JSON for one or more Parquet files."""
+    """Emit the GUI stats JSON for one or more Parquet files.
+
+    Markers come back with only the event-side fields filled in
+    (timestamps, result, submitted_answer, …). The caller is expected
+    to merge in question payloads from the matching JSONL file — see
+    Go's stats.Loader.
+    """
     paths = _expand_globs(inputs)
     _validate_complete(paths)
 
@@ -87,9 +93,8 @@ def stats(
         frames = [pl.scan_parquet(p, schema=pl.Schema(EVENT_SCHEMA)) for p in paths]
         events = pl.concat(frames)
         mode = "meeting" if len(paths) == 1 else "cross_meeting"
-        questions = _load_questions_for(paths)
         source_files = _build_source_file_map(paths)
-        payload = generate_stats(events, mode=mode, questions=questions)
+        payload = generate_stats(events, mode=mode)
         for meeting in payload["meetings"]:
             src = source_files.get(meeting["meeting_id"])
             if src:
@@ -149,29 +154,6 @@ def _build_source_file_map(inputs: list[str]) -> dict[str, str]:
         if isinstance(mid, str) and mid:
             out[mid] = p
     return out
-
-
-def _load_questions_for(inputs: list[str]) -> pl.LazyFrame | None:
-    """Discover the questions/ sibling directory for the given parquet inputs.
-
-    Returns a concatenated LazyFrame of every JSONL file matching the
-    parquet basenames, or None if no questions are found. Mirrors the
-    convention used by `ptrack_analytics.load()`: questions live next to
-    the meetings directory under `../questions/<meeting_id>.jsonl`.
-    """
-    meeting_ids = [Path(p).stem for p in inputs]
-    seen: set[Path] = set()
-    frames: list[pl.LazyFrame] = []
-    for p in inputs:
-        qdir = Path(p).parent.parent / "questions"
-        if qdir in seen or not qdir.is_dir():
-            continue
-        seen.add(qdir)
-        sub = load_questions(str(qdir), meeting_ids)
-        frames.append(sub)
-    if not frames:
-        return None
-    return pl.concat(frames)
 
 
 if __name__ == "__main__":

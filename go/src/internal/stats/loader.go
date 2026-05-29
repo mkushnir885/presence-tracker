@@ -8,32 +8,48 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"presence-tracker/src/internal/eventstore"
 	"presence-tracker/src/internal/ptrackpy"
 )
 
 // Loader fetches stats Documents through ptrack_py, caching parsed
 // payloads on disk so a repeat request for the same file set returns
-// without spawning the subprocess. Loader is safe for concurrent use.
+// without spawning the subprocess. Markers come back from ptrack_py
+// with only the event-side fields populated; the Loader reads each
+// meeting's questions JSONL and fills in prompt/choices/correct_answer
+// etc. before returning. Loader is safe for concurrent use.
+//
+// questionsDir is a getter so the configured directory is re-resolved
+// on every Load — `ptrack reload` and the GUI config editor can change
+// the value while the Loader is alive.
 type Loader struct {
-	cacheDir string
+	cacheDir     string
+	questionsDir func() string
 }
 
 // New creates a Loader that stores cached JSON payloads under cacheDir.
 // The directory is created on demand; callers do not need to MkdirAll
-// up front.
-func New(cacheDir string) *Loader {
-	return &Loader{cacheDir: cacheDir}
+// up front. questionsDir returns the configured questions directory at
+// call time; nil is allowed and skips marker enrichment so markers
+// surface with empty prompt/answer fields (the GUI then renders the
+// "question details unavailable" notice).
+func New(cacheDir string, questionsDir func() string) *Loader {
+	return &Loader{cacheDir: cacheDir, questionsDir: questionsDir}
 }
 
 // Load returns the stats Document for the given Parquet files. The
 // cache is consulted first; on a hit the JSON is parsed straight from
 // disk. On a miss (or stale cache) ptrack_py is invoked, its stdout is
-// written to the cache, and the parsed Document is returned.
+// written to the cache, and the parsed Document is returned. Question
+// payloads are merged from the JSONL files on every call (whether the
+// cache hit or missed) so a freshly edited questions file is reflected
+// immediately without invalidating the Parquet-derived cache entry.
 func (l *Loader) Load(ctx context.Context, files []string) (*Document, error) {
 	if len(files) == 0 {
 		return nil, errors.New("stats: at least one file is required")
@@ -46,31 +62,103 @@ func (l *Loader) Load(ctx context.Context, files []string) (*Document, error) {
 
 	cachePath := filepath.Join(l.cacheDir, cacheName(abs))
 
-	if cached, ok := l.tryReadCache(cachePath, abs); ok {
-		return cached, nil
+	doc, ok := l.tryReadCache(cachePath, abs)
+	if !ok {
+		out, err := ptrackpy.Run(ctx, append([]string{"stats"}, abs...)...)
+		if err != nil {
+			return nil, fmt.Errorf("stats: %w", err)
+		}
+		doc, err = parse(out)
+		if err != nil {
+			return nil, err
+		}
+		if err := l.writeCache(cachePath, out); err != nil {
+			slog.Warn("stats: cache write failed", "path", cachePath, "err", err)
+		}
 	}
 
-	out, err := ptrackpy.Run(ctx, append([]string{"stats"}, abs...)...)
-	if err != nil {
-		return nil, fmt.Errorf("stats: %w", err)
-	}
-
-	doc, err := parse(out)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := l.writeCache(cachePath, out); err != nil {
-		slog.Warn("stats: cache write failed", "path", cachePath, "err", err)
-	}
+	l.enrichMarkers(doc, abs)
 	return doc, nil
+}
+
+// enrichMarkers fills in each marker's question payload from the
+// matching JSONL file. Question IDs are UUIDv4 so a single global map
+// across all input files is unambiguous. Missing question IDs (deleted
+// JSONL, manually-edited cache) are left blank — the GUI popover
+// renders its "question details unavailable" notice in that case.
+func (l *Loader) enrichMarkers(doc *Document, inputs []string) {
+	if doc == nil || l.questionsDir == nil {
+		return
+	}
+	qDir := l.questionsDir()
+	if qDir == "" {
+		return
+	}
+
+	questions := map[string]eventstore.QuestionRecord{}
+	for _, f := range inputs {
+		path := questionsPathFor(qDir, f)
+		if path == "" {
+			continue
+		}
+		records, err := eventstore.LoadQuestions(path)
+		if err != nil {
+			slog.Warn("stats: load questions", "path", path, "err", err)
+			continue
+		}
+		maps.Copy(questions, records)
+	}
+
+	for pi := range doc.Participants {
+		for ri := range doc.Participants[pi].Rows {
+			markers := doc.Participants[pi].Rows[ri].Markers
+			for mi := range markers {
+				mk := &markers[mi]
+				if mk.QuestionID == "" {
+					continue
+				}
+				q, ok := questions[mk.QuestionID]
+				if !ok {
+					continue
+				}
+				mk.Prompt = q.Prompt
+				mk.QuestionType = q.QuestionType
+				mk.Choices = q.Choices
+				mk.CorrectAnswer = stringifyAnswer(q.CorrectAnswer)
+				mk.MatchMode = q.MatchMode
+				mk.Tolerance = q.Tolerance
+			}
+		}
+	}
+}
+
+// stringifyAnswer coerces a question's correct_answer field into a
+// single string, matching the Python side's prior behaviour: MCQ
+// arrays come back as a JSON-encoded list (rendered as a comma list
+// by the templ helper), numerics are stringified verbatim.
+func stringifyAnswer(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return x
+	case []any:
+		b, err := json.Marshal(x)
+		if err != nil {
+			return ""
+		}
+		return string(b)
+	default:
+		return fmt.Sprint(x)
+	}
 }
 
 // tryReadCache returns the cached Document iff the cache file exists
 // and is at least as new as every input. Cache misses and stale entries
-// both come back as (nil, false) without error. Sibling
-// `../questions/<meeting_id>.jsonl` files are checked too, so a newly
-// added or rewritten question bank invalidates the cached marker bodies.
+// both come back as (nil, false) without error. The cache stores only
+// the Parquet-derived portion of the document; question payloads are
+// re-merged on every Load, so the questions JSONL does not participate
+// in invalidation.
 func (l *Loader) tryReadCache(cachePath string, inputs []string) (*Document, bool) {
 	cacheInfo, err := os.Stat(cachePath)
 	if err != nil {
@@ -85,11 +173,6 @@ func (l *Loader) tryReadCache(cachePath string, inputs []string) (*Document, boo
 		}
 		if info.ModTime().After(cacheMTime) {
 			return nil, false
-		}
-		if qPath := questionsPathFor(f); qPath != "" {
-			if qi, err := os.Stat(qPath); err == nil && qi.ModTime().After(cacheMTime) {
-				return nil, false
-			}
 		}
 	}
 
@@ -149,18 +232,19 @@ func absSorted(files []string) ([]string, error) {
 	return out, nil
 }
 
-// questionsPathFor mirrors the sibling-directory convention used by
-// ptrack_py: `<base>/meetings/<id>.parquet` pairs with
-// `<base>/questions/<id>.jsonl`. Returns "" when the input doesn't
-// match the convention.
-func questionsPathFor(parquetPath string) string {
-	dir := filepath.Dir(parquetPath)
-	base := filepath.Base(parquetPath)
-	stem := strings.TrimSuffix(base, filepath.Ext(base))
+// questionsPathFor returns the JSONL path that pairs with parquetPath
+// under the configured questionsDir: <questionsDir>/<basename>.jsonl.
+// Returns "" when questionsDir or the basename are empty so the caller
+// can skip the staleness check.
+func questionsPathFor(questionsDir, parquetPath string) string {
+	if questionsDir == "" {
+		return ""
+	}
+	stem := strings.TrimSuffix(filepath.Base(parquetPath), filepath.Ext(parquetPath))
 	if stem == "" {
 		return ""
 	}
-	return filepath.Join(filepath.Dir(dir), "questions", stem+".jsonl")
+	return filepath.Join(questionsDir, stem+".jsonl")
 }
 
 // cacheName derives a short, filesystem-safe filename from the sorted

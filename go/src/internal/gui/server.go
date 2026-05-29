@@ -83,7 +83,7 @@ func New(cfg *config.Config, registry participants.Registry, router *messengers.
 		cfg:      cfg,
 		registry: registry,
 		router:   router,
-		stats:    stats.New(filepath.Join(config.CacheDir(), "stats")),
+		stats:    stats.New(filepath.Join(config.CacheDir(), "stats"), func() string { return cfg.Get().QuestionsDir }),
 		stopCh:   make(chan struct{}),
 	}
 }

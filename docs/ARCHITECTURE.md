@@ -51,7 +51,8 @@ it.
    actually in the meeting right now, picks eligible participants from
    that snapshot, and randomly assigns one question per participant.
 4. At poll time, one question record is appended per unique question to
-   the meeting's `<meeting_id>.jsonl` file in `questions_dir`. Each
+   the meeting's JSONL file in `questions_dir` (basename matches the
+   Parquet file so loaders can pair them by filename). Each
    record carries a UUIDv4 `question_id` plus the full question content
    (prompt, type, choices, correct answer). `challenge_issued` events in
    the Parquet reference that UUID. The `--type` label travels with the

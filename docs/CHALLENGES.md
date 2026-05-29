@@ -204,7 +204,9 @@ GUI file picker before submission.
 ## Question records (`.jsonl`)
 
 When a poll runs, every issued question is appended to the meeting's
-`<meeting_id>.jsonl` file in `questions_dir`. Each line is one JSON
+JSONL file in `questions_dir`, named after the Parquet basename so the
+two files stay paired (e.g. `meetings/<start>-<end>.parquet` ↔
+`questions/<start>-<end>.jsonl`). Each line is one JSON
 object with the full question content plus a UUIDv4 `question_id`.
 `challenge_issued` events in the Parquet file reference the same
 `question_id`. The `auto_submitted` marker is **not** written here —
