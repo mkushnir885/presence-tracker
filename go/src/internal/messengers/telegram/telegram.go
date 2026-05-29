@@ -20,16 +20,16 @@ import (
 	"presence-tracker/src/internal/util"
 )
 
-// registerPromptTTL is how long an outstanding /register ForceReply
-// prompt waits before being auto-deleted. Picked to be long enough for
-// a slow typer on mobile, short enough that an abandoned prompt
-// disappears within the same lesson.
+// registerPromptTTL is how long an outstanding /register prompt waits
+// for the user's display-name message before being auto-deleted. Picked
+// to be long enough for a slow typer on mobile, short enough that an
+// abandoned prompt disappears within the same lesson.
 const registerPromptTTL = 60 * time.Second
 
-// languageConfirmTTL is how long the "Language set to …" / "Register
-// first" reply lingers in chat after the user taps a language button.
-// Long enough to read, short enough to keep the bot's history tidy.
-const languageConfirmTTL = 8 * time.Second
+// languagePromptTTL is how long the language picker waits for a tap
+// before its message is deleted. Matches registerPromptTTL: the two
+// pickers have similar "abandoned dialog" semantics.
+const languagePromptTTL = 60 * time.Second
 
 // Name is the canonical identifier this adapter reports through
 // Messenger.Name and registers under in the messengers catalog.
@@ -45,6 +45,16 @@ type pendingKey struct {
 	messageID int
 }
 
+// mcqState holds the selection state for one in-flight multiple-choice
+// question. selected[i] indicates whether choice i is currently picked;
+// the slice is rebuilt into a keyboard markup on every toggle, then
+// finalised when the user taps Submit.
+type mcqState struct {
+	challengeID string
+	choices     []string
+	selected    []bool
+}
+
 // Adapter implements messengers.Messenger using the Telegram Bot API.
 type Adapter struct {
 	bot      *tgbotapi.BotAPI
@@ -53,8 +63,9 @@ type Adapter struct {
 	catalog  *i18n.Catalog
 
 	mu         sync.Mutex
-	pending    map[pendingKey]string // {chatID, questionMsgID} → challengeID
-	pendingInv map[string]pendingKey // challengeID → pendingKey (for cleanup on timeout)
+	pending    map[pendingKey]string    // {chatID, questionMsgID} → challengeID
+	pendingInv map[string]pendingKey    // challengeID → pendingKey (for cleanup on timeout)
+	mcq        map[pendingKey]*mcqState // {chatID, MCQ msgID} → toggle/submit state
 
 	// stopOnce guards bot.StopReceivingUpdates: both the Start goroutine
 	// (on ctx cancel) and an explicit Stop call race to shut the poller
@@ -62,10 +73,16 @@ type Adapter struct {
 	stopOnce sync.Once
 
 	// registerPrompts tracks the message ID of an outstanding /register
-	// ForceReply prompt per chat. Entries expire after registerPromptTTL;
-	// the prompt message is auto-deleted by the onExpire callback so an
-	// abandoned dialog does not linger.
+	// prompt per chat. Its presence marks the chat as awaiting a
+	// display-name message; the stored ID is used to delete the prompt
+	// once the name arrives or the entry expires.
 	registerPrompts *util.TTLMap[int64, int]
+
+	// languagePrompts tracks the message ID of an outstanding /language
+	// inline-keyboard picker per chat. Entries are removed on selection
+	// (so no auto-delete fires) and expire after languagePromptTTL with
+	// the picker auto-deleted if the user never tapped.
+	languagePrompts *util.TTLMap[int64, int]
 }
 
 // New creates a Telegram adapter.
@@ -82,28 +99,17 @@ func New(token string, registry participants.Registry) (*Adapter, error) {
 		catalog:    newCatalog(),
 		pending:    make(map[pendingKey]string),
 		pendingInv: make(map[string]pendingKey),
+		mcq:        make(map[pendingKey]*mcqState),
 	}
-	a.registerPrompts = util.NewTTLMap(a.expireRegisterPrompt)
+	a.registerPrompts = util.NewTTLMap(a.deleteMessageByID)
+	a.languagePrompts = util.NewTTLMap(a.deleteMessageByID)
 	return a, nil
 }
 
-// expireRegisterPrompt deletes the stale /register prompt message in
-// chatID. Best-effort: the message may already be gone (user dismissed
-// or replied just as the TTL fired), and either way the entry is
-// already removed from the map by util.TTLMap before this callback
-// runs.
-func (a *Adapter) expireRegisterPrompt(chatID int64, messageID int) {
-	a.deleteMessageByID(chatID, messageID)
-}
-
 // discardRegisterPrompt removes the outstanding /register prompt for
-// chatID (if any) from both the TTL map and the chat itself. Telegram
-// re-applies a message's ForceReply markup every time the user opens
-// the chat, so leaving the prompt message in place after the reply has
-// been processed makes the input box keep nagging the user to "Reply
-// with your display name" — even though, from the bot's perspective,
-// registration is already complete. Always deleting the message closes
-// that gap.
+// chatID (if any) from both the TTL map and the chat itself, so the
+// chat history stays clean once the registration is complete or
+// abandoned.
 func (a *Adapter) discardRegisterPrompt(chatID int64) {
 	if msgID, ok := a.registerPrompts.Delete(chatID); ok {
 		a.deleteMessageByID(chatID, msgID)
@@ -254,27 +260,26 @@ func (a *Adapter) handleStart(msg *tgbotapi.Message) {
 	_, _ = a.bot.Send(tgbotapi.NewMessage(chatID, locale.T("messenger.telegram.start")))
 }
 
-// handleRegister always opens the ForceReply prompt; the display name
-// is collected from the user's reply, never from inline arguments.
+// handleRegister always opens the registration prompt; the display
+// name is collected from the user's reply, never from inline
+// arguments.
 func (a *Adapter) handleRegister(msg *tgbotapi.Message) {
 	a.promptRegister(msg.Chat.ID, msg.From.LanguageCode)
 }
 
-// promptRegister sends a ForceReply prompt asking the user for their
-// display name. Telegram focuses the input as a reply to this message,
-// so the user types only the name. The prompt's message ID is tracked
-// per chat; the next reply to it is dispatched as a registration. Any
-// previous outstanding prompt is deleted first so the chat never holds
-// more than one active ForceReply marker.
+// promptRegister sends a plain prompt asking the user to reply with
+// their display name. A ForceReply marker is intentionally not
+// attached: Telegram clients re-apply ForceReply UI every time the
+// chat is opened, which made stale prompts (e.g. left over after a
+// daemon restart) keep nagging the user to reply long after
+// registration was complete. The prompt message ID is tracked per
+// chat; the next reply to it is dispatched as a registration. Any
+// previous outstanding prompt is deleted first so the chat carries
+// one prompt at most.
 func (a *Adapter) promptRegister(chatID int64, langHint string) {
 	a.discardRegisterPrompt(chatID)
 	locale := a.locale(chatID, langHint)
 	prompt := tgbotapi.NewMessage(chatID, locale.T("messenger.telegram.register.prompt"))
-	prompt.ReplyMarkup = tgbotapi.ForceReply{
-		ForceReply:            true,
-		InputFieldPlaceholder: locale.T("messenger.telegram.register.placeholder"),
-		Selective:             true,
-	}
 	sent, err := a.bot.Send(prompt)
 	if err != nil {
 		slog.Warn("telegram: send register prompt", "err", err)
@@ -348,6 +353,7 @@ var supportedLanguages = []struct {
 
 func (a *Adapter) handleLanguage(msg *tgbotapi.Message) {
 	chatID := msg.Chat.ID
+	a.discardLanguagePrompt(chatID)
 	locale := a.locale(chatID, msg.From.LanguageCode)
 	prompt := tgbotapi.NewMessage(chatID, locale.T("messenger.telegram.language.prompt"))
 	row := make([]tgbotapi.InlineKeyboardButton, 0, len(supportedLanguages))
@@ -355,7 +361,20 @@ func (a *Adapter) handleLanguage(msg *tgbotapi.Message) {
 		row = append(row, tgbotapi.NewInlineKeyboardButtonData(l.label, "lang:"+l.code))
 	}
 	prompt.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(row)
-	_, _ = a.bot.Send(prompt)
+	sent, err := a.bot.Send(prompt)
+	if err != nil {
+		slog.Warn("telegram: send language prompt", "err", err)
+		return
+	}
+	a.languagePrompts.Put(chatID, sent.MessageID, languagePromptTTL)
+}
+
+// discardLanguagePrompt removes the outstanding /language picker for
+// chatID (if any) from the TTL map without deleting the message —
+// callers that handle the tap edit the picker in place rather than
+// deleting it.
+func (a *Adapter) discardLanguagePrompt(chatID int64) {
+	a.languagePrompts.Delete(chatID)
 }
 
 func (a *Adapter) handleLanguageCallback(cq *tgbotapi.CallbackQuery) {
@@ -366,6 +385,10 @@ func (a *Adapter) handleLanguageCallback(cq *tgbotapi.CallbackQuery) {
 	ack := tgbotapi.NewCallback(cq.ID, "")
 	_, _ = a.bot.Request(ack)
 
+	// User tapped — the picker is no longer "hanging", so cancel the
+	// auto-delete. The message is then edited in place below.
+	a.discardLanguagePrompt(chatID)
+
 	updated, err := a.registry.SetLanguage(context.Background(), a.Name(), handle, chosen)
 	if err != nil {
 		slog.Warn("telegram: set language", "chat_id", chatID, "lang", chosen, "err", err)
@@ -375,32 +398,39 @@ func (a *Adapter) handleLanguageCallback(cq *tgbotapi.CallbackQuery) {
 		// Not registered yet; reply in the user's currently effective language.
 		locale := a.locale(chatID, cq.From.LanguageCode)
 		if cq.Message != nil {
-			a.editAndAutoDelete(chatID, cq.Message.MessageID,
-				locale.T("messenger.telegram.language.unregistered"), languageConfirmTTL)
+			a.editClearKeyboard(chatID, cq.Message.MessageID,
+				locale.T("messenger.telegram.language.unregistered"))
 		}
 		return
 	}
 
 	if cq.Message != nil {
 		newLocale := a.catalog.Locale(chosen)
-		a.editAndAutoDelete(chatID, cq.Message.MessageID,
-			newLocale.T("messenger.telegram.language.confirm"), languageConfirmTTL)
+		a.editClearKeyboard(chatID, cq.Message.MessageID,
+			newLocale.T("messenger.telegram.language.confirm"))
 	}
 }
 
-// editAndAutoDelete rewrites a previously-sent message (clearing any
-// inline keyboard) and schedules its deletion after ttl. Used by the
-// language picker so its confirmation reply does not pile up in the
-// chat between sessions.
-func (a *Adapter) editAndAutoDelete(chatID int64, messageID int, text string, ttl time.Duration) {
+// editClearKeyboard rewrites a previously-sent message and drops any
+// inline keyboard attached to it. Telegram's edit_message_text requires
+// reply_markup to be an array (not null), so the empty keyboard is
+// explicitly materialized as an empty slice.
+func (a *Adapter) editClearKeyboard(chatID int64, messageID int, text string) {
 	edit := tgbotapi.NewEditMessageText(chatID, messageID, text)
-	empty := tgbotapi.NewInlineKeyboardMarkup()
+	empty := emptyInlineKeyboard()
 	edit.ReplyMarkup = &empty
 	if _, err := a.bot.Send(edit); err != nil {
-		slog.Debug("telegram: edit before auto-delete", "chat_id", chatID, "msg_id", messageID, "err", err)
-		return
+		slog.Debug("telegram: edit message", "chat_id", chatID, "msg_id", messageID, "err", err)
 	}
-	time.AfterFunc(ttl, func() { a.deleteMessageByID(chatID, messageID) })
+}
+
+// emptyInlineKeyboard returns a markup whose inline_keyboard field is
+// an empty array (not null). Telegram rejects null with
+// `Bad Request: field "inline_keyboard" must be of type Array`, so the
+// upstream NewInlineKeyboardMarkup() helper (which leaves the slice nil
+// when no rows are passed) cannot be used to strip an existing keyboard.
+func emptyInlineKeyboard() tgbotapi.InlineKeyboardMarkup {
+	return tgbotapi.InlineKeyboardMarkup{InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{}}
 }
 
 func (a *Adapter) handleWhoami(msg *tgbotapi.Message) {
@@ -430,8 +460,6 @@ func (a *Adapter) handleTextMessage(ctx context.Context, msg *tgbotapi.Message) 
 	if promptID, ok := a.registerPrompts.Get(chatID); ok && replyTo == promptID {
 		name := strings.TrimSpace(msg.Text)
 		if name == "" {
-			// promptRegister discards the stale prompt before sending the new one.
-			a.promptRegister(chatID, msg.From.LanguageCode)
 			return
 		}
 		a.discardRegisterPrompt(chatID)
@@ -473,30 +501,96 @@ func (a *Adapter) handleCallback(cq *tgbotapi.CallbackQuery) {
 		a.handleConfirmationCallback(cq)
 	case strings.HasPrefix(cq.Data, "lang:"):
 		a.handleLanguageCallback(cq)
-	default:
-		a.handleChallengeCallback(cq)
+	case strings.HasPrefix(cq.Data, "mcq:"):
+		a.handleMCQCallback(cq)
 	}
 }
 
-func (a *Adapter) handleChallengeCallback(cq *tgbotapi.CallbackQuery) {
-	// Callback data format: "<challengeID>:<choiceLabel>"
-	parts := strings.SplitN(cq.Data, ":", 2)
-	if len(parts) != 2 {
+// handleMCQCallback dispatches a tap on an MCQ keyboard. Data format
+// is "mcq:t:<idx>" for a choice toggle and "mcq:s" for Submit. The
+// challenge and its choice list are looked up by (chat, message) from
+// the adapter's mcq map; the callback_data carries only the row tag
+// and index so it stays well under Telegram's 64-byte limit even for
+// long choice strings.
+func (a *Adapter) handleMCQCallback(cq *tgbotapi.CallbackQuery) {
+	if cq.Message == nil {
+		_, _ = a.bot.Request(tgbotapi.NewCallback(cq.ID, ""))
 		return
 	}
-	cid, choice := parts[0], parts[1]
-	chatID := cq.From.ID
-	handle := strconv.FormatInt(chatID, 10)
+	chatID := cq.Message.Chat.ID
+	key := pendingKey{chatID: chatID, messageID: cq.Message.MessageID}
 
-	ack := tgbotapi.NewCallback(cq.ID, "")
-	_, _ = a.bot.Request(ack)
+	a.mu.Lock()
+	state, ok := a.mcq[key]
+	a.mu.Unlock()
+	if !ok {
+		// Message already finalised (answered, timed out, or deleted).
+		_, _ = a.bot.Request(tgbotapi.NewCallback(cq.ID, ""))
+		return
+	}
+
+	locale := a.locale(chatID, cq.From.LanguageCode)
+	payload := strings.TrimPrefix(cq.Data, "mcq:")
+	switch {
+	case payload == "s":
+		a.submitMCQ(cq, key, state, locale)
+	case strings.HasPrefix(payload, "t:"):
+		idx, err := strconv.Atoi(strings.TrimPrefix(payload, "t:"))
+		if err != nil || idx < 0 || idx >= len(state.choices) {
+			_, _ = a.bot.Request(tgbotapi.NewCallback(cq.ID, ""))
+			return
+		}
+		a.toggleMCQ(cq, key, state, idx, locale)
+	default:
+		_, _ = a.bot.Request(tgbotapi.NewCallback(cq.ID, ""))
+	}
+}
+
+func (a *Adapter) toggleMCQ(cq *tgbotapi.CallbackQuery, key pendingKey, state *mcqState, idx int, locale i18n.Locale) {
+	a.mu.Lock()
+	state.selected[idx] = !state.selected[idx]
+	snapshot := make([]bool, len(state.selected))
+	copy(snapshot, state.selected)
+	a.mu.Unlock()
+
+	_, _ = a.bot.Request(tgbotapi.NewCallback(cq.ID, ""))
+
+	kb := renderMCQKeyboard(state.choices, snapshot, locale)
+	edit := tgbotapi.NewEditMessageReplyMarkup(key.chatID, key.messageID, kb)
+	if _, err := a.bot.Send(edit); err != nil {
+		slog.Debug("telegram: edit MCQ keyboard", "chat_id", key.chatID, "msg_id", key.messageID, "err", err)
+	}
+}
+
+func (a *Adapter) submitMCQ(cq *tgbotapi.CallbackQuery, key pendingKey, state *mcqState, locale i18n.Locale) {
+	a.mu.Lock()
+	selected := make([]string, 0, len(state.selected))
+	for i, on := range state.selected {
+		if on {
+			selected = append(selected, state.choices[i])
+		}
+	}
+	a.mu.Unlock()
+
+	if len(selected) == 0 {
+		ack := tgbotapi.NewCallback(cq.ID, locale.T("messenger.telegram.mcq.empty_alert"))
+		ack.ShowAlert = true
+		_, _ = a.bot.Request(ack)
+		return
+	}
+
+	_, _ = a.bot.Request(tgbotapi.NewCallback(cq.ID, ""))
+
+	a.mu.Lock()
+	delete(a.mcq, key)
+	a.mu.Unlock()
 
 	a.events <- messengers.Event{
 		Kind:        messengers.EventKindAnswerReceived,
-		Handle:      handle,
-		ChallengeID: cid,
-		Answer:      choice,
-		Selected:    []string{choice},
+		Handle:      strconv.FormatInt(key.chatID, 10),
+		ChallengeID: state.challengeID,
+		Answer:      strings.Join(selected, ", "),
+		Selected:    selected,
 		Timestamp:   time.Now().UTC(),
 	}
 }
@@ -517,7 +611,7 @@ func (a *Adapter) handleConfirmationCallback(cq *tgbotapi.CallbackQuery) {
 			key = "messenger.join_confirm.yes_result"
 		}
 		edit := tgbotapi.NewEditMessageText(chatID, cq.Message.MessageID, locale.T(key))
-		empty := tgbotapi.NewInlineKeyboardMarkup()
+		empty := emptyInlineKeyboard()
 		edit.ReplyMarkup = &empty
 		_, _ = a.bot.Send(edit)
 
@@ -571,9 +665,10 @@ func (a *Adapter) SendChallenge(ctx context.Context, handle string, c messengers
 	}
 
 	locale := a.locale(chatID, "")
+	isMCQ := c.QuestionType == string(challenges.MultipleChoice) && len(c.Choices) > 0
 	var msg tgbotapi.MessageConfig
-	if c.QuestionType == string(challenges.MultipleChoice) && len(c.Choices) > 0 {
-		msg = buildMCQMessage(chatID, c)
+	if isMCQ {
+		msg = buildMCQMessage(chatID, c, locale)
 	} else {
 		msg = buildTextMessage(chatID, c, locale)
 	}
@@ -583,30 +678,49 @@ func (a *Adapter) SendChallenge(ctx context.Context, handle string, c messengers
 		return messengers.MessageRef{}, fmt.Errorf("telegram: send challenge: %w", err)
 	}
 
-	if c.QuestionType != string(challenges.MultipleChoice) {
-		key := pendingKey{chatID: chatID, messageID: sent.MessageID}
-		a.mu.Lock()
+	key := pendingKey{chatID: chatID, messageID: sent.MessageID}
+	a.mu.Lock()
+	if isMCQ {
+		a.mcq[key] = &mcqState{
+			challengeID: c.ChallengeID,
+			choices:     c.Choices,
+			selected:    make([]bool, len(c.Choices)),
+		}
+	} else {
 		a.pending[key] = c.ChallengeID
 		a.pendingInv[c.ChallengeID] = key
-		a.mu.Unlock()
 	}
+	a.mu.Unlock()
 
 	ref := telegramRef{ChatID: chatID, MessageID: sent.MessageID}
 	b, _ := json.Marshal(ref) //nolint:errchkjson // telegramRef is a plain int64 struct; Marshal cannot fail
 	return messengers.MessageRef{Opaque: string(b)}, nil
 }
 
-func buildMCQMessage(chatID int64, c messengers.ChallengePrompt) tgbotapi.MessageConfig {
-	msg := tgbotapi.NewMessage(chatID, c.Prompt)
-	var rows [][]tgbotapi.InlineKeyboardButton
-	for _, choice := range c.Choices {
-		data := c.ChallengeID + ":" + choice
+func buildMCQMessage(chatID int64, c messengers.ChallengePrompt, locale i18n.Locale) tgbotapi.MessageConfig {
+	msg := tgbotapi.NewMessage(chatID, c.Prompt+locale.T("messenger.telegram.mcq.hint"))
+	msg.ReplyMarkup = renderMCQKeyboard(c.Choices, make([]bool, len(c.Choices)), locale)
+	return msg
+}
+
+// renderMCQKeyboard builds the inline keyboard for an MCQ question.
+// Each choice row carries a ☐/☑ prefix reflecting whether it is
+// currently selected; a final Submit row finalises the answer.
+func renderMCQKeyboard(choices []string, selected []bool, locale i18n.Locale) tgbotapi.InlineKeyboardMarkup {
+	rows := make([][]tgbotapi.InlineKeyboardButton, 0, len(choices)+1)
+	for i, choice := range choices {
+		prefix := "☐ "
+		if selected[i] {
+			prefix = "☑ "
+		}
 		rows = append(rows, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(choice, data),
+			tgbotapi.NewInlineKeyboardButtonData(prefix+choice, "mcq:t:"+strconv.Itoa(i)),
 		})
 	}
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
-	return msg
+	rows = append(rows, []tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardButtonData(locale.T("messenger.telegram.mcq.submit"), "mcq:s"),
+	})
+	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
 func buildTextMessage(chatID int64, c messengers.ChallengePrompt, locale i18n.Locale) tgbotapi.MessageConfig {
@@ -641,15 +755,37 @@ func (a *Adapter) Notify(_ context.Context, ref messengers.MessageRef, kind mess
 	if !ok {
 		return fmt.Errorf("telegram: unknown notify kind %d", kind)
 	}
+	a.discardMCQState(r.ChatID, r.MessageID)
 	locale := a.locale(r.ChatID, "")
 	text := locale.T(key)
 	if len(args) > 0 {
 		text = fmt.Sprintf(text, args...)
 	}
 	edit := tgbotapi.NewEditMessageText(r.ChatID, r.MessageID, text)
-	empty := tgbotapi.NewInlineKeyboardMarkup()
+	empty := emptyInlineKeyboard()
 	edit.ReplyMarkup = &empty
 	_, err := a.bot.Send(edit)
+	return err
+}
+
+// SendNotification sends a fresh localized message keyed by kind. Used
+// for receipt-style follow-ups (e.g. "answer saved") whose lifetime is
+// independent of the message being acknowledged.
+func (a *Adapter) SendNotification(_ context.Context, handle string, kind messengers.NotifyKind, args ...any) error {
+	chatID, err := strconv.ParseInt(handle, 10, 64)
+	if err != nil {
+		return fmt.Errorf("telegram: invalid handle %q: %w", handle, err)
+	}
+	key, ok := notifyKeys[kind]
+	if !ok {
+		return fmt.Errorf("telegram: unknown notify kind %d", kind)
+	}
+	locale := a.locale(chatID, "")
+	text := locale.T(key)
+	if len(args) > 0 {
+		text = fmt.Sprintf(text, args...)
+	}
+	_, err = a.bot.Send(tgbotapi.NewMessage(chatID, text))
 	return err
 }
 
@@ -659,9 +795,21 @@ func (a *Adapter) DeleteMessage(_ context.Context, ref messengers.MessageRef) er
 	if err := json.Unmarshal([]byte(ref.Opaque), &r); err != nil {
 		return fmt.Errorf("telegram: decode ref: %w", err)
 	}
+	a.discardMCQState(r.ChatID, r.MessageID)
 	del := tgbotapi.NewDeleteMessage(r.ChatID, r.MessageID)
 	_, err := a.bot.Request(del)
 	return err
+}
+
+// discardMCQState drops any pending MCQ selection state for the given
+// message. Called when the question is finalised (answered, timed out,
+// or deleted) so stale entries do not linger after the keyboard is
+// gone from the chat.
+func (a *Adapter) discardMCQState(chatID int64, messageID int) {
+	key := pendingKey{chatID: chatID, messageID: messageID}
+	a.mu.Lock()
+	delete(a.mcq, key)
+	a.mu.Unlock()
 }
 
 type telegramRef struct {

@@ -40,16 +40,16 @@ type EventSink interface {
 	RecordChallengeUnanswered(ctx context.Context, challengeID string) error
 	RecordChallengeSkipped(ctx context.Context, displayName, reason string) error
 
-	// NotifyAnswered edits the question message in place so the user
-	// sees that their answer landed. The message stays in chat as a
-	// receipt.
-	NotifyAnswered(ctx context.Context, ref string) error
-	// NotifyAnswerTimedOut edits the question message to show that the
-	// answer window has closed without an answer being recorded.
+	// NotifyAnswered acknowledges a received answer. It deletes the
+	// question message and, for text/numeric answers, the user's reply,
+	// then sends a fresh "answer saved" message to handle. replyRef is
+	// empty for multiple-choice answers where the user tapped a button
+	// instead of replying.
+	NotifyAnswered(ctx context.Context, handle, questionRef, replyRef string) error
+	// NotifyAnswerTimedOut edits the question message in place to show
+	// that the answer window has closed without an answer being
+	// recorded.
 	NotifyAnswerTimedOut(ctx context.Context, ref string) error
-	// DeleteMessage removes a message, used to clear the user's reply
-	// after it has been scored.
-	DeleteMessage(ctx context.Context, ref string) error
 }
 
 // SendFn dispatches one challenge to one participant via the messenger.
@@ -206,7 +206,11 @@ func (p *Pipeline) deliver(
 	}
 
 	answerCh := make(chan Answer, 1)
-	timeoutCtx, cancel := context.WithTimeout(ctx, p.answerWindow)
+	// Detach from the caller's ctx (often an HTTP request that
+	// finishes long before answer_window elapses) but keep its values
+	// so logging/tracing remain consistent. Drain still cancels via
+	// the stored cancel func when the session ends.
+	timeoutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), p.answerWindow)
 
 	p.mu.Lock()
 	p.pending[cid] = &pendingChallenge{info: issued, answerCh: answerCh, cancel: cancel}
@@ -234,13 +238,8 @@ func (p *Pipeline) awaitAnswer(ctx context.Context, cancel context.CancelFunc, c
 		if err := p.sink.RecordChallengeResult(ctx, cid, result, answer, latency); err != nil {
 			slog.Error("challenges: record result", "err", err)
 		}
-		if err := p.sink.NotifyAnswered(ctx, issued.MessageRef); err != nil {
-			slog.Warn("challenges: mark question answered", "err", err)
-		}
-		if answer.MessageRef != "" {
-			if err := p.sink.DeleteMessage(ctx, answer.MessageRef); err != nil {
-				slog.Warn("challenges: delete answer message", "err", err)
-			}
+		if err := p.sink.NotifyAnswered(ctx, issued.Handle, issued.MessageRef, answer.MessageRef); err != nil {
+			slog.Warn("challenges: acknowledge answer", "err", err)
 		}
 
 	case <-ctx.Done():

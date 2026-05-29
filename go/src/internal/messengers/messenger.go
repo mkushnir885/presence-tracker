@@ -129,5 +129,10 @@ type Messenger interface {
 	// per kind (see NotifyKind docs).
 	Notify(ctx context.Context, ref MessageRef, kind NotifyKind, args ...any) error
 
+	// SendNotification sends a fresh localized message to handle, keyed
+	// by kind. Used for receipt-style follow-ups (e.g. "answer saved")
+	// that should not overwrite a prior message.
+	SendNotification(ctx context.Context, handle string, kind NotifyKind, args ...any) error
+
 	DeleteMessage(ctx context.Context, ref MessageRef) error
 }

@@ -736,13 +736,21 @@ func (c *Coordinator) RecordChallengeSkipped(_ context.Context, _, _ string) err
 	return nil
 }
 
-func (c *Coordinator) DeleteMessage(ctx context.Context, ref string) error {
-	return c.messenger.DeleteMessage(ctx, messengers.MessageRef{Opaque: ref})
-}
-
-// NotifyAnswered edits the question message to confirm the answer was saved.
-func (c *Coordinator) NotifyAnswered(ctx context.Context, ref string) error {
-	return c.messenger.Notify(ctx, messengers.MessageRef{Opaque: ref}, messengers.NotifyChallengeAnswered)
+// NotifyAnswered deletes the question message (and the user's reply,
+// for text/numeric answers) and sends a fresh "answer saved" receipt
+// to handle. Delete errors are swallowed: the message may already be
+// gone (e.g. user cleared it) and the receipt is the part the user
+// actually needs to see.
+func (c *Coordinator) NotifyAnswered(ctx context.Context, handle, questionRef, replyRef string) error {
+	if err := c.messenger.DeleteMessage(ctx, messengers.MessageRef{Opaque: questionRef}); err != nil {
+		slog.Debug("session: delete question message", "err", err)
+	}
+	if replyRef != "" {
+		if err := c.messenger.DeleteMessage(ctx, messengers.MessageRef{Opaque: replyRef}); err != nil {
+			slog.Debug("session: delete answer message", "err", err)
+		}
+	}
+	return c.messenger.SendNotification(ctx, handle, messengers.NotifyChallengeAnswered)
 }
 
 // NotifyAnswerTimedOut edits the question message to mark the window expired.

@@ -1,14 +1,16 @@
 {
-  "messenger.telegram.start": "Welcome to Presence Tracker!\n\nTo receive attendance challenges, send /register and reply with the display name you use in the meeting.\n\nEach account may hold one registration at a time. Use /whoami to see your current registration, /unregister to release it, and /language to change the bot's language.",
+  "messenger.telegram.start": "Welcome to Presence Tracker!\n\nTo receive attendance challenges, send /register and reply to the bot's message with the display name you use in the meeting.\n\nEach account may hold one registration at a time. Use /whoami to see your current registration, /unregister to release it, and /language to change the bot's language.",
   "messenger.telegram.whoami.none_hint": "\n\nUse /register to register.",
   "messenger.telegram.whoami.current_hint": " Use /register to change it, or /unregister to release it.",
   "messenger.telegram.commands.register": "Register your display name",
   "messenger.telegram.commands.whoami": "Show your current registration",
   "messenger.telegram.commands.unregister": "Release your registration",
   "messenger.telegram.commands.language": "Choose the language for bot messages",
-  "messenger.telegram.register.prompt": "Reply with the display name you use in the meeting (e.g. John Smith).",
-  "messenger.telegram.register.placeholder": "Your display name",
+  "messenger.telegram.register.prompt": "Reply to this message with the display name you use in the meeting (e.g. John Smith).",
   "messenger.telegram.language.prompt": "Choose your language:",
   "messenger.telegram.language.confirm": "Language set to English.",
-  "messenger.telegram.language.unregistered": "Register first with /register; your language preference is saved alongside the registration."
+  "messenger.telegram.language.unregistered": "Register first with /register; your language preference is saved alongside the registration.",
+  "messenger.telegram.mcq.hint": "\n\nTap each option to toggle it, then Submit.",
+  "messenger.telegram.mcq.submit": "Submit",
+  "messenger.telegram.mcq.empty_alert": "Select at least one option, then tap Submit."
 }

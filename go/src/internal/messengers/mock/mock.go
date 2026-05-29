@@ -90,6 +90,10 @@ func (m *Messenger) Notify(_ context.Context, ref messengers.MessageRef, _ messe
 	return nil
 }
 
+func (m *Messenger) SendNotification(_ context.Context, _ string, _ messengers.NotifyKind, _ ...any) error {
+	return nil
+}
+
 func (m *Messenger) DeleteMessage(_ context.Context, ref messengers.MessageRef) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
