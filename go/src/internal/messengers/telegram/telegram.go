@@ -142,6 +142,20 @@ func (a *Adapter) locale(chatID int64, hint string) i18n.Locale {
 	return a.catalog.Locale("en")
 }
 
+// localeFor resolves a Locale from an explicit catalog language that the
+// caller already knows — the session coordinator passes each
+// participant's registered language into the send/notify methods it
+// drives. Unlike locale, it never touches the registry: those calls run
+// on the meeting hot path, where the language is known up front and a
+// per-message registry lookup would be redundant. An empty lang falls
+// back to English.
+func (a *Adapter) localeFor(lang string) i18n.Locale {
+	if lang == "" {
+		return a.catalog.Locale("en")
+	}
+	return a.catalog.Locale(lang)
+}
+
 func (a *Adapter) Name() string { return Name }
 
 // Start begins polling the Telegram API for updates. The returned channel is
@@ -632,13 +646,13 @@ func (a *Adapter) handleConfirmationCallback(cq *tgbotapi.CallbackQuery) {
 }
 
 // SendJoinConfirmation sends a "Did you just join?" DM with Yes/No buttons.
-func (a *Adapter) SendJoinConfirmation(_ context.Context, handle, meetingID, platform string) (messengers.MessageRef, error) {
+func (a *Adapter) SendJoinConfirmation(_ context.Context, handle, lang, meetingID, platform string) (messengers.MessageRef, error) {
 	chatID, err := strconv.ParseInt(handle, 10, 64)
 	if err != nil {
 		return messengers.MessageRef{}, fmt.Errorf("telegram: invalid handle %q: %w", handle, err)
 	}
 
-	locale := a.locale(chatID, "")
+	locale := a.localeFor(lang)
 	text := fmt.Sprintf(locale.T("messenger.join_confirm.prompt"), meetingID, platform)
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = "Markdown"
@@ -660,13 +674,13 @@ func (a *Adapter) SendJoinConfirmation(_ context.Context, handle, meetingID, pla
 }
 
 // SendChallenge sends a challenge prompt to a student.
-func (a *Adapter) SendChallenge(ctx context.Context, handle string, c messengers.ChallengePrompt) (messengers.MessageRef, error) {
+func (a *Adapter) SendChallenge(ctx context.Context, handle, lang string, c messengers.ChallengePrompt) (messengers.MessageRef, error) {
 	chatID, err := strconv.ParseInt(handle, 10, 64)
 	if err != nil {
 		return messengers.MessageRef{}, fmt.Errorf("telegram: invalid handle %q: %w", handle, err)
 	}
 
-	locale := a.locale(chatID, "")
+	locale := a.localeFor(lang)
 	isMCQ := c.QuestionType == string(challenges.MultipleChoice) && len(c.Choices) > 0
 	var msg tgbotapi.MessageConfig
 	if isMCQ {
@@ -744,11 +758,11 @@ var notifyKeys = map[messengers.NotifyKind]string{
 }
 
 // Notify edits a previously-sent message to the localized text for
-// kind. The recipient's locale is resolved from the chat associated
-// with ref; args are forwarded to fmt.Sprintf so kinds whose template
-// contains format verbs (e.g. NotifyJoinCollision's %q) render with
-// the caller-supplied values.
-func (a *Adapter) Notify(_ context.Context, ref messengers.MessageRef, kind messengers.NotifyKind, args ...any) error {
+// kind. The recipient's locale is taken from lang (supplied by the
+// coordinator); args are forwarded to fmt.Sprintf so kinds whose
+// template contains format verbs (e.g. NotifyJoinCollision's %q) render
+// with the caller-supplied values.
+func (a *Adapter) Notify(_ context.Context, ref messengers.MessageRef, lang string, kind messengers.NotifyKind, args ...any) error {
 	var r telegramRef
 	if err := json.Unmarshal([]byte(ref.Opaque), &r); err != nil {
 		return fmt.Errorf("telegram: decode ref: %w", err)
@@ -758,7 +772,7 @@ func (a *Adapter) Notify(_ context.Context, ref messengers.MessageRef, kind mess
 		return fmt.Errorf("telegram: unknown notify kind %d", kind)
 	}
 	a.discardMCQState(r.ChatID, r.MessageID)
-	locale := a.locale(r.ChatID, "")
+	locale := a.localeFor(lang)
 	text := locale.T(key)
 	if len(args) > 0 {
 		text = fmt.Sprintf(text, args...)
@@ -773,7 +787,7 @@ func (a *Adapter) Notify(_ context.Context, ref messengers.MessageRef, kind mess
 // SendNotification sends a fresh localized message keyed by kind. Used
 // for receipt-style follow-ups (e.g. "answer saved") whose lifetime is
 // independent of the message being acknowledged.
-func (a *Adapter) SendNotification(_ context.Context, handle string, kind messengers.NotifyKind, args ...any) error {
+func (a *Adapter) SendNotification(_ context.Context, handle, lang string, kind messengers.NotifyKind, args ...any) error {
 	chatID, err := strconv.ParseInt(handle, 10, 64)
 	if err != nil {
 		return fmt.Errorf("telegram: invalid handle %q: %w", handle, err)
@@ -782,7 +796,7 @@ func (a *Adapter) SendNotification(_ context.Context, handle string, kind messen
 	if !ok {
 		return fmt.Errorf("telegram: unknown notify kind %d", kind)
 	}
-	locale := a.locale(chatID, "")
+	locale := a.localeFor(lang)
 	text := locale.T(key)
 	if len(args) > 0 {
 		text = fmt.Sprintf(text, args...)

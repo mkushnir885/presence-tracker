@@ -120,19 +120,28 @@ type Messenger interface {
 	// SendJoinConfirmation sends a "Did you just join [meeting] on [platform]?"
 	// DM with Yes/No inline buttons. The student's response arrives as a
 	// EventKindJoinConfirmation event on the Start channel.
-	SendJoinConfirmation(ctx context.Context, handle, meetingID, platform string) (MessageRef, error)
+	//
+	// lang is the recipient's catalog language, supplied by the caller
+	// (the session coordinator, which already knows each participant's
+	// registered language). An empty lang falls back to the adapter's
+	// default. The adapter does not re-query the registry for it.
+	SendJoinConfirmation(ctx context.Context, handle, lang, meetingID, platform string) (MessageRef, error)
 
-	SendChallenge(ctx context.Context, handle string, c ChallengePrompt) (MessageRef, error)
+	// SendChallenge delivers a challenge prompt. lang carries the
+	// recipient's language exactly as in SendJoinConfirmation.
+	SendChallenge(ctx context.Context, handle, lang string, c ChallengePrompt) (MessageRef, error)
 
 	// Notify edits a previously-sent message to a localized result text
 	// keyed by kind. Inline keyboards are cleared. args are interpreted
-	// per kind (see NotifyKind docs).
-	Notify(ctx context.Context, ref MessageRef, kind NotifyKind, args ...any) error
+	// per kind (see NotifyKind docs). lang carries the recipient's
+	// language exactly as in SendJoinConfirmation.
+	Notify(ctx context.Context, ref MessageRef, lang string, kind NotifyKind, args ...any) error
 
 	// SendNotification sends a fresh localized message to handle, keyed
 	// by kind. Used for receipt-style follow-ups (e.g. "answer saved")
-	// that should not overwrite a prior message.
-	SendNotification(ctx context.Context, handle string, kind NotifyKind, args ...any) error
+	// that should not overwrite a prior message. lang carries the
+	// recipient's language exactly as in SendJoinConfirmation.
+	SendNotification(ctx context.Context, handle, lang string, kind NotifyKind, args ...any) error
 
 	DeleteMessage(ctx context.Context, ref MessageRef) error
 }

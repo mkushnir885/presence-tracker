@@ -188,16 +188,30 @@ type Messenger interface {
 
     // SendJoinConfirmation sends a "Did you just join [meeting] on [platform]?"
     // DM with Yes/No inline buttons. The response arrives as a JoinConfirmationEvent.
-    SendJoinConfirmation(ctx context.Context, handle Handle, meetingID, platform string) (MessageRef, error)
+    SendJoinConfirmation(ctx context.Context, handle Handle, lang, meetingID, platform string) (MessageRef, error)
 
-    SendChallenge(ctx context.Context, handle Handle, c ChallengePrompt) (MessageRef, error)
+    SendChallenge(ctx context.Context, handle Handle, lang string, c ChallengePrompt) (MessageRef, error)
     EditMessage(ctx context.Context, ref MessageRef, newText string) error
     DeleteMessage(ctx context.Context, ref MessageRef) error
 }
 ```
 
 `Handle` is the messenger-specific persistent ID (for Telegram, the
-`chat_id`). Three event kinds flow out of the channel:
+`chat_id`).
+
+**Recipient language is supplied by the caller, not re-resolved by the
+adapter.** Every adapter method the session coordinator drives
+(`SendJoinConfirmation`, `SendChallenge`, the result `Notify`/
+`SendNotification` follow-ups) takes the recipient's catalog `lang`. The
+coordinator already holds each participant's registered language — it
+resolved the registry entry to find where to send — so it passes that
+language down rather than making the adapter hit the registry once per
+delivered message. The adapter only consults the registry for its own
+*incoming* command and callback replies (`/start`, `/register`,
+`/whoami`, `/language`, MCQ-keyboard taps), where no caller-supplied
+language exists. An empty `lang` falls back to English.
+
+Three event kinds flow out of the channel:
 
 - `RegistrationEvent` — a student sent `/register <name>`. The
   messenger adapter validates the command syntax and calls

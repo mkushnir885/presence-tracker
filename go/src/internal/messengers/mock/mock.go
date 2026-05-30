@@ -57,7 +57,7 @@ func (m *Messenger) Stop(_ context.Context) error {
 	return nil
 }
 
-func (m *Messenger) SendJoinConfirmation(_ context.Context, handle, meetingID, platform string) (messengers.MessageRef, error) {
+func (m *Messenger) SendJoinConfirmation(_ context.Context, handle, _, meetingID, platform string) (messengers.MessageRef, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.refIdx++
@@ -71,7 +71,7 @@ func (m *Messenger) SendJoinConfirmation(_ context.Context, handle, meetingID, p
 	return ref, nil
 }
 
-func (m *Messenger) SendChallenge(_ context.Context, handle string, c messengers.ChallengePrompt) (messengers.MessageRef, error) {
+func (m *Messenger) SendChallenge(_ context.Context, handle, _ string, c messengers.ChallengePrompt) (messengers.MessageRef, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.refIdx++
@@ -85,12 +85,12 @@ func (m *Messenger) SendChallenge(_ context.Context, handle string, c messengers
 	return ref, nil
 }
 
-func (m *Messenger) Notify(_ context.Context, ref messengers.MessageRef, _ messengers.NotifyKind, _ ...any) error {
+func (m *Messenger) Notify(_ context.Context, ref messengers.MessageRef, _ string, _ messengers.NotifyKind, _ ...any) error {
 	_ = ref
 	return nil
 }
 
-func (m *Messenger) SendNotification(_ context.Context, _ string, _ messengers.NotifyKind, _ ...any) error {
+func (m *Messenger) SendNotification(_ context.Context, _, _ string, _ messengers.NotifyKind, _ ...any) error {
 	return nil
 }
 

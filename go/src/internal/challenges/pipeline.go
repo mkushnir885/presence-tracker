@@ -19,6 +19,9 @@ import (
 type EligibleParticipant struct {
 	DisplayName string
 	Handle      string
+	// Language is the participant's registered catalog language, carried
+	// through to the messenger so it need not re-query the registry.
+	Language string
 }
 
 // IssuedChallenge records one delivered challenge.
@@ -28,6 +31,7 @@ type IssuedChallenge struct {
 	AutoSubmitted bool
 	Question      Question
 	Handle        string
+	Language      string // recipient's catalog language, for follow-up notifications
 	MessageRef    string
 	IssuedAt      time.Time
 }
@@ -53,18 +57,19 @@ type EventSink interface {
 
 	// NotifyAnswered acknowledges a received answer. It deletes the
 	// question message and, for text/numeric answers, the user's reply,
-	// then sends a fresh "answer saved" message to handle. replyRef is
-	// empty for multiple-choice answers where the user tapped a button
-	// instead of replying.
-	NotifyAnswered(ctx context.Context, handle, questionRef, replyRef string) error
+	// then sends a fresh "answer saved" message to handle. lang is the
+	// recipient's catalog language. replyRef is empty for multiple-choice
+	// answers where the user tapped a button instead of replying.
+	NotifyAnswered(ctx context.Context, handle, lang, questionRef, replyRef string) error
 	// NotifyAnswerTimedOut edits the question message in place to show
 	// that the answer window has closed without an answer being
-	// recorded.
-	NotifyAnswerTimedOut(ctx context.Context, ref string) error
+	// recorded. lang is the recipient's catalog language.
+	NotifyAnswerTimedOut(ctx context.Context, lang, ref string) error
 }
 
 // SendFn dispatches one challenge to one participant via the messenger.
-type SendFn func(ctx context.Context, handle, challengeID string, q Question) (ref string, err error)
+// lang is the recipient's catalog language.
+type SendFn func(ctx context.Context, handle, lang, challengeID string, q Question) (ref string, err error)
 
 // PollResult summarizes a freshly scheduled poll round.
 type PollResult struct {
@@ -196,7 +201,7 @@ func (p *Pipeline) deliver(
 	issuedAt time.Time,
 	send SendFn,
 ) bool {
-	ref, err := send(ctx, ep.Handle, cid, q)
+	ref, err := send(ctx, ep.Handle, ep.Language, cid, q)
 	if err != nil {
 		slog.Warn("challenges: delivery failed", "participant", ep.DisplayName, "err", err)
 		_ = p.sink.RecordChallengeSkipped(ctx, SkippedChallenge{
@@ -215,6 +220,7 @@ func (p *Pipeline) deliver(
 		AutoSubmitted: autoSubmitted,
 		Question:      q,
 		Handle:        ep.Handle,
+		Language:      ep.Language,
 		MessageRef:    ref,
 		IssuedAt:      issuedAt,
 	}
@@ -255,7 +261,7 @@ func (p *Pipeline) awaitAnswer(ctx context.Context, cancel context.CancelFunc, c
 		if err := p.sink.RecordChallengeResult(ctx, cid, result, answer, latency); err != nil {
 			slog.Error("challenges: record result", "err", err)
 		}
-		if err := p.sink.NotifyAnswered(ctx, issued.Handle, issued.MessageRef, answer.MessageRef); err != nil {
+		if err := p.sink.NotifyAnswered(ctx, issued.Handle, issued.Language, issued.MessageRef, answer.MessageRef); err != nil {
 			slog.Warn("challenges: acknowledge answer", "err", err)
 		}
 
@@ -264,7 +270,7 @@ func (p *Pipeline) awaitAnswer(ctx context.Context, cancel context.CancelFunc, c
 		if err := p.sink.RecordChallengeUnanswered(bg, cid); err != nil { //nolint:contextcheck
 			slog.Error("challenges: record unanswered", "err", err)
 		}
-		if err := p.sink.NotifyAnswerTimedOut(bg, issued.MessageRef); err != nil { //nolint:contextcheck
+		if err := p.sink.NotifyAnswerTimedOut(bg, issued.Language, issued.MessageRef); err != nil { //nolint:contextcheck
 			slog.Warn("challenges: mark question timed out", "err", err)
 		}
 	}

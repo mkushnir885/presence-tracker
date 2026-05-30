@@ -45,6 +45,7 @@ type bufferedJoin struct {
 type nameState struct {
 	canonicalName      string                // as stored in the registry, written verbatim to Parquet
 	handle             string                // for sending and editing the verification DM
+	language           string                // registered catalog language, passed to the messenger so it need not re-query the registry
 	platformIDs        map[string]struct{}   // every current claimant (verified, pending, or ignored)
 	pending            *bufferedJoin         // buffered join awaiting verification, if any
 	confirmRef         messengers.MessageRef // ref to the verification DM, for edit on collision
@@ -296,6 +297,7 @@ func (c *Coordinator) onJoin(ctx context.Context, evt providers.Event) {
 		state = &nameState{
 			canonicalName: entry.DisplayName,
 			handle:        handle,
+			language:      entry.Language,
 			platformIDs:   make(map[string]struct{}),
 		}
 		c.names[key] = state
@@ -329,7 +331,7 @@ func (c *Coordinator) onJoin(ctx context.Context, evt providers.Event) {
 		delete(c.pendingHandle, oldHandle)
 		c.mu.Unlock()
 
-		_ = c.messenger.Notify(ctx, oldRef, messengers.NotifyJoinCollision, entry.DisplayName)
+		_ = c.messenger.Notify(ctx, oldRef, entry.Language, messengers.NotifyJoinCollision, entry.DisplayName)
 		slog.Info("session: collision tainted name", "name", entry.DisplayName)
 		return
 	}
@@ -343,7 +345,7 @@ func (c *Coordinator) onJoin(ctx context.Context, evt providers.Event) {
 	c.pendingHandle[handle] = key
 	c.mu.Unlock()
 
-	ref, err := c.messenger.SendJoinConfirmation(ctx, handle, c.cfg.PlatformMeetingID, c.provider.Name())
+	ref, err := c.messenger.SendJoinConfirmation(ctx, handle, entry.Language, c.cfg.PlatformMeetingID, c.provider.Name())
 	if err != nil {
 		slog.Warn("session: send join confirmation", "err", err)
 		c.mu.Lock()
@@ -401,6 +403,7 @@ func (c *Coordinator) expireJoinConfirmation(ctx context.Context, key string, ex
 	}
 	ref := state.confirmRef
 	handle := state.handle
+	lang := state.language
 	state.pending = nil
 	state.confirmRef = messengers.MessageRef{}
 	state.confirmTimer = nil
@@ -411,7 +414,7 @@ func (c *Coordinator) expireJoinConfirmation(ctx context.Context, key string, ex
 	c.mu.Unlock()
 
 	if ref.Opaque != "" {
-		_ = c.messenger.Notify(ctx, ref, messengers.NotifyJoinTimedOut)
+		_ = c.messenger.Notify(ctx, ref, lang, messengers.NotifyJoinTimedOut)
 	}
 	slog.Info("session: verification timed out", "name", state.canonicalName)
 }
@@ -448,12 +451,14 @@ func (c *Coordinator) onLeave(ctx context.Context, evt providers.Event) {
 	var (
 		droppedPending    bool
 		droppedConfirmRef messengers.MessageRef
+		droppedLang       string
 		verifiedLeft      bool
 		leftDisplayName   string
 	)
 	if state.pending != nil && state.pending.platformID == evt.PlatformID {
 		droppedPending = true
 		droppedConfirmRef = state.confirmRef
+		droppedLang = state.language
 		c.cancelConfirmTimerLocked(state)
 		delete(c.pendingHandle, state.handle)
 		state.pending = nil
@@ -471,7 +476,7 @@ func (c *Coordinator) onLeave(ctx context.Context, evt providers.Event) {
 	c.mu.Unlock()
 
 	if droppedPending && droppedConfirmRef.Opaque != "" {
-		_ = c.messenger.Notify(ctx, droppedConfirmRef, messengers.NotifyJoinDropped)
+		_ = c.messenger.Notify(ctx, droppedConfirmRef, droppedLang, messengers.NotifyJoinDropped)
 	}
 	if verifiedLeft && !meetingEnded {
 		c.writeEvent(eventstore.Record{
@@ -648,7 +653,7 @@ func (c *Coordinator) runPollBank(ctx context.Context, bank challenges.Bank, aut
 		})
 	}
 
-	sendFn := func(ctx context.Context, handle, challengeID string, q challenges.Question) (string, error) {
+	sendFn := func(ctx context.Context, handle, lang, challengeID string, q challenges.Question) (string, error) {
 		mp := messengers.ChallengePrompt{
 			ChallengeID:  challengeID,
 			QuestionID:   q.QuestionID,
@@ -656,7 +661,7 @@ func (c *Coordinator) runPollBank(ctx context.Context, bank challenges.Bank, aut
 			QuestionType: string(q.QuestionType),
 			Choices:      q.Choices,
 		}
-		ref, err := c.messenger.SendChallenge(ctx, handle, mp)
+		ref, err := c.messenger.SendChallenge(ctx, handle, lang, mp)
 		if err != nil {
 			return "", err
 		}
@@ -728,6 +733,7 @@ func (c *Coordinator) eligibleParticipants() ([]challenges.EligibleParticipant, 
 		eligible = append(eligible, challenges.EligibleParticipant{
 			DisplayName: state.canonicalName,
 			Handle:      state.handle,
+			Language:    state.language,
 		})
 	}
 	return eligible, skipped
@@ -829,7 +835,7 @@ func (c *Coordinator) RecordChallengeSkipped(_ context.Context, sk challenges.Sk
 // to handle. Delete errors are swallowed: the message may already be
 // gone (e.g. user cleared it) and the receipt is the part the user
 // actually needs to see.
-func (c *Coordinator) NotifyAnswered(ctx context.Context, handle, questionRef, replyRef string) error {
+func (c *Coordinator) NotifyAnswered(ctx context.Context, handle, lang, questionRef, replyRef string) error {
 	if err := c.messenger.DeleteMessage(ctx, messengers.MessageRef{Opaque: questionRef}); err != nil {
 		slog.Debug("session: delete question message", "err", err)
 	}
@@ -838,12 +844,12 @@ func (c *Coordinator) NotifyAnswered(ctx context.Context, handle, questionRef, r
 			slog.Debug("session: delete answer message", "err", err)
 		}
 	}
-	return c.messenger.SendNotification(ctx, handle, messengers.NotifyChallengeAnswered)
+	return c.messenger.SendNotification(ctx, handle, lang, messengers.NotifyChallengeAnswered)
 }
 
 // NotifyAnswerTimedOut edits the question message to mark the window expired.
-func (c *Coordinator) NotifyAnswerTimedOut(ctx context.Context, ref string) error {
-	return c.messenger.Notify(ctx, messengers.MessageRef{Opaque: ref}, messengers.NotifyChallengeTimedOut)
+func (c *Coordinator) NotifyAnswerTimedOut(ctx context.Context, lang, ref string) error {
+	return c.messenger.Notify(ctx, messengers.MessageRef{Opaque: ref}, lang, messengers.NotifyChallengeTimedOut)
 }
 
 // normName matches participants.normName: case-sensitive, trims surrounding
