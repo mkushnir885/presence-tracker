@@ -78,7 +78,7 @@ func TestReviewDirSweep(t *testing.T) {
 	}
 	// Drop a teacher-prepared file in the same dir; Sweep must not touch it.
 	teacher := filepath.Join(dir, "lesson1.yaml")
-	if err := os.WriteFile(teacher, []byte("version: 1\nquestions:\n  - prompt: q\n    type: numeric\n    answer: 1\n"), 0o600); err != nil {
+	if err := os.WriteFile(teacher, []byte("questions:\n  - prompt: q\n    type: numeric\n    answer: 1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := rd.Sweep(); err != nil {

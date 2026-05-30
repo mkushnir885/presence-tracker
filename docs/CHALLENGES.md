@@ -157,7 +157,6 @@ the filename is the identifier and question IDs are assigned at issue
 time.
 
 ```yaml
-version: 1
 questions:
   - prompt: "Which of the following is a prime number?"
     type: multiple_choice

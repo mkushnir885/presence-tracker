@@ -27,8 +27,7 @@ Output a YAML document only. No prose, no Markdown fences, no commentary.
 
 Schema (by example):
 
-` + "```yaml\n" + `version: 1
-questions:
+` + "```yaml\n" + `questions:
   - prompt: "Which of the following is a prime number?"
     type: multiple_choice
     choices: ["21", "23", "27", "51"]
@@ -51,7 +50,6 @@ questions:
 // extra_rules are appended after them so a teacher can steer style or
 // topic focus but cannot break the format.
 var baseRules = []string{
-	`"version" is always 1.`,
 	`"type" is one of "multiple_choice", "numeric", "short_text".`,
 	`multiple_choice: "choices" is a 2..6 element list of distinct short strings; "answer" is a list of one or more entries, each present verbatim in "choices".`,
 	`numeric: "answer" is a plain number (integer or decimal). Optional "tolerance" defaults to 0.`,

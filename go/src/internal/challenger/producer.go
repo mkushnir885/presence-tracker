@@ -106,7 +106,7 @@ func salvagePerQuestion(raw string) (challenges.Bank, bool) {
 
 	out := challenges.Bank{Questions: make([]challenges.Question, 0, len(qsRaw))}
 	for _, q := range qsRaw {
-		single := map[string]any{"version": 1, "questions": []any{q}}
+		single := map[string]any{"questions": []any{q}}
 		body, err := json.Marshal(single)
 		if err != nil {
 			continue

@@ -178,10 +178,9 @@ func marshalBank(bank challenges.Bank) ([]byte, error) {
 		Answer    any      `yaml:"answer"`
 	}
 	type rawBank struct {
-		Version   int           `yaml:"version"`
 		Questions []rawQuestion `yaml:"questions"`
 	}
-	rb := rawBank{Version: 1, Questions: make([]rawQuestion, 0, len(bank.Questions))}
+	rb := rawBank{Questions: make([]rawQuestion, 0, len(bank.Questions))}
 	for _, q := range bank.Questions {
 		rq := rawQuestion{
 			Prompt: q.Prompt,

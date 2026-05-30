@@ -52,15 +52,13 @@ func BankSchema() *jsonschema.Schema {
 		[]string{"prompt", "type", "answer"},
 	)
 
-	v := any(1)
 	return &jsonschema.Schema{
 		Schema:      "https://json-schema.org/draft/2020-12/schema",
 		Title:       "Presence Tracker question bank",
 		Description: "Generated from go/src/internal/challenges — do not edit by hand.",
 		Type:        "object",
-		Required:    []string{"version", "questions"},
+		Required:    []string{"questions"},
 		Properties: map[string]*jsonschema.Schema{
-			"version": {Type: "integer", Const: &v},
 			"questions": {
 				Type:     "array",
 				MinItems: new(1),

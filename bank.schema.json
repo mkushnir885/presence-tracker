@@ -105,17 +105,12 @@
         ]
       },
       "minItems": 1
-    },
-    "version": {
-      "type": "integer",
-      "const": 1
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Presence Tracker question bank",
   "description": "Generated from go/src/internal/challenges — do not edit by hand.",
   "required": [
-    "version",
     "questions"
   ],
   "additionalProperties": false

@@ -56,7 +56,6 @@ const (
 )
 
 type rawBank struct {
-	Version   int           `json:"version"`
 	Questions []rawQuestion `json:"questions"`
 }
 

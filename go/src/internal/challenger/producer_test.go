@@ -5,8 +5,7 @@ import (
 	"testing"
 )
 
-const validYAML = `version: 1
-questions:
+const validYAML = `questions:
   - prompt: "What is 2+2?"
     type: numeric
     answer: 4
@@ -17,7 +16,6 @@ questions:
 `
 
 const validJSON = `{
-  "version": 1,
   "questions": [
     {"prompt": "What is 2+2?", "type": "numeric", "answer": 4}
   ]
@@ -56,8 +54,7 @@ func TestParseLLMBankFenced(t *testing.T) {
 
 func TestParseLLMBankSalvage(t *testing.T) {
 	// First question is malformed (missing answer); second is valid.
-	mixed := `version: 1
-questions:
+	mixed := `questions:
   - prompt: "Broken"
     type: numeric
   - prompt: "Good"
