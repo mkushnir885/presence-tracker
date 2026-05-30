@@ -8,15 +8,7 @@ from ptrack_analytics.frames import challenge_results as _challenge_frame
 
 
 def generate_csv(events: pl.LazyFrame) -> str:
-    """
-    Generate a single-meeting CSV report.
-
-    Expects *events* to contain data for exactly one meeting. For multiple
-    meetings use generate_aggregate_csv instead.
-
-    Output columns: name, presence_ratio, challenges_correct,
-    challenges_issued. Sorted case-insensitively by name.
-    """
+    """Single-meeting CSV: name, presence_ratio, challenges_correct/issued."""
     meeting_times = _meeting_times(events)
 
     pres = (
@@ -35,7 +27,7 @@ def generate_csv(events: pl.LazyFrame) -> str:
 
     chal = _challenge_stats(events, group_by=["display_name"])
 
-    df: pl.DataFrame = (  # type: ignore  # ty limitation: collect() return includes InProcessQuery
+    df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
         pres.join(chal, on="display_name", how="left")
         .with_columns(
             _presence_ratio(),
@@ -55,26 +47,18 @@ def generate_csv(events: pl.LazyFrame) -> str:
 
 
 def generate_aggregate_csv(events: pl.LazyFrame) -> str:
-    """
-    Generate a cross-meeting CSV report.
-
-    Output columns: name, meeting, presence_ratio, challenges_correct,
-    challenges_issued. 'meeting' is ISO-8601 UTC of the meeting start time.
-    Sorted by name (case-insensitive) then meeting (chronological).
-    """
+    """Cross-meeting CSV: adds a 'meeting' column (ISO-8601 UTC start)."""
     meeting_times = _meeting_times(events)
 
     pres = _presence_seconds(events, meeting_times).join(
-        meeting_times.select(
-            ["meeting_id", "started_at", "duration_seconds"]
-        ),
+        meeting_times.select(["meeting_id", "started_at", "duration_seconds"]),
         on="meeting_id",
         how="left",
     )
 
     chal = _challenge_stats(events, group_by=["display_name", "meeting_id"])
 
-    df: pl.DataFrame = (  # type: ignore  # ty limitation: collect() return includes InProcessQuery
+    df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
         pres.join(chal, on=["display_name", "meeting_id"], how="left")
         .with_columns(
             _presence_ratio(),
@@ -95,20 +79,9 @@ def generate_aggregate_csv(events: pl.LazyFrame) -> str:
     return df.write_csv()
 
 
-# ── helpers ──────────────────────────────────────────────────────────────────
-
-
 def _meeting_times(events: pl.LazyFrame) -> pl.LazyFrame:
-    """
-    Per-meeting start time (absolute Datetime) and duration.
-
-    Columns: meeting_id, started_at (Datetime UTC), duration_ms (Int64),
-             duration_seconds (Float64, floored at 1 s).
-
-    The session_started event stores an absolute Unix ms timestamp; all other
-    events store ms offsets, so duration_ms is taken from session_ended when
-    available, otherwise the max offset across non-started rows.
-    """
+    # duration_ms comes from session_ended when present, else the max
+    # offset across non-started rows (those store ms offsets from start).
     start = (
         events.filter(pl.col("event_type") == "session_started")
         .group_by("meeting_id")
@@ -143,17 +116,14 @@ def _meeting_times(events: pl.LazyFrame) -> pl.LazyFrame:
 def _presence_seconds(
     events: pl.LazyFrame, meeting_times: pl.LazyFrame
 ) -> pl.LazyFrame:
-    """
-    Per-(display_name, meeting_id) total presence time in seconds.
-
-    Joins and leaves are paired positionally per (display_name, meeting_id):
-    the n-th join matches the n-th leave so a rejoin becomes its own band.
-    A surplus join (no matching leave) or a leave beyond meeting duration
-    closes at duration_ms. Matches stats.py's segment math so CSV
-    presence_ratio agrees with the GUI.
-    """
+    # n-th join pairs with n-th leave (a rejoin is its own band); a surplus
+    # join or an over-long leave closes at duration_ms. Must match stats.py's
+    # segment math so CSV presence_ratio agrees with the GUI.
     durations = meeting_times.select(["meeting_id", "duration_ms"])
 
+    # Number joins and leaves within each (name, meeting) by sort order
+    # (int_range over the group), then join on that index so the n-th join
+    # lines up with the n-th leave.
     joined = (
         events.filter(pl.col("event_type") == "participant_joined")
         .select(

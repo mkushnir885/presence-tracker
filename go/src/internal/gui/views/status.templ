@@ -6,6 +6,9 @@ import (
 	"strconv"
 )
 
+// Status renders the live-view shell. live_status.js opens the SSE stream and
+// swaps the regions tagged data-sse="<name>" (started, roster, log, pending)
+// in place as the session state changes.
 templ Status(data StatusData, locale Locale) {
 	@Layout("Live Status", locale, nil) {
 		<div class="live-status-page">
@@ -41,12 +44,6 @@ templ Status(data StatusData, locale Locale) {
 	}
 }
 
-// StatusBodyInner is the inside of #status-body. It is rendered into
-// the page on initial load and re-emitted by the SSE stream's `body`
-// event when the meeting transitions between the waiting and live
-// phases. Sub-region updates (rosters, log, pending bank) flow as
-// finer-grained SSE events targeting the stable wrappers below, so
-// the audio and poll cards survive across updates.
 templ StatusBodyInner(data StatusData, locale Locale) {
 	if data.MeetingStartedAt.IsZero() {
 		@waitingForMeetingCard(locale)
@@ -71,16 +68,11 @@ templ StatusBodyInner(data StatusData, locale Locale) {
 	</div>
 }
 
-// StatusRosters renders the two roster cards. Exported so the SSE
-// handler can re-render them on change without rebuilding the whole
-// body.
 templ StatusRosters(data StatusData, locale Locale) {
 	@rosterCard("untracked", locale.T("status.untracked"), unregisteredNames(data.Unregistered), locale)
 	@rosterCard("tracked", locale.T("status.tracked"), presenceNames(data.Present), locale)
 }
 
-// StatusLog renders the system-log entries, newest first. Exported so
-// the SSE handler can refresh just the log when new lines arrive.
 templ StatusLog(data StatusData, locale Locale) {
 	if len(data.LogEntries) == 0 {
 		<div class="text-muted">{ locale.T("status.log.empty") }</div>
@@ -98,11 +90,6 @@ templ StatusLog(data StatusData, locale Locale) {
 	}
 }
 
-// waitingForMeetingCard is shown after tracking attached but before
-// the provider reported the meeting starting. The roster and
-// challenge controls are hidden — there's nothing to act on yet —
-// but the system log stays visible below so the teacher can watch
-// connection diagnostics.
 templ waitingForMeetingCard(locale Locale) {
 	<div class="status-waiting">
 		<div class="card status-waiting-card">
@@ -113,15 +100,6 @@ templ waitingForMeetingCard(locale Locale) {
 	</div>
 }
 
-// StatusStartedRow renders the inside of the "started at" line in the
-// page header. Exported so the SSE stream can re-render it when the
-// provider reports the meeting starting (the line text flips from
-// "Tracking started" to "Meeting started"). Three cases:
-//   1. No session_started observed yet — show tracking attach time.
-//   2. Tracking attached while the meeting was already in progress —
-//      show tracking attach time plus a small hint.
-//   3. Tracking caught the meeting start — show the meeting's true
-//      start timestamp.
 templ StatusStartedRow(data StatusData, locale Locale) {
 	if data.MeetingStartedAt.IsZero() || data.MeetingInProgress {
 		<span class="status-started">{ fmt.Sprintf(locale.T("status.tracking_started_at"), data.StartedAt.Format("15:04:05")) }.</span>
@@ -133,10 +111,8 @@ templ StatusStartedRow(data StatusData, locale Locale) {
 	}
 }
 
-// audioControl renders the microphone toggle and device picker. The
-// mic button is the primary mute/unmute control; the adjacent chevron
-// button opens the input-device menu, mirroring Google Meet's audio
-// control layout.
+// hx-preserve keeps this card across body swaps so the live MediaStream and
+// recorder set up by audio.js survive the waiting→live transition.
 templ audioControl(locale Locale) {
 	<div id="audio-card" class="card audio-card" hx-preserve="true">
 		<div class="audio-row">
@@ -170,9 +146,6 @@ templ audioControl(locale Locale) {
 	</div>
 }
 
-// autoGenDisabledCard replaces the audio card when auto-generation is
-// off, so the left column still tells the teacher where to switch it
-// on instead of disappearing entirely.
 templ autoGenDisabledCard(locale Locale) {
 	<div class="card autogen-disabled-card">
 		<div>{ locale.T("status.poll.auto_disabled") }</div>
@@ -180,9 +153,6 @@ templ autoGenDisabledCard(locale Locale) {
 	</div>
 }
 
-// GenerateNowButton is the inner fragment polled by hx-get so the
-// button's disabled state and tooltip reflect the latest pending bank
-// without a full page reload.
 templ GenerateNowButton(pending *PendingBank, locale Locale) {
 	if pending == nil {
 		<button type="button" class="btn btn-primary poll-generate-btn" disabled data-tooltip={ locale.T("status.poll.auto_empty") }>
@@ -202,12 +172,6 @@ templ GenerateNowButton(pending *PendingBank, locale Locale) {
 	}
 }
 
-// pollCard renders the manual "Trigger poll" card: a file upload
-// control, the Start-a-poll submit button and — when auto-generation
-// is enabled — a second "or / Generate now" path that dispatches the
-// most recent auto-generated bank. The chosen file stays in the
-// browser until the teacher clicks Start; the live_status JS then
-// POSTs it as multipart/form-data to /poll/file.
 templ pollCard(data StatusData, locale Locale) {
 	<div id="poll-card" class="card poll-card" hx-preserve="true">
 		<div class="card-title">{ locale.T("status.poll.menu") }</div>
@@ -234,10 +198,6 @@ templ pollCard(data StatusData, locale Locale) {
 	</div>
 }
 
-// rosterCard renders one participant column (tracked / untracked) with
-// a client-side filter input. Filtering is case-insensitive on a
-// substring of the display name and runs entirely in the browser so
-// the 5 s page refresh does not race with server-side state.
 templ rosterCard(kind, title string, names []string, locale Locale) {
 	<div class={ "roster-card roster-" + kind } data-roster={ kind }>
 		<div class="roster-header">
@@ -267,7 +227,6 @@ templ rosterCard(kind, title string, names []string, locale Locale) {
 	</div>
 }
 
-// presenceNames extracts the display names of every tracked participant.
 func presenceNames(items []session.PresenceStatus) []string {
 	out := make([]string, 0, len(items))
 	for _, it := range items {
@@ -276,8 +235,6 @@ func presenceNames(items []session.PresenceStatus) []string {
 	return out
 }
 
-// unregisteredNames extracts the display names of every untracked
-// participant.
 func unregisteredNames(items []session.UnregisteredStatus) []string {
 	out := make([]string, 0, len(items))
 	for _, it := range items {

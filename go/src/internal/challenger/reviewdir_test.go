@@ -36,8 +36,7 @@ func TestReviewDirWriteCreatesDir(t *testing.T) {
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("file not present: %v", err)
 	}
-	// Round-trips: written YAML must re-parse through challenges.Load.
-	bank, err := rd.Read(path)
+	bank, err := challenges.Load(path)
 	if err != nil {
 		t.Fatalf("read back: %v", err)
 	}
@@ -52,7 +51,6 @@ func TestReviewDirNewestWins(t *testing.T) {
 	if _, err := rd.Write(sampleBank()); err != nil {
 		t.Fatal(err)
 	}
-	// Ensure distinct mtime + filename second.
 	time.Sleep(1100 * time.Millisecond)
 	second, err := rd.Write(sampleBank())
 	if err != nil {
@@ -76,7 +74,6 @@ func TestReviewDirSweep(t *testing.T) {
 	if _, err := rd.Write(sampleBank()); err != nil {
 		t.Fatal(err)
 	}
-	// Drop a teacher-prepared file in the same dir; Sweep must not touch it.
 	teacher := filepath.Join(dir, "lesson1.yaml")
 	if err := os.WriteFile(teacher, []byte("questions:\n  - prompt: q\n    type: numeric\n    answer: 1\n"), 0o600); err != nil {
 		t.Fatal(err)

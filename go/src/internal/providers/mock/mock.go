@@ -12,36 +12,34 @@ import (
 	"presence-tracker/src/internal/providers"
 )
 
-// fixtureEvent is one line of a fixture JSONL file.
 type fixtureEvent struct {
 	Kind              string            `json:"kind"`
 	PlatformID        string            `json:"platform_id"`
 	DisplayName       string            `json:"display_name"`
-	OffsetMS          int64             `json:"offset_ms"` // time offset from meeting start
+	OffsetMS          int64             `json:"offset_ms"`
 	Extra             map[string]string `json:"extra"`
-	MeetingInProgress bool              `json:"meeting_in_progress"` // optional; only meaningful on meeting_started
+	MeetingInProgress bool              `json:"meeting_in_progress"`
 }
 
-// Provider replays events from a fixture directory at real-time speed.
-// The fixture directory must contain an events.jsonl file.
 type Provider struct {
 	fixturePath string
 	meetingID   string
-	speed       float64 // replay speed multiplier; 0 = instant
+	speed       float64
 }
 
-// New creates a mock Provider. fixturePath is the directory containing events.jsonl.
 func New(fixturePath string) *Provider {
 	return &Provider{fixturePath: fixturePath, speed: 1.0}
 }
 
-// WithSpeed sets the replay speed multiplier (e.g. 10.0 = 10× faster).
 func (p *Provider) WithSpeed(s float64) *Provider { p.speed = s; return p }
 
 func (p *Provider) Name() string { return "mock" }
 
 func (p *Provider) Authenticate(_ context.Context) error { return nil }
 
+// Subscribe replays the fixture's events.jsonl, emitting each event at its
+// recorded offset scaled by speed (WithSpeed(10) is 10× faster; speed 0 fires
+// everything immediately).
 func (p *Provider) Subscribe(ctx context.Context, meetingID string) (<-chan providers.Event, error) {
 	p.meetingID = meetingID
 	path := filepath.Join(p.fixturePath, "events.jsonl")

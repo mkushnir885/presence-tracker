@@ -2,10 +2,6 @@ package views
 
 import "fmt"
 
-// initialSortClass returns the active-state class for a sort header on
-// initial render. The server hands the meetings rows back already
-// sorted by creation time descending, so only the "created" header
-// starts active.
 func initialSortClass(field string) string {
 	if field == "created" {
 		return "meetings-sort-desc"
@@ -133,6 +129,10 @@ templ Meetings(data MeetingsData, locale Locale) {
 				</table>
 			</form>
 			<script>
+				// Client-side meetings table: click-to-sort columns, a name filter,
+				// and a tri-state multi-select whose checked files drive the
+				// "view combined stats" and cross-CSV buttons (the form submits the
+				// checked `file` values to /stats or, via formaction, /report).
 				(function() {
 					const headers = document.querySelectorAll('.meetings-sort');
 					const tbody = document.querySelector('.meetings-table tbody');

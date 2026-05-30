@@ -11,10 +11,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// QuestionType identifies one of the supported question shapes. Values
-// double as the on-the-wire discriminator stored in question .jsonl files
-// and matched by the bank schema's oneOf variants — do not rename
-// without updating the schema (bank_schema.go) and the .jsonl writers.
 type QuestionType string
 
 const (
@@ -23,31 +19,28 @@ const (
 	ShortText      QuestionType = "short_text"
 )
 
-// Question is one entry from a loaded bank. It carries both the prompt
-// shown to the student and the answer key used for scoring.
+// Question is one resolved bank entry. Answer's concrete type depends on
+// QuestionType: []string for MultipleChoice/ShortText, float64 for Numeric.
 type Question struct {
 	QuestionID   string
 	QuestionType QuestionType
 	Prompt       string
-	Choices      []string // MultipleChoice only
-	Answer       any      // []string for MultipleChoice/ShortText; float64 for Numeric
-	MatchMode    string   // ShortText only: exact | substring_ci | regex
-	Tolerance    float64  // Numeric only
+	Choices      []string
+	Answer       any
+	MatchMode    string
+	Tolerance    float64
 }
 
-// Bank is a parsed and validated question-bank file.
 type Bank struct {
 	Questions []Question
 }
 
-// Answer is a student's submitted response.
 type Answer struct {
-	Selected   []string // multiple_choice
-	Text       string   // numeric / short_text
-	MessageRef string   // opaque messenger ref for the answer message; empty for MCQ callbacks
+	Selected   []string
+	Text       string
+	MessageRef string
 }
 
-// ScoreResult is the outcome of evaluating one answer against one question.
 type ScoreResult string
 
 const (
@@ -68,13 +61,6 @@ type rawQuestion struct {
 	Answer    json.RawMessage `json:"answer"`
 }
 
-// Load parses and validates a question-bank file (YAML or JSON; JSON is
-// parsed transparently because JSON is a subset of YAML). The file is
-// validated against the embedded bank schema before any per-question
-// conversion, so the per-question code only has to handle the
-// type-specific answer decoding.
-//
-// Every question gets a fresh UUID on load — IDs change per poll round.
 func Load(path string) (Bank, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -87,10 +73,8 @@ func Load(path string) (Bank, error) {
 	return bank, nil
 }
 
-// Parse decodes a question bank from YAML or JSON bytes, validates it
-// against the embedded schema, and assigns a fresh UUID to every
-// question. Used by Load for file input and by the auto-generator for
-// in-memory LLM output.
+// Parse decodes a YAML bank. It round-trips through JSON so the bank can be
+// checked against the shared JSON Schema, then builds typed Questions.
 func Parse(raw []byte) (Bank, error) {
 	var intermediate any
 	if err := yaml.Unmarshal(raw, &intermediate); err != nil {
@@ -134,11 +118,6 @@ func Parse(raw []byte) (Bank, error) {
 	return bank, nil
 }
 
-// buildQuestion converts a schema-validated raw question into a Question.
-// Structural concerns (prompt presence, MCQ choices count, valid match
-// mode, valid type) are already enforced by the schema; this only decodes
-// the polymorphic answer field per type and cross-validates that MCQ
-// answers reference real choices.
 func buildQuestion(i int, rq *rawQuestion) (Question, error) {
 	prefix := fmt.Sprintf("challenges: question[%d]", i)
 	q := Question{
@@ -192,10 +171,6 @@ func buildQuestion(i int, rq *rawQuestion) (Question, error) {
 	return q, nil
 }
 
-// firstDuplicate returns the first repeated element in ss, or "" if all
-// elements are unique. MCQ banks rely on this: a duplicate in choices makes
-// the user's selection ambiguous, and a duplicate in the answer key would
-// silently inflate scoring.
 func firstDuplicate(ss []string) string {
 	seen := make(map[string]struct{}, len(ss))
 	for _, s := range ss {

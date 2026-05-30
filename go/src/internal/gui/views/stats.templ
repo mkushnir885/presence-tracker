@@ -10,16 +10,10 @@ import (
 	"presence-tracker/src/internal/stats"
 )
 
-// presencePct rounds a 0..1 ratio to the nearest whole percent. Using
-// int(ratio*100) truncates, which made e.g. 0.8177 (≈82 %) display as
-// 81 %.
 func presencePct(ratio float64) int {
 	return int(math.Round(ratio * 100))
 }
 
-// Stats is the single post-meeting analysis page. The data carries
-// either one meeting (per-meeting layout) or many (cross-meeting paged
-// container, one participant per page).
 templ Stats(data StatsData, locale Locale) {
 	@Layout("Stats", locale, nil) {
 		<div class="stats-page" data-files={ data.FilesQuery() }>
@@ -33,7 +27,6 @@ templ Stats(data StatsData, locale Locale) {
 	}
 }
 
-// ── per-meeting (one file) ──────────────────────────────────────────
 templ statsMeeting(data StatsData, locale Locale) {
 	if m := firstMeeting(data); m != nil {
 		<header class="page-header stats-header stats-header-meeting">
@@ -76,7 +69,6 @@ templ statsMeeting(data StatsData, locale Locale) {
 	}
 }
 
-// ── cross-meeting (multiple files) ──────────────────────────────────
 templ statsCrossMeeting(data StatsData, locale Locale) {
 	<header class="page-header stats-header stats-header-cross">
 		<h1 class="stats-title-line">
@@ -134,7 +126,6 @@ templ statsCrossMeeting(data StatsData, locale Locale) {
 	}
 }
 
-// ── shared row builders ─────────────────────────────────────────────
 templ meetingRow(displayName string, row stats.ParticipantRow, m stats.Meeting, locale Locale) {
 	<div class="participant-row participant-row-meeting">
 		@renameButton(displayName, locale)
@@ -188,7 +179,6 @@ templ crossMeetingRow(data StatsData, m stats.Meeting, row stats.ParticipantRow,
 	</div>
 }
 
-// ── popover trigger (button styled as text) ─────────────────────────
 templ statPopover(popoverText string, tooltipText string, label string) {
 	<button
 		type="button"
@@ -199,9 +189,6 @@ templ statPopover(popoverText string, tooltipText string, label string) {
 	>{ label }</button>
 }
 
-// challengePopover renders the challenge-summary chip whose click
-// reveals the structured "N correct / M issued" popover with a hover
-// tooltip on the "issued" word.
 templ challengePopover(payloadJSON string, tooltipText string, label string) {
 	<button
 		type="button"
@@ -212,7 +199,6 @@ templ challengePopover(payloadJSON string, tooltipText string, label string) {
 	>{ label }</button>
 }
 
-// ── rename button ───────────────────────────────────────────────────
 templ renameButton(displayName string, locale Locale) {
 	<button
 		type="button"
@@ -233,7 +219,10 @@ templ iconPencil() {
 	</svg>
 }
 
-// ── timeband: stretched SVG for presence + HTML overlay for clickable markers ──
+// timelineBand draws presence as SVG rects on a 0–100 width scale — the
+// viewBox plus preserveAspectRatio="none" map each segment's StartPct/WidthPct
+// straight to x/width at any pixel width. An overlay layer adds absolutely
+// positioned join/leave edges and challenge markers for hover and click.
 templ timelineBand(row stats.ParticipantRow, m stats.Meeting, locale Locale) {
 	<div class="band-wrap">
 		<svg class="band-bg" viewBox="0 0 100 1" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
@@ -282,7 +271,6 @@ templ bandMarker(mk stats.Marker, m stats.Meeting, locale Locale) {
 	</button>
 }
 
-// ── helpers ─────────────────────────────────────────────────────────
 
 func firstMeeting(d StatsData) *stats.Meeting {
 	if d.Doc == nil || len(d.Doc.Meetings) == 0 {
@@ -358,14 +346,6 @@ func presenceTooltip(row stats.ParticipantRow, m stats.Meeting, locale Locale) s
 	)
 }
 
-// challengePopoverJSON builds the payload consumed by the
-// data-popover-challenge JS renderer. Two lines:
-//
-//	N correct
-//	M issued    ← hover tooltip explains the term
-//
-// The "none issued" state collapses to a single row so the popover
-// still says something useful instead of opening empty.
 func challengePopoverJSON(row stats.ParticipantRow, locale Locale) string {
 	if row.ChallengesIssued == 0 {
 		payload := map[string]any{
@@ -417,8 +397,6 @@ func segmentEdgeTooltip(isStart bool, seg stats.Segment, m stats.Meeting, locale
 	return strings.Join(parts, "\n")
 }
 
-// stillPresentKey picks the right-edge tooltip key for an open presence
-// band, driven by how the session ended.
 func stillPresentKey(endedCause string) string {
 	switch endedCause {
 	case "meeting":
@@ -430,9 +408,8 @@ func stillPresentKey(endedCause string) string {
 	}
 }
 
-// markerPopoverJSON encodes the structured payload rendered by the
-// marker popover JS. Each text field is a plain string the JS injects via
-// textContent so user-supplied prompts/answers can't leak HTML.
+// markerPopoverJSON builds the detail payload that stats.js renders when a
+// timeline challenge marker is clicked.
 func markerPopoverJSON(mk stats.Marker, _ stats.Meeting, locale Locale) string {
 	chipLabelKey := "stats.marker.curated"
 	chipShape := "circle"
@@ -483,10 +460,6 @@ func markerPopoverJSON(mk stats.Marker, _ stats.Meeting, locale Locale) string {
 	return string(b)
 }
 
-// markerExtras assembles type-specific question metadata rows shown
-// between the prompt and the correct answer (MCQ choices, numeric
-// tolerance, short-text match mode). Returns nil when nothing extra is
-// applicable.
 func markerExtras(mk stats.Marker, locale Locale) []map[string]string {
 	var extras []map[string]string
 	switch mk.QuestionType {
@@ -519,9 +492,6 @@ func markerExtras(mk stats.Marker, locale Locale) []map[string]string {
 	return extras
 }
 
-// markerAnswer formats the canonical correct-answer line, decoding MCQ
-// JSON arrays into a readable comma-separated list. Returns a zero-value
-// map when no answer is known so the JS can skip rendering.
 func markerAnswer(mk stats.Marker, locale Locale) map[string]string {
 	if mk.CorrectAnswer == "" {
 		return map[string]string{}
@@ -539,10 +509,8 @@ func markerAnswer(mk stats.Marker, locale Locale) map[string]string {
 	}
 }
 
-// markerMissingNotice fires when an issued challenge's marker has a
-// question_id but no question payload — typically because the matching
-// JSONL file was deleted or moved out of questions_dir. The popover
-// should still acknowledge the marker rather than render an empty body.
+// markerMissingNotice flags a challenge whose question_id has no matching
+// prompt — its payload couldn't be loaded from the questions JSONL sidecar.
 func markerMissingNotice(mk stats.Marker, locale Locale) map[string]string {
 	if mk.Result == "skipped" || mk.QuestionID == "" || mk.Prompt != "" {
 		return map[string]string{}
@@ -550,10 +518,6 @@ func markerMissingNotice(mk stats.Marker, locale Locale) map[string]string {
 	return map[string]string{"value": locale.T("stats.marker.missing_question")}
 }
 
-// markerSkipReason renders the "reason" line for skipped markers. The
-// per-reason locale key falls back to the raw snake_case value so
-// future skip reasons (unknown to the current locale file) still
-// surface readably.
 func markerSkipReason(mk stats.Marker, locale Locale) map[string]string {
 	if mk.Result != "skipped" || mk.SkipReason == "" {
 		return map[string]string{}
@@ -569,9 +533,6 @@ func markerSkipReason(mk stats.Marker, locale Locale) map[string]string {
 	}
 }
 
-// markerSubmitted formats the student-supplied answer line. Empty when
-// the challenge was unanswered or no submitted_answer was recorded (e.g.
-// pre-feature events).
 func markerSubmitted(mk stats.Marker, locale Locale) map[string]string {
 	if mk.Result == "unanswered" || mk.Result == "skipped" || mk.SubmittedAnswer == "" {
 		return map[string]string{}
@@ -589,11 +550,6 @@ func markerSubmitted(mk stats.Marker, locale Locale) map[string]string {
 	}
 }
 
-// meetingDetailsJSON encodes the structured payload for the meeting
-// details popover: a list of rows the JS renders, where each row is
-// either a label/value pair or a small dimmed hint sentence. Rendered
-// order: platform, duration, started time + start hint, ended time +
-// end hint, max participants.
 func meetingDetailsJSON(m stats.Meeting, locale Locale) string {
 	var rows []map[string]string
 
@@ -629,10 +585,6 @@ func hintRow(text string) map[string]string {
 	return map[string]string{"type": "hint", "value": text}
 }
 
-// causeNote returns a localized description of a session boundary's
-// cause for inclusion in the meeting-details popover. Empty cause
-// (legacy file with no session_started/session_ended metadata) yields
-// no note.
 func causeNote(cause, prefix string, locale Locale) string {
 	if cause == "" {
 		return ""
@@ -640,9 +592,6 @@ func causeNote(cause, prefix string, locale Locale) string {
 	return locale.T(prefix + "." + cause)
 }
 
-// meetingBoundaries renders the meeting's start and computed end in the
-// server's local time zone. The popover is read on the same machine
-// that runs the daemon, so local time matches the operator's wall clock.
 func meetingBoundaries(startISO string, durationSeconds float64) (string, string) {
 	t, err := time.Parse(time.RFC3339, startISO)
 	if err != nil {

@@ -13,9 +13,6 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-// Values is the full resolved configuration tree handed to runtime code.
-// Every field is always populated: either from the user's overrides file
-// or from defaults().
 type Values struct {
 	MeetingsDir   string           `json:"meetings_dir,omitempty"`
 	QuestionsDir  string           `json:"questions_dir,omitempty"`
@@ -86,32 +83,18 @@ type PollConfig struct {
 }
 
 type AutoGenerationConfig struct {
-	Enabled             bool   `json:"enabled,omitempty"`
-	AutoSubmit          bool   `json:"auto_submit,omitempty"`
-	PollIntervalSeconds int    `json:"poll_interval_seconds,omitempty"`
-	MinWordsPerQuestion int    `json:"min_words_per_question,omitempty"`
-	MaxQuestionsPerPoll int    `json:"max_questions_per_poll,omitempty"`
-	ReviewDir           string `json:"review_dir,omitempty"`
-	// Language is the spoken lesson language as a BCP-47 / ISO 639-1
-	// short tag (e.g. "en", "uk"). Drives both ASR accuracy (Whisper's
-	// language hint) and the LLM prompt's output-language instruction.
-	// The sentinel "auto" disables both hints and lets the ASR backend
-	// detect the language while the LLM matches the transcript.
-	Language string          `json:"language,omitempty"`
-	ASR      AIBackendConfig `json:"asr,omitzero"`
-	LLM      AIBackendConfig `json:"llm,omitzero"`
-	// ExtraRules is appended to the built-in "Rules" section of the LLM
-	// system prompt, one bullet per entry. Empty/whitespace-only entries
-	// are dropped at save time. The base rules — including the YAML
-	// schema contract — are not user-overridable to keep Producer.Generate
-	// parseable.
-	ExtraRules []string `json:"extra_rules,omitempty"`
+	Enabled             bool            `json:"enabled,omitempty"`
+	AutoSubmit          bool            `json:"auto_submit,omitempty"`
+	PollIntervalSeconds int             `json:"poll_interval_seconds,omitempty"`
+	MinWordsPerQuestion int             `json:"min_words_per_question,omitempty"`
+	MaxQuestionsPerPoll int             `json:"max_questions_per_poll,omitempty"`
+	ReviewDir           string          `json:"review_dir,omitempty"`
+	Language            string          `json:"language,omitempty"`
+	ASR                 AIBackendConfig `json:"asr,omitzero"`
+	LLM                 AIBackendConfig `json:"llm,omitzero"`
+	ExtraRules          []string        `json:"extra_rules,omitempty"`
 }
 
-// AIBackendConfig is the connection target for one OpenAI-compatible
-// HTTP backend (used for ASR and the question-generation LLM). ptrack
-// holds no model weights — the backend (Ollama, OpenAI, any compatible
-// gateway) does.
 type AIBackendConfig struct {
 	BaseURL string `json:"base_url,omitempty"`
 	APIKey  string `json:"api_key,omitempty"`
@@ -135,8 +118,6 @@ type LoggingConfig struct {
 	File   string `json:"file,omitempty"`
 }
 
-// defaults returns the built-in default Values. Treated as immutable —
-// callers must not mutate the returned struct.
 func defaults() Values {
 	return Values{
 		MeetingsDir:   expandPath("~/Documents/ptrack/meetings"),
@@ -167,13 +148,8 @@ func defaults() Values {
 	}
 }
 
-// Defaults returns a copy of the built-in defaults. Public for schemagen
-// and other tools that need the canonical default tree.
-func Defaults() Values { return defaults() }
-
-// Config holds the resolved Values plus the on-disk source path. Reads
-// via Get are lock-free (atomic.Pointer); writes (Apply, Reload) take a
-// mutex so concurrent saves do not interleave file I/O.
+// Config holds the resolved config. Reads via Get are lock-free (atomic
+// snapshot); writes (Apply, Reload) take mu so saves don't interleave.
 type Config struct {
 	mu        sync.Mutex
 	path      string
@@ -182,18 +158,12 @@ type Config struct {
 	current   atomic.Pointer[Values]
 }
 
-// Get returns a snapshot of the current resolved Values. Callers that
-// want live-reload behaviour should call Get afresh at each use (per
-// poll tick, per meeting start, etc.).
+// Get returns the current snapshot; callers read it per use so a Reload or
+// Apply takes effect on the next natural boundary without a restart.
 func (c *Config) Get() Values { return *c.current.Load() }
 
-// Path returns the on-disk file path Config reads from and writes to.
-// The path is set even when the file does not yet exist on disk.
 func (c *Config) Path() string { return c.path }
 
-// Reload re-reads the override file (file is authoritative), validates,
-// prunes default-equal fields, rewrites the canonical file, and atomically
-// replaces the in-memory snapshot.
 func (c *Config) Reload() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -204,9 +174,6 @@ func (c *Config) Reload() error {
 	return c.commit(v)
 }
 
-// Apply mutates a snapshot of the current Values through mutator, then
-// runs the same commit pipeline as Reload (validate → prune → save →
-// replace current).
 func (c *Config) Apply(mutator func(*Values)) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -215,11 +182,6 @@ func (c *Config) Apply(mutator func(*Values)) error {
 	return c.commit(v)
 }
 
-// readFromFile reads c.path and overlays it onto defaults. An absent
-// file yields the defaults unchanged. A top-level "$schema" key, if
-// present, is captured into c.schemaRef so it round-trips on the next
-// write; the rest of the file is decoded strictly (unknown fields are
-// rejected).
 func (c *Config) readFromFile() (Values, error) {
 	v := c.defaults
 	c.schemaRef = nil
@@ -250,9 +212,8 @@ func (c *Config) readFromFile() (Values, error) {
 	return v, nil
 }
 
-// commit is the shared end of every entry point: validate the minimal
-// overrides derived from v, write canonical JSON to disk, and store v
-// as the new current snapshot.
+// commit prunes default-equal fields, validates the remaining overrides
+// against the schema, writes the file canonically, then swaps the snapshot.
 func (c *Config) commit(v Values) error {
 	normalisePaths(&v)
 	overrides := diffToMap(v, c.defaults)
@@ -269,9 +230,6 @@ func (c *Config) commit(v Values) error {
 	return nil
 }
 
-// validateOverrides validates the minimal-overrides map against the
-// embedded JSON Schema. Defaults are trusted; only user-introduced
-// values are checked.
 func validateOverrides(overrides map[string]any) error {
 	schema, err := ResolvedSchema()
 	if err != nil {
@@ -283,10 +241,6 @@ func validateOverrides(overrides map[string]any) error {
 	return nil
 }
 
-// diffToMap returns a nested map[string]any containing only fields where
-// v differs from base. Unexported fields and fields without a json tag
-// are ignored. Recurses into nested structs; non-struct leaves compare
-// by reflect.DeepEqual.
 func diffToMap(v, base any) map[string]any {
 	out := map[string]any{}
 	vv := reflect.Indirect(reflect.ValueOf(v))
@@ -317,9 +271,6 @@ func diffToMap(v, base any) map[string]any {
 	return out
 }
 
-// normalisePaths resolves "~" and forward-slash separators in every
-// user-settable path field so the resolved Values always carries
-// OS-native absolute paths, regardless of how the JSON was authored.
 func normalisePaths(v *Values) {
 	v.MeetingsDir = expandPath(v.MeetingsDir)
 	v.QuestionsDir = expandPath(v.QuestionsDir)
@@ -327,10 +278,8 @@ func normalisePaths(v *Values) {
 	v.Challenges.AutoGeneration.ReviewDir = expandPath(v.Challenges.AutoGeneration.ReviewDir)
 }
 
-// applyConstraints declares value-range, length, and enum restrictions
-// for the generated schema. at(...) panics on a missing path, so a Go
-// field rename without a matching update here fails schema construction
-// loudly instead of silently dropping the constraint.
+// applyConstraints adds min/max/minLength bounds the reflected schema can't
+// infer from the struct.
 func applyConstraints(root *jsonschema.Schema) {
 	at(root, "meetings_dir").MinLength = new(1)
 	at(root, "questions_dir").MinLength = new(1)

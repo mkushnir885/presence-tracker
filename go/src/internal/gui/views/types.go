@@ -18,16 +18,8 @@ import (
 	"presence-tracker/src/internal/stats"
 )
 
-// Locale is the templ-facing translation handle. It re-exports
-// i18n.Locale so templ template signatures stay short.
 type Locale = i18n.Locale
 
-// RegistryFilterInputs holds the raw, user-typed values from the
-// registry page's filter form. All fields are blank when the user has
-// not narrowed the list. From / To accept a date/time prefix (year,
-// year-month, year-month-day, with optional hour, minute, or second);
-// the prefix is parsed into a time.Time bound by the gui handler before
-// being handed to the registry.
 type RegistryFilterInputs struct {
 	Name      string
 	Messenger string
@@ -35,34 +27,17 @@ type RegistryFilterInputs struct {
 	To        string
 }
 
-// Active reports whether any filter field is set.
-func (f RegistryFilterInputs) Active() bool {
-	return f.Name != "" || f.Messenger != "" || f.From != "" || f.To != ""
-}
-
-// RegistryData is the data model for the registry page.
 type RegistryData struct {
 	Entries    []participants.RegistryEntry
 	Messengers []string
 	Filter     RegistryFilterInputs
-	// HasAny is true when the registry contains any entries at all,
-	// regardless of the current filter — used to decide whether to show
-	// the filter form vs. the global empty-state hint.
-	HasAny bool
+	HasAny     bool
 }
 
-// RegistryFilterErrors maps a form field name to a translation key for
-// the error to render in the results container. An empty map means
-// every input was acceptable.
 type RegistryFilterErrors map[string]string
 
-// registryFilterFieldOrder is the order in which invalid-filter
-// messages are rendered. Go map iteration is unordered; this keeps
-// repeated renders stable so a refresh does not reshuffle the lines.
 var registryFilterFieldOrder = []string{"name", "messenger", "from", "to"}
 
-// Ordered yields (fieldKey, errorKey) pairs in a fixed order, skipping
-// fields that have no error.
 func (e RegistryFilterErrors) Ordered() []struct{ Field, Key string } {
 	out := make([]struct{ Field, Key string }, 0, len(e))
 	for _, f := range registryFilterFieldOrder {
@@ -73,11 +48,6 @@ func (e RegistryFilterErrors) Ordered() []struct{ Field, Key string } {
 	return out
 }
 
-// RegistryFilterErrorMessage builds the localized sentence shown in
-// the results card for one invalid filter input. The shape is
-// "Error in filter "<label>": <detail>" — labels and the connector
-// template both come from the locale catalogue so word order can
-// change per language.
 func RegistryFilterErrorMessage(fieldKey, errorKey string, locale Locale) string {
 	return fmt.Sprintf(
 		locale.T("registry.filter.error.template"),
@@ -86,17 +56,11 @@ func RegistryFilterErrorMessage(fieldKey, errorKey string, locale Locale) string
 	)
 }
 
-// RegistryExactDeleteVals encodes the hx-vals payload that the per-row
-// delete icon sends. It posts a single display_name value so the
-// handler removes just that one entry; the multi-select header trash
-// uses the same field via hx-include over the row checkboxes.
 func RegistryExactDeleteVals(displayName string) string {
 	b, _ := json.Marshal(map[string]string{"display_name": displayName}) //nolint:errchkjson // a single string field cannot fail to marshal
 	return string(b)
 }
 
-// registryInfoClass picks the class applied to the #registry-info span
-// based on whether the filter form parsed cleanly.
 func registryInfoClass(errors RegistryFilterErrors) string {
 	if len(errors) > 0 {
 		return "registry-info has-error"
@@ -104,48 +68,30 @@ func registryInfoClass(errors RegistryFilterErrors) string {
 	return "registry-info"
 }
 
-// HomeData is the data model for the home page (Connect to a meeting).
-// It is only rendered when no session is active — once tracking starts,
-// GET / redirects to /status.
 type HomeData struct {
 	EnabledProviders []ProviderOption
 }
 
-// MeetingsData is the data model for the Meeting files page.
 type MeetingsData struct {
 	Meetings []MeetingFile
 }
 
-// ProviderOption is one option in the Connect form's provider dropdown.
-// Name is the value submitted to /session; Label is the human-readable
-// display name (e.g. "BigBlueButton").
 type ProviderOption struct {
 	Name  string
 	Label string
 }
 
-// MeetingFile represents one Parquet file in the meetings directory.
-// CreatedAt is the file's birth time on the filesystem (so it is stable
-// across in-place rewrites such as the display-name PATCH).
 type MeetingFile struct {
-	ID        string // filename without .parquet
+	ID        string
 	CreatedAt time.Time
 	SizeKB    int64
 }
 
-// StatusData is the data model for the live status page.
 type StatusData struct {
-	MeetingID    string
-	ProviderName string
-	// StartedAt is when ptrack attached to the meeting.
-	StartedAt time.Time
-	// MeetingStartedAt is the timestamp of the session_started event:
-	// the meeting's true start when tracking caught it, or the attach
-	// time when tracking joined mid-meeting. Zero until the provider
-	// has reported the meeting starting.
-	MeetingStartedAt time.Time
-	// MeetingInProgress is true when tracking attached while the meeting
-	// was already running.
+	MeetingID         string
+	ProviderName      string
+	StartedAt         time.Time
+	MeetingStartedAt  time.Time
 	MeetingInProgress bool
 	Present           []session.PresenceStatus
 	Unregistered      []session.UnregisteredStatus
@@ -156,16 +102,12 @@ type StatusData struct {
 	PendingBank       *PendingBank
 }
 
-// PendingBank describes the most recent auto-generated YAML in the
-// review directory, surfaced to the live status view so the teacher
-// can dispatch it via the Auto-generated trigger.
 type PendingBank struct {
 	Path    string
 	Name    string
 	ModTime time.Time
 }
 
-// LogEntry mirrors gui.LogEntry for use in templates (views does not import gui).
 type LogEntry struct {
 	Time    time.Time
 	Level   string
@@ -173,17 +115,11 @@ type LogEntry struct {
 	Attrs   string
 }
 
-// StatsData is the data model for the unified /stats page. Files is
-// the file= query that produced Doc — held alongside so the template
-// can build self-referential links (rename PATCH, CSV export, paging
-// state) without re-parsing the URL.
 type StatsData struct {
 	Files []string
 	Doc   *stats.Document
 }
 
-// Mode reports whether the page renders per-meeting (single file) or
-// cross-meeting (multiple) layout.
 func (d StatsData) Mode() string {
 	if d.Doc == nil {
 		return ""
@@ -191,7 +127,6 @@ func (d StatsData) Mode() string {
 	return d.Doc.Mode
 }
 
-// MeetingByID returns the meeting envelope for id, or nil when absent.
 func (d StatsData) MeetingByID(id string) *stats.Meeting {
 	if d.Doc == nil {
 		return nil
@@ -204,9 +139,6 @@ func (d StatsData) MeetingByID(id string) *stats.Meeting {
 	return nil
 }
 
-// FirstFileLabel returns the basename of the first input file, with the
-// .parquet suffix stripped. Used in the per-meeting header in place of
-// the opaque meeting ID.
 func (d StatsData) FirstFileLabel() string {
 	if len(d.Files) == 0 {
 		return ""
@@ -214,11 +146,6 @@ func (d StatsData) FirstFileLabel() string {
 	return strings.TrimSuffix(filepath.Base(d.Files[0]), ".parquet")
 }
 
-// FileLabelForMeeting returns the user-visible file name (basename
-// without `.parquet`) that produced this meeting's data. Prefers the
-// source_file emitted by Python; falls back to scanning Files by the
-// `<meeting_id>.parquet` naming convention, and finally to the meeting
-// ID itself.
 func (d StatsData) FileLabelForMeeting(meetingID string) string {
 	if d.Doc != nil {
 		for i := range d.Doc.Meetings {
@@ -237,8 +164,6 @@ func (d StatsData) FileLabelForMeeting(meetingID string) string {
 	return meetingID
 }
 
-// FilesQuery returns the file= query string (no leading ?) so templates
-// can append it to outbound URLs.
 func (d StatsData) FilesQuery() string {
 	q := url.Values{}
 	for _, f := range d.Files {
@@ -247,9 +172,6 @@ func (d StatsData) FilesQuery() string {
 	return q.Encode()
 }
 
-// MaxDuration returns the longest meeting duration in seconds across
-// every loaded meeting. The cross-meeting layout scales presence bands
-// relative to this so longer meetings get visually longer bands.
 func (d StatsData) MaxDuration() float64 {
 	if d.Doc == nil {
 		return 0
@@ -263,9 +185,8 @@ func (d StatsData) MaxDuration() float64 {
 	return max
 }
 
-// RowWidthPct returns the relative width (0–100) for a per-meeting
-// band row inside the cross-meeting layout: 100 for the longest
-// meeting, proportionally less for shorter ones.
+// RowWidthPct scales a meeting's timeline band to the longest meeting in the
+// set, so band lengths are visually comparable across the cross-meeting view.
 func (d StatsData) RowWidthPct(m stats.Meeting) float64 {
 	if max := d.MaxDuration(); max > 0 {
 		return m.DurationSeconds / max * 100
@@ -273,24 +194,17 @@ func (d StatsData) RowWidthPct(m stats.Meeting) float64 {
 	return 100
 }
 
-// ConfigData is the data model for the config editor page. It carries the
-// current resolved Values plus the JSON Schema, so the template can read
-// enum lists, min/max, and writeOnly markers straight from the schema
-// instead of duplicating them.
 type ConfigData struct {
 	V          config.Values
 	Schema     *jsonschema.Schema
 	DataDir    string
 	CacheDir   string
 	ConfigPath string
-	// Error is a human-readable message rendered next to the Save
-	// button when the most recent save attempt failed (schema
-	// validation, write error, ...). Empty on the initial load.
-	Error string
+	Error      string
 }
 
-// at walks Schema.Properties along path and returns the leaf schema, or
-// nil if any segment is missing. Used by the field-rendering helpers.
+// at walks the JSON Schema along the property path to a field's leaf schema;
+// the Enum/MinAttr/MaxAttr helpers read each input's constraints from it.
 func (d ConfigData) at(path ...string) *jsonschema.Schema {
 	cur := d.Schema
 	for _, p := range path {
@@ -306,14 +220,6 @@ func (d ConfigData) at(path ...string) *jsonschema.Schema {
 	return cur
 }
 
-// WriteOnly reports whether the field at path is marked writeOnly in the
-// schema (i.e. a secret that must not be echoed back to the form).
-func (d ConfigData) WriteOnly(path ...string) bool {
-	s := d.at(path...)
-	return s != nil && s.WriteOnly
-}
-
-// Enum returns the string enum values declared for the field at path.
 func (d ConfigData) Enum(path ...string) []string {
 	s := d.at(path...)
 	if s == nil {
@@ -328,8 +234,6 @@ func (d ConfigData) Enum(path ...string) []string {
 	return out
 }
 
-// MinAttr returns the field's minimum as a string suitable for an HTML
-// input's min= attribute, or "" if unset.
 func (d ConfigData) MinAttr(path ...string) string {
 	s := d.at(path...)
 	if s == nil || s.Minimum == nil {
@@ -338,7 +242,6 @@ func (d ConfigData) MinAttr(path ...string) string {
 	return formatNum(*s.Minimum)
 }
 
-// MaxAttr returns the field's maximum, formatted like MinAttr.
 func (d ConfigData) MaxAttr(path ...string) string {
 	s := d.at(path...)
 	if s == nil || s.Maximum == nil {

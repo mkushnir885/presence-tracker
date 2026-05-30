@@ -13,27 +13,16 @@ import (
 	"presence-tracker/src/internal/challenges"
 )
 
-// Producer turns an LLM chat completion into a challenges.Bank. It is
-// tolerant of the model's output format: JSON or YAML, with or without
-// Markdown fences, with or without prose around the bank.
 type Producer struct {
 	llm        *LLMClient
 	language   string
 	extraRules []string
 }
 
-// NewProducer builds a Producer around an LLM client. language is the
-// BCP-47 / ISO 639-1 tag that pins the output language; pass "" to let
-// the model match the transcript. extraRules are teacher-supplied
-// instructions appended to the system prompt's Rules section.
 func NewProducer(llm *LLMClient, language string, extraRules []string) *Producer {
 	return &Producer{llm: llm, language: language, extraRules: extraRules}
 }
 
-// Generate calls the LLM with the configured prompts and returns a
-// validated bank. Invalid individual questions are dropped silently; if
-// every question is invalid the returned bank has zero questions and
-// the caller treats it as a failure.
 func (p *Producer) Generate(ctx context.Context, transcript string, n int) (challenges.Bank, error) {
 	raw, err := p.llm.Complete(ctx, buildSystemPrompt(p.extraRules), userPrompt(transcript, n, p.language))
 	if err != nil {
@@ -42,16 +31,9 @@ func (p *Producer) Generate(ctx context.Context, transcript string, n int) (chal
 	return parseLLMBank(raw)
 }
 
-// parseLLMBank applies several tolerant extraction strategies to the
-// model's response in turn:
-//
-//  1. Parse the raw text as YAML or JSON directly.
-//  2. Extract the first fenced ```yaml / ```json / ``` block and parse it.
-//  3. Walk the parsed structure question-by-question, validating each
-//     individually and keeping only the ones that pass.
-//
-// (1) and (2) cover well-behaved output; (3) salvages mostly-good output
-// where one or two questions are malformed.
+// parseLLMBank is forgiving about messy model output: it tries the whole
+// response, then any fenced ```code``` block, and as a last resort salvages
+// the individually valid questions.
 func parseLLMBank(raw string) (challenges.Bank, error) {
 	candidates := []string{strings.TrimSpace(raw)}
 	if fenced := extractFenced(raw); fenced != "" {
@@ -78,8 +60,6 @@ func parseLLMBank(raw string) (challenges.Bank, error) {
 	return challenges.Bank{}, fmt.Errorf("challenger: producer: %w", lastErr)
 }
 
-// fenceRE matches a Markdown fenced code block. The first capture is
-// the body. Optional language tag is ignored.
 var fenceRE = regexp.MustCompile("(?s)```(?:[a-zA-Z0-9_+-]*)\\s*\\n(.*?)```")
 
 func extractFenced(s string) string {
@@ -90,10 +70,8 @@ func extractFenced(s string) string {
 	return strings.TrimSpace(m[1])
 }
 
-// salvagePerQuestion walks a YAML/JSON document, validating each entry
-// of questions[] in isolation by wrapping it in a minimal one-question
-// bank. Questions that fail validation are dropped silently; the
-// surviving ones make up the returned bank.
+// salvagePerQuestion validates each question on its own and keeps those that
+// pass, so a single malformed entry doesn't discard the whole batch.
 func salvagePerQuestion(raw string) (challenges.Bank, bool) {
 	var doc map[string]any
 	if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {

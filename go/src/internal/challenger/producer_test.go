@@ -53,7 +53,6 @@ func TestParseLLMBankFenced(t *testing.T) {
 }
 
 func TestParseLLMBankSalvage(t *testing.T) {
-	// First question is malformed (missing answer); second is valid.
 	mixed := `questions:
   - prompt: "Broken"
     type: numeric

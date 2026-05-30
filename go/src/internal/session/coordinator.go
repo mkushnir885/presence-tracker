@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -21,70 +20,54 @@ import (
 	"presence-tracker/src/internal/providers"
 )
 
-// joinConfirmationTTL is how long the verification DM waits for a
-// Yes/No tap before the buffered join is discarded and the user is
-// nudged to rejoin. Generous enough that a phone left in a pocket
-// during the first minute of class still has time to ping, short
-// enough that a stale prompt does not sit in chat all lesson.
 const joinConfirmationTTL = 2 * time.Minute
 
 var _ challenges.EventSink = (*Coordinator)(nil)
 
-// bufferedJoin holds a participant_joined that has not yet been flushed
-// to Parquet because verification is still pending.
+// bufferedJoin is a participant_joined held in memory until the student
+// confirms; nothing reaches Parquet before verification.
 type bufferedJoin struct {
 	platformID string
 	joinedAt   time.Time
 	metadata   map[string]string
 }
 
-// nameState owns the per-display-name lifecycle inside a session.
-// Lookup keyed on normalize(canonicalName). A state is created when a
-// registered participant first joins and destroyed when no platformID
-// is currently claiming the name.
+// nameState tracks one display name through the join-verification flow
+// (keyed by normalized name). Created when a registered name first joins,
+// destroyed once no platformID claims it.
 type nameState struct {
-	canonicalName      string                // as stored in the registry, written verbatim to Parquet
-	handle             string                // for sending and editing the verification DM
-	language           string                // registered catalog language, passed to the messenger so it need not re-query the registry
-	platformIDs        map[string]struct{}   // every current claimant (verified, pending, or ignored)
-	pending            *bufferedJoin         // buffered join awaiting verification, if any
-	confirmRef         messengers.MessageRef // ref to the verification DM, for edit on collision
-	confirmTimer       *time.Timer           // cancels the auto-expiry of pending; nil when not pending
-	verifiedPlatformID string                // platformID of the verified participant; "" if none
+	canonicalName      string              // as registered, written verbatim to Parquet
+	handle             string              // messenger handle for the verification DM
+	language           string              // recipient catalog language
+	platformIDs        map[string]struct{} // every current claimant of this name
+	pending            *bufferedJoin       // join awaiting Yes/No, if any
+	confirmRef         messengers.MessageRef
+	confirmTimer       *time.Timer // expiry for pending; nil when not pending
+	verifiedPlatformID string      // the verified claimant; "" if none
 	verifiedAt         time.Time
-	lastChallenge      time.Time
-	tainted            bool // a pre-verification collision occurred; ignore everything until cleared
+	lastChallenge      time.Time // for the min-gap-between-challenges rule
+	tainted            bool      // pre-verification collision; ignore until the name clears
 }
 
-// CoordStatus is a snapshot of the coordinator's current state.
 type CoordStatus struct {
-	MeetingID    string
-	Present      []PresenceStatus
-	Unregistered []UnregisteredStatus
-	// MeetingStartedAt is the timestamp of the session_started event:
-	// the meeting's true start when tracking attached before it began,
-	// or the attach timestamp otherwise. Zero until the provider has
-	// reported the meeting starting.
-	MeetingStartedAt time.Time
-	// MeetingInProgress is true when tracking attached while the meeting
-	// was already running. False when tracking caught the start.
+	MeetingID         string
+	Present           []PresenceStatus
+	Unregistered      []UnregisteredStatus
+	MeetingStartedAt  time.Time
 	MeetingInProgress bool
 }
 
-// PresenceStatus describes one verified participant currently in the meeting.
 type PresenceStatus struct {
 	DisplayName string
 	PlatformID  string
 	JoinedAt    time.Time
 }
 
-// UnregisteredStatus describes a participant who joined but is not in the registry.
 type UnregisteredStatus struct {
 	DisplayName string
 	PlatformID  string
 }
 
-// Config holds session-level configuration knobs.
 type Config struct {
 	MeetingID                   string
 	PlatformMeetingID           string
@@ -97,7 +80,6 @@ type Config struct {
 	RowGroupSize                int
 }
 
-// Coordinator orchestrates a single meeting session.
 type Coordinator struct {
 	cfg       Config
 	provider  providers.Provider
@@ -107,24 +89,17 @@ type Coordinator struct {
 	pipeline  *challenges.Pipeline
 
 	mu            sync.Mutex
-	names         map[string]*nameState      // normName → state
-	platformIndex map[string]string          // platformID → normName (for fast onLeave)
-	pendingHandle map[string]string          // messenger handle → normName (only while pending)
-	unregistered  map[string]providers.Event // platformID → original join event (live GUI only)
+	names         map[string]*nameState      // normalized name → state
+	platformIndex map[string]string          // platformID → normalized name
+	pendingHandle map[string]string          // messenger handle → normalized name (while pending)
+	unregistered  map[string]providers.Event // platformID → join event (live GUI only, never persisted)
 
-	// Session-boundary state set when the provider observes the
-	// meeting actually ending. If still zero when Run exits, the
-	// session_ended event is written with cause="tracking".
-	meetingEndedAt time.Time
+	meetingEndedAt time.Time // set when the provider reports the meeting ended
 
-	// Set on the first session_started observation: the event timestamp
-	// (meeting start or attach time, depending on cause) and whether
-	// tracking attached mid-meeting.
-	meetingStartedAt  time.Time
+	meetingStartedAt  time.Time // set on the first session_started observation
 	meetingInProgress bool
 }
 
-// New creates a Coordinator.
 func New(cfg Config, provider providers.Provider, messenger messengers.Messenger, registry participants.Registry, store *eventstore.Writer) *Coordinator {
 	c := &Coordinator{
 		cfg:           cfg,
@@ -142,16 +117,6 @@ func New(cfg Config, provider providers.Provider, messenger messengers.Messenger
 	return c
 }
 
-// MeetingID returns the internal meeting ID of this session.
-func (c *Coordinator) MeetingID() string { return c.cfg.MeetingID }
-
-// Run drives the session event loop. It returns when the meeting ends, ctx is
-// cancelled, or an unrecoverable error occurs.
-//
-// The Messenger is not started here — it runs for the whole daemon
-// process so registrations work before any meeting. The caller routes
-// messenger events into this coordinator via HandleMessengerEvent
-// (typically through messengers.Router).
 func (c *Coordinator) Run(ctx context.Context) error {
 	providerEvents, err := c.provider.Subscribe(ctx, c.cfg.PlatformMeetingID)
 	if err != nil {
@@ -187,9 +152,6 @@ func (c *Coordinator) Run(ctx context.Context) error {
 	}
 }
 
-// HandleMessengerEvent processes one event delivered by the Messenger.
-// Safe to call concurrently with Run; the coordinator's state is
-// guarded by an internal mutex.
 func (c *Coordinator) HandleMessengerEvent(ctx context.Context, evt messengers.Event) {
 	c.handleMessengerEvent(ctx, evt)
 }
@@ -207,10 +169,6 @@ func (c *Coordinator) handleProviderEvent(ctx context.Context, evt providers.Eve
 	}
 }
 
-// onMeetingStarted writes the session_started event. The cause records
-// whether tracking attached before the meeting began (cause=meeting,
-// using the meeting's true start timestamp) or while it was already in
-// progress (cause=tracking, using the attach timestamp).
 func (c *Coordinator) onMeetingStarted(evt providers.Event) {
 	cause := causeMeeting
 	if evt.MeetingInProgress {
@@ -231,10 +189,6 @@ func (c *Coordinator) onMeetingStarted(evt providers.Event) {
 	})
 }
 
-// onMeetingEnded records the meeting's observed end time so that the
-// deferred writeSessionEnded can stamp the session_ended event with
-// cause=meeting. The provider closes its channel right after; the
-// actual session_ended row is written from the Run defer.
 func (c *Coordinator) onMeetingEnded(evt providers.Event) {
 	c.mu.Lock()
 	c.meetingEndedAt = evt.Timestamp
@@ -246,19 +200,15 @@ const (
 	causeTracking = "tracking"
 )
 
-// writeSessionEnded emits exactly one session_ended event. cause is
-// "meeting" when the provider reported the meeting ending before
-// shutdown, "tracking" otherwise. When the provider never observed the
-// meeting starting (meetingStartedAt is zero), no event is written —
-// the writer's buffer stays empty and Close leaves no Parquet file
-// behind, so tracking sessions that never saw an actual meeting do not
-// produce a phantom file.
 func (c *Coordinator) writeSessionEnded() {
 	c.mu.Lock()
 	startedAt := c.meetingStartedAt
 	endedAt := c.meetingEndedAt
 	c.mu.Unlock()
 
+	// No session_started observed means the writer buffer is empty, so
+	// Close leaves no Parquet file: tracking sessions that never saw a
+	// meeting produce no phantom file.
 	if startedAt.IsZero() {
 		slog.Info("session: no meeting observed — skipping session_ended and Parquet file")
 		return
@@ -277,19 +227,15 @@ func (c *Coordinator) writeSessionEnded() {
 	})
 }
 
-// onJoin runs the verification-gated state machine for a provider join event.
-// Nothing is written to Parquet until verification arrives.
 func (c *Coordinator) onJoin(ctx context.Context, evt providers.Event) {
 	entry, registered := c.registry.Resolve(evt.DisplayName)
 	if !registered || entry.MessengerName != c.messenger.Name() {
-		// Either no registration at all, or the registration belongs to a
-		// messenger we're not running. Either way, treat as unregistered.
 		c.markUnregistered(evt)
 		return
 	}
 	handle := entry.Handle
 
-	key := normName(entry.DisplayName)
+	key := participants.NormalizeName(entry.DisplayName)
 
 	c.mu.Lock()
 	state := c.names[key]
@@ -312,16 +258,14 @@ func (c *Coordinator) onJoin(ctx context.Context, evt providers.Event) {
 		return
 
 	case state.verifiedPlatformID != "":
-		// Already-verified participant; a second platformID claiming the
-		// same name is silently ignored (no DM, no Parquet).
 		c.mu.Unlock()
 		slog.Info("session: ignoring extra join under already-verified name", "name", entry.DisplayName, "platform_id", evt.PlatformID)
 		return
 
+	// A second claimant arriving before the first verifies taints the
+	// name: drop the buffer, cancel the in-flight DM, and ignore every
+	// further join under it until all claimants have left.
 	case state.pending != nil:
-		// Pre-verification collision: drop the buffer, edit the DM,
-		// taint the name. Nothing for this name will be processed until
-		// every claimant has left the meeting.
 		oldRef := state.confirmRef
 		oldHandle := state.handle
 		state.pending = nil
@@ -336,7 +280,6 @@ func (c *Coordinator) onJoin(ctx context.Context, evt providers.Event) {
 		return
 	}
 
-	// Empty slot: buffer the join and send the verification DM.
 	state.pending = &bufferedJoin{
 		platformID: evt.PlatformID,
 		joinedAt:   evt.Timestamp,
@@ -360,9 +303,6 @@ func (c *Coordinator) onJoin(ctx context.Context, evt providers.Event) {
 	c.mu.Lock()
 	if state.pending != nil && state.pending.platformID == evt.PlatformID {
 		state.confirmRef = ref
-		// Pointer captured so a late-firing timer cannot expire a buffer
-		// that was already cleared (and possibly replaced) under the
-		// same name.
 		expected := state.pending
 		state.confirmTimer = time.AfterFunc(joinConfirmationTTL, func() { //nolint:contextcheck // timer fires detached from request ctx; uses background
 			c.expireJoinConfirmation(context.Background(), key, expected)
@@ -371,8 +311,6 @@ func (c *Coordinator) onJoin(ctx context.Context, evt providers.Event) {
 	c.mu.Unlock()
 }
 
-// cancelConfirmTimerLocked stops the verification timer attached to
-// state (if any). Caller must hold c.mu.
 func (c *Coordinator) cancelConfirmTimerLocked(state *nameState) {
 	if state.confirmTimer != nil {
 		state.confirmTimer.Stop()
@@ -380,9 +318,6 @@ func (c *Coordinator) cancelConfirmTimerLocked(state *nameState) {
 	}
 }
 
-// cancelAllConfirmTimers stops every outstanding verification timer.
-// Called on session shutdown so timers do not fire against a
-// coordinator that is no longer servicing the meeting.
 func (c *Coordinator) cancelAllConfirmTimers() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -391,9 +326,9 @@ func (c *Coordinator) cancelAllConfirmTimers() {
 	}
 }
 
-// expireJoinConfirmation drops a verification buffer whose answer
-// window elapsed without a Yes/No tap. Pointer identity on expected
-// guards against firing on a buffer that was replaced by a later join.
+// expireJoinConfirmation drops a verification buffer whose window elapsed.
+// The expected pointer guards against a late timer firing on a buffer that
+// a newer join already replaced under the same name.
 func (c *Coordinator) expireJoinConfirmation(ctx context.Context, key string, expected *bufferedJoin) {
 	c.mu.Lock()
 	state := c.names[key]
@@ -486,7 +421,6 @@ func (c *Coordinator) onLeave(ctx context.Context, evt providers.Event) {
 	}
 }
 
-// Status returns a snapshot of the current session state.
 func (c *Coordinator) Status() CoordStatus {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -499,10 +433,6 @@ func (c *Coordinator) Status() CoordStatus {
 			PlatformID:  evt.PlatformID,
 		})
 	}
-	// Registered names split into tracked (verified) and untracked
-	// (pending, denied, post-verification colliders, or tainted), so
-	// every platformID currently in the meeting appears in exactly one
-	// roster.
 	for _, state := range c.names {
 		if state.verifiedPlatformID != "" {
 			present = append(present, PresenceStatus{
@@ -549,10 +479,6 @@ func (c *Coordinator) handleMessengerEvent(ctx context.Context, evt messengers.E
 	}
 }
 
-// onJoinConfirmation handles a Yes/No tap on the verification DM.
-// Nothing about the participant has reached Parquet before this point — on
-// Yes we flush the buffered join with its original timestamp; on No the
-// buffer is dropped silently.
 func (c *Coordinator) onJoinConfirmation(_ context.Context, evt messengers.Event) {
 	c.mu.Lock()
 	key, ok := c.pendingHandle[evt.Handle]
@@ -598,18 +524,13 @@ func (c *Coordinator) onJoinConfirmation(_ context.Context, evt messengers.Event
 	slog.Info("session: participant verified", "name", canonicalName)
 }
 
-// onRegistration handles a /register event. If anyone in the live-only
-// unregistered list matches the newly registered display name, replay
-// their original join through onJoin — the regular state machine takes
-// it from there (including the collision rule when more than one such
-// participant is currently in the meeting).
 func (c *Coordinator) onRegistration(ctx context.Context, evt messengers.Event) {
-	normIncoming := normName(evt.DisplayName)
+	normIncoming := participants.NormalizeName(evt.DisplayName)
 
 	c.mu.Lock()
 	matches := make([]providers.Event, 0)
 	for pid, joinEvt := range c.unregistered {
-		if normName(joinEvt.DisplayName) == normIncoming {
+		if participants.NormalizeName(joinEvt.DisplayName) == normIncoming {
 			matches = append(matches, joinEvt)
 			delete(c.unregistered, pid)
 		}
@@ -621,11 +542,6 @@ func (c *Coordinator) onRegistration(ctx context.Context, evt messengers.Event) 
 	}
 }
 
-// RunPoll loads a question bank from disk and dispatches one poll round
-// to the eligible participants currently in the meeting. autoSubmitted
-// is stamped onto every challenge_issued event for this round; it is
-// true only when the in-process challenger dispatched the bank without
-// teacher review.
 func (c *Coordinator) RunPoll(ctx context.Context, bankPath string, autoSubmitted bool) (challenges.PollResult, error) {
 	bank, err := challenges.Load(bankPath)
 	if err != nil {
@@ -634,9 +550,6 @@ func (c *Coordinator) RunPoll(ctx context.Context, bankPath string, autoSubmitte
 	return c.runPollBank(ctx, bank, autoSubmitted)
 }
 
-// RunPollBank dispatches an in-memory bank through the same pipeline as
-// RunPoll. Used by the in-process auto-generator on the auto_submit
-// path so the generated bank never touches disk.
 func (c *Coordinator) RunPollBank(ctx context.Context, bank challenges.Bank, autoSubmitted bool) (challenges.PollResult, error) {
 	return c.runPollBank(ctx, bank, autoSubmitted)
 }
@@ -670,10 +583,6 @@ func (c *Coordinator) runPollBank(ctx context.Context, bank challenges.Bank, aut
 	return c.pipeline.RunPoll(ctx, bank, autoSubmitted, eligible, sendFn, c.cfg.QuestionsDir, c.store.BaseName())
 }
 
-// renameQuestionsSidecar keeps the meeting's questions JSONL paired with
-// the Parquet file when Close renames the latter to its <start>-<end>
-// final form. Missing sidecar (no questions were issued) is the common
-// case and not an error.
 func (c *Coordinator) renameQuestionsSidecar(oldBase, newBase string) {
 	oldPath := filepath.Join(c.cfg.QuestionsDir, oldBase+".jsonl")
 	newPath := filepath.Join(c.cfg.QuestionsDir, newBase+".jsonl")
@@ -685,9 +594,6 @@ func (c *Coordinator) renameQuestionsSidecar(oldBase, newBase string) {
 	}
 }
 
-// RecordGeneratorFailed records a challenger generator failure so the
-// teacher sees it in the GUI's system log. Implements
-// challenger.EventSink.
 func (c *Coordinator) RecordGeneratorFailed(_ context.Context, reason string) {
 	c.writeEvent(eventstore.Record{
 		EventType: "challenge_generator_failed",
@@ -695,21 +601,11 @@ func (c *Coordinator) RecordGeneratorFailed(_ context.Context, reason string) {
 	})
 }
 
-// skippedParticipant captures one participant excluded from a poll
-// round, with the snake_case reason that goes into the
-// challenge_skipped event metadata.
 type skippedParticipant struct {
 	DisplayName string
 	Reason      string
 }
 
-// eligibleParticipants partitions the registered roster for the next
-// poll round into participants who should receive a challenge and
-// those who should be skipped (with a reason). Unverified or
-// name-tainted participants are silently dropped — they are not in
-// the meeting from the event-log point of view (no
-// participant_joined was written for them) and a skip marker with no
-// presence band would be misleading.
 func (c *Coordinator) eligibleParticipants() ([]challenges.EligibleParticipant, []skippedParticipant) {
 	minGap := time.Duration(c.cfg.MinGapBetweenChallengesSecs) * time.Second
 	now := time.Now()
@@ -749,7 +645,7 @@ func (c *Coordinator) writeEvent(r eventstore.Record) {
 
 func (c *Coordinator) RecordChallengeIssued(_ context.Context, issued challenges.IssuedChallenge) error {
 	c.mu.Lock()
-	if state, ok := c.names[normName(issued.DisplayName)]; ok {
+	if state, ok := c.names[participants.NormalizeName(issued.DisplayName)]; ok {
 		state.lastChallenge = time.Now()
 	}
 	c.mu.Unlock()
@@ -783,10 +679,6 @@ func (c *Coordinator) RecordChallengeResult(_ context.Context, challengeID strin
 	return nil
 }
 
-// encodeSubmittedAnswer serializes a student's response into a single
-// metadata string. Multiple-choice answers are JSON-encoded so the array
-// shape survives the round-trip into analytics; free-text answers (numeric,
-// short_text) go through verbatim.
 func encodeSubmittedAnswer(a challenges.Answer) string {
 	if len(a.Selected) > 0 {
 		buf, err := json.Marshal(a.Selected)
@@ -806,12 +698,6 @@ func (c *Coordinator) RecordChallengeUnanswered(_ context.Context, challengeID s
 	return nil
 }
 
-// RecordChallengeSkipped writes a challenge_skipped event for one
-// participant excluded from a poll round. Reason is a snake_case key
-// (e.g. min_gap, delivery_failed) stored under the metadata "reason"
-// field; AutoSubmitted travels alongside so analytics can keep skip
-// markers distinguished by producer the same way issued challenges
-// are.
 func (c *Coordinator) RecordChallengeSkipped(_ context.Context, sk challenges.SkippedChallenge) error {
 	ts := sk.SkippedAt
 	if ts.IsZero() {
@@ -830,11 +716,6 @@ func (c *Coordinator) RecordChallengeSkipped(_ context.Context, sk challenges.Sk
 	return nil
 }
 
-// NotifyAnswered deletes the question message (and the user's reply,
-// for text/numeric answers) and sends a fresh "answer saved" receipt
-// to handle. Delete errors are swallowed: the message may already be
-// gone (e.g. user cleared it) and the receipt is the part the user
-// actually needs to see.
 func (c *Coordinator) NotifyAnswered(ctx context.Context, handle, lang, questionRef, replyRef string) error {
 	if err := c.messenger.DeleteMessage(ctx, messengers.MessageRef{Opaque: questionRef}); err != nil {
 		slog.Debug("session: delete question message", "err", err)
@@ -847,14 +728,6 @@ func (c *Coordinator) NotifyAnswered(ctx context.Context, handle, lang, question
 	return c.messenger.SendNotification(ctx, handle, lang, messengers.NotifyChallengeAnswered)
 }
 
-// NotifyAnswerTimedOut edits the question message to mark the window expired.
 func (c *Coordinator) NotifyAnswerTimedOut(ctx context.Context, lang, ref string) error {
 	return c.messenger.Notify(ctx, messengers.MessageRef{Opaque: ref}, lang, messengers.NotifyChallengeTimedOut)
-}
-
-// normName matches participants.normName: case-sensitive, trims surrounding
-// whitespace only. The two must stay in sync — registry keys flow through
-// here as session map keys.
-func normName(displayName string) string {
-	return strings.TrimSpace(displayName)
 }

@@ -18,14 +18,12 @@ import (
 	"presence-tracker/src/internal/providers"
 )
 
-// Adapter polls the BBB getMeetingInfo API for live participant state.
 type Adapter struct {
 	cfg    *config.Config
 	client *http.Client
 	events chan providers.Event
 }
 
-// New creates a BBB poll adapter.
 func New(cfg *config.Config) *Adapter {
 	return &Adapter{
 		cfg:    cfg,
@@ -47,21 +45,8 @@ func newHTTPClient(insecure bool) *http.Client {
 
 func (a *Adapter) Name() string { return "bbb" }
 
-// ParseMeetingID accepts either a bare meeting ID or a BBB invite URL
-// and returns the canonical meeting ID used by the API. Three shapes are
-// recognised:
-//
-//   - a bare ID with no path separator — returned unchanged
-//   - a join URL carrying ?meetingID=<id> in the query
-//   - a Greenlight room URL with /b/<id> or /rooms/<id>[/join] in the path
-//
-// Any other URL is rejected with an explicit error so the teacher sees
-// a clear message instead of an obscure API failure later.
 func (a *Adapter) ParseMeetingID(input string) (string, error) { return ParseMeetingID(input) }
 
-// ParseMeetingID is the package-level form of [Adapter.ParseMeetingID],
-// exposed so callers without an adapter instance (tests, future helpers)
-// can reuse the same parsing rules.
 func ParseMeetingID(input string) (string, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
@@ -91,8 +76,6 @@ func ParseMeetingID(input string) (string, error) {
 	return "", fmt.Errorf("bbb: cannot extract meeting ID from %q", input)
 }
 
-// Authenticate verifies that the BBB server is reachable and the shared
-// secret is accepted by calling the getMeetings API endpoint.
 func (a *Adapter) Authenticate(ctx context.Context) error {
 	bbb := a.cfg.Get().Providers.BBB
 	apiURL := bbbAPIURL(bbb.BaseURL, bbb.SharedSecret, "getMeetings", "")
@@ -111,8 +94,6 @@ func (a *Adapter) Authenticate(ctx context.Context) error {
 	return nil
 }
 
-// Subscribe starts polling getMeetingInfo and returns a channel of events.
-// The channel is closed when the meeting ends or ctx is cancelled.
 func (a *Adapter) Subscribe(ctx context.Context, meetingID string) (<-chan providers.Event, error) {
 	go a.pollLoop(ctx, meetingID)
 	return a.events, nil
@@ -139,7 +120,7 @@ func (a *Adapter) pollLoop(ctx context.Context, meetingID string) {
 	defer ticker.Stop()
 
 	state := pollState{
-		active: map[string]string{}, // userID → fullName
+		active: map[string]string{},
 	}
 
 	for {
@@ -154,18 +135,12 @@ func (a *Adapter) pollLoop(ctx context.Context, meetingID string) {
 	}
 }
 
-// pollState carries cross-tick bookkeeping for pollLoop. observedNotRunning
-// is set to true the first time a poll reports the meeting as not running
-// before it goes live; that distinguishes "attached and watched the meeting
-// start" from "attached while the meeting was already in progress".
 type pollState struct {
 	active             map[string]string
 	meetingLive        bool
 	observedNotRunning bool
 }
 
-// tick performs one poll cycle. Returns true when the meeting has ended and
-// the caller should stop the loop.
 func (a *Adapter) tick(ctx context.Context, meetingID string, state *pollState) bool {
 	info, err := a.fetchMeetingInfo(ctx, meetingID)
 	if err != nil {
@@ -180,6 +155,8 @@ func (a *Adapter) tick(ctx context.Context, meetingID string, state *pollState) 
 			state.observedNotRunning = true
 		} else {
 			state.meetingLive = true
+			// Seeing "running" without ever having seen "not running" means we
+			// attached after the meeting had already started.
 			midMeeting := !state.observedNotRunning
 			ts := time.Now().UTC()
 			if !midMeeting && info.CreateTime > 0 {
@@ -269,8 +246,6 @@ func (a *Adapter) emit(evt providers.Event) {
 	}
 }
 
-// bbbAPIURL builds a signed BBB API URL for the given action and query
-// parameters. params must be URL-encoded and NOT include a trailing &.
 func bbbAPIURL(baseURL, sharedSecret, action, params string) string {
 	checksum := bbbChecksum(action, params, sharedSecret)
 	base := strings.TrimRight(baseURL, "/") + "/api/" + action
@@ -280,7 +255,8 @@ func bbbAPIURL(baseURL, sharedSecret, action, params string) string {
 	return base + "?checksum=" + checksum
 }
 
-// bbbChecksum computes the BBB API request checksum: SHA-1(action + params + secret).
+// bbbChecksum is the per-call signature the BBB API requires: SHA-1 of the
+// action name, the query string, and the shared secret.
 func bbbChecksum(action, params, secret string) string {
 	h := sha1.New() //nolint:gosec
 	_, _ = h.Write([]byte(action + params + secret))

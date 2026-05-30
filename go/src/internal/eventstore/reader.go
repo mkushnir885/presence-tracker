@@ -13,7 +13,6 @@ import (
 	"github.com/apache/arrow/go/v17/parquet/pqarrow"
 )
 
-// ReadAll reads every record from a Parquet file written by Writer.
 func ReadAll(ctx context.Context, path string) ([]Record, error) {
 	f, err := pqfile.OpenParquetFile(path, false)
 	if err != nil {
@@ -35,9 +34,6 @@ func ReadAll(ctx context.Context, path string) ([]Record, error) {
 	n := int(table.NumRows())
 	records := make([]Record, 0, n)
 
-	// Column indices match schema.go:
-	// 0=meeting_id, 1=timestamp, 2=event_type, 3=display_name,
-	// 4=challenge_id, 5=question_id, 6=metadata
 	const (
 		colMeetingID   = 0
 		colTimestamp   = 1
@@ -57,15 +53,14 @@ func ReadAll(ctx context.Context, path string) ([]Record, error) {
 	}
 	tsCol := newInt64Reader(table.Column(colTimestamp))
 
-	// Collect raw timestamp values (absolute Unix ms for session_started,
-	// ms offset from session start for all others).
+	// Timestamps are stored relative: session_started holds absolute Unix
+	// ms, every other event holds a ms offset from it. Reconstruct the
+	// session start first, then add each offset back to wall-clock time.
 	rawTS := make([]int64, n)
 	for i := range n {
 		rawTS[i] = tsCol.get(i)
 	}
 
-	// Identify the session start time from the session_started event so that
-	// all offsets can be reconstructed into absolute wall-clock times.
 	var sessionStart time.Time
 	for i := range n {
 		if strCols[colEventType].get(i) == "session_started" {
@@ -111,18 +106,16 @@ func ReadAll(ctx context.Context, path string) ([]Record, error) {
 	return records, nil
 }
 
-// strReader gives row-indexed access across chunked string column data.
 type strReader struct {
 	chunks []*array.String
-	// cumulative row counts per chunk for binary search
-	ends []int
+	ends   []int
 }
 
 func newStrReader(col *arrow.Column) *strReader {
 	sr := &strReader{}
 	offset := 0
 	for _, chunk := range col.Data().Chunks() {
-		s := chunk.(*array.String)
+		s := chunk.(*array.String) //nolint:forcetypeassert // column dtype is fixed by the Arrow schema
 		sr.chunks = append(sr.chunks, s)
 		offset += s.Len()
 		sr.ends = append(sr.ends, offset)
@@ -159,7 +152,6 @@ func (sr *strReader) isNull(row int) bool {
 	return ch.IsNull(idx)
 }
 
-// int64Reader gives row-indexed access across chunked Int64 column data.
 type int64Reader struct {
 	chunks []*array.Int64
 	ends   []int
@@ -169,7 +161,7 @@ func newInt64Reader(col *arrow.Column) *int64Reader {
 	r := &int64Reader{}
 	offset := 0
 	for _, chunk := range col.Data().Chunks() {
-		a := chunk.(*array.Int64)
+		a := chunk.(*array.Int64) //nolint:forcetypeassert // column dtype is fixed by the Arrow schema
 		r.chunks = append(r.chunks, a)
 		offset += a.Len()
 		r.ends = append(r.ends, offset)

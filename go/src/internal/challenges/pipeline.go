@@ -13,32 +13,23 @@ import (
 	"presence-tracker/src/internal/eventstore"
 )
 
-// EligibleParticipant is a snapshot of one participant eligible to receive
-// a challenge in a poll round. Identity is the canonical display name —
-// the same value written to every per-participant Parquet event.
 type EligibleParticipant struct {
 	DisplayName string
 	Handle      string
-	// Language is the participant's registered catalog language, carried
-	// through to the messenger so it need not re-query the registry.
-	Language string
+	Language    string
 }
 
-// IssuedChallenge records one delivered challenge.
 type IssuedChallenge struct {
 	ChallengeID   string
 	DisplayName   string
 	AutoSubmitted bool
 	Question      Question
 	Handle        string
-	Language      string // recipient's catalog language, for follow-up notifications
+	Language      string
 	MessageRef    string
 	IssuedAt      time.Time
 }
 
-// SkippedChallenge records one challenge that never reached the
-// participant. Reason is a snake_case key (delivery_failed, min_gap,
-// …) written to the challenge_skipped event metadata.
 type SkippedChallenge struct {
 	ChallengeID   string
 	DisplayName   string
@@ -47,31 +38,21 @@ type SkippedChallenge struct {
 	SkippedAt     time.Time
 }
 
-// EventSink receives scored challenge results and side effects. Implemented
-// by session.Coordinator.
+// EventSink receives each challenge's outcome from the pipeline. The session
+// coordinator implements it: it persists events and drives messenger replies.
 type EventSink interface {
 	RecordChallengeIssued(ctx context.Context, c IssuedChallenge) error
 	RecordChallengeResult(ctx context.Context, challengeID string, result ScoreResult, submitted Answer, latencyMS int64) error
 	RecordChallengeUnanswered(ctx context.Context, challengeID string) error
 	RecordChallengeSkipped(ctx context.Context, sk SkippedChallenge) error
 
-	// NotifyAnswered acknowledges a received answer. It deletes the
-	// question message and, for text/numeric answers, the user's reply,
-	// then sends a fresh "answer saved" message to handle. lang is the
-	// recipient's catalog language. replyRef is empty for multiple-choice
-	// answers where the user tapped a button instead of replying.
 	NotifyAnswered(ctx context.Context, handle, lang, questionRef, replyRef string) error
-	// NotifyAnswerTimedOut edits the question message in place to show
-	// that the answer window has closed without an answer being
-	// recorded. lang is the recipient's catalog language.
 	NotifyAnswerTimedOut(ctx context.Context, lang, ref string) error
 }
 
-// SendFn dispatches one challenge to one participant via the messenger.
-// lang is the recipient's catalog language.
+// SendFn delivers one question and returns an opaque ref to the sent message.
 type SendFn func(ctx context.Context, handle, lang, challengeID string, q Question) (ref string, err error)
 
-// PollResult summarizes a freshly scheduled poll round.
 type PollResult struct {
 	PollID         string
 	ScheduledCount int
@@ -84,17 +65,14 @@ type pendingChallenge struct {
 	cancel   context.CancelFunc
 }
 
-// Pipeline tracks outstanding challenges for one session. A single Pipeline
-// is created per session and reused across poll rounds.
 type Pipeline struct {
 	sink         EventSink
 	answerWindow time.Duration
 
 	mu      sync.Mutex
-	pending map[string]*pendingChallenge // challengeID → pending
+	pending map[string]*pendingChallenge
 }
 
-// NewPipeline creates a Pipeline for the given session.
 func NewPipeline(sink EventSink, answerWindow time.Duration) *Pipeline {
 	return &Pipeline{
 		sink:         sink,
@@ -103,12 +81,8 @@ func NewPipeline(sink EventSink, answerWindow time.Duration) *Pipeline {
 	}
 }
 
-// RunPoll dispatches one poll round: assigns one random question per
-// eligible participant, appends issued questions to the meeting's .jsonl
-// file, delivers them, and starts per-challenge answer-window goroutines.
-//
-// Returns immediately once dispatch has been scheduled. The caller must
-// route incoming answers via HandleAnswer.
+// RunPoll assigns each eligible participant one random question from the
+// bank, delivers it via send, and scores answers within answerWindow.
 func (p *Pipeline) RunPoll(
 	ctx context.Context,
 	bank Bank,
@@ -129,6 +103,8 @@ func (p *Pipeline) RunPoll(
 
 	issuedAt := time.Now().UTC()
 
+	// Each delivery gets a fresh QuestionID so the same bank question handed
+	// to several participants is tracked as distinct issued instances.
 	assignments := make([]Question, len(eligible))
 	for i := range eligible {
 		src := bank.Questions[rand.IntN(len(bank.Questions))] //nolint:gosec // G404: question selection is not security-sensitive
@@ -229,10 +205,6 @@ func (p *Pipeline) deliver(
 	}
 
 	answerCh := make(chan Answer, 1)
-	// Detach from the caller's ctx (often an HTTP request that
-	// finishes long before answer_window elapses) but keep its values
-	// so logging/tracing remain consistent. Drain still cancels via
-	// the stored cancel func when the session ends.
 	timeoutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), p.answerWindow)
 
 	p.mu.Lock()
@@ -276,8 +248,6 @@ func (p *Pipeline) awaitAnswer(ctx context.Context, cancel context.CancelFunc, c
 	}
 }
 
-// HandleAnswer routes an incoming answer to its pending challenge. Returns
-// false if no matching pending entry exists (already timed out or unknown).
 func (p *Pipeline) HandleAnswer(challengeID string, answer Answer) bool {
 	p.mu.Lock()
 	pc, ok := p.pending[challengeID]
@@ -293,7 +263,6 @@ func (p *Pipeline) HandleAnswer(challengeID string, answer Answer) bool {
 	}
 }
 
-// Drain cancels all pending challenges (called on session end).
 func (p *Pipeline) Drain() {
 	p.mu.Lock()
 	for _, pc := range p.pending {

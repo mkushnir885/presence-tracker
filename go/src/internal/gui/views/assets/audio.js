@@ -1,23 +1,5 @@
-// Browser-side audio capture for the in-process auto-generator.
-//
-// UI surface on the live status page:
-//   * #audio-mic-btn   — single button that handles grant / mute /
-//                        unmute. Its data-state attribute drives the
-//                        icon swap and tooltip:
-//                          idle  → not started; click to request mic
-//                          live  → recording; click to mute
-//                          muted → paused;    click to resume
-//   * #audio-device-list — populated when a stream is live with one
-//                        entry per audio-input device. Selecting one
-//                        restarts the recorder against that deviceId
-//                        (saved to localStorage).
-//   * #audio-status   — short status line (e.g. "recording…").
-//
-// We start a MediaRecorder, stop it every poll_interval_seconds, POST
-// the resulting Opus/WebM blob to /audio/segment, then immediately
-// start a new recording so transcription gaps are bounded by stop+
-// start latency (10–50 ms) rather than the request round-trip.
-
+// Browser-side mic capture for auto-generated challenges: records short
+// segments and POSTs each to /audio/segment, where the daemon runs ASR/LLM.
 (function () {
 	const stateEl = document.getElementById("audio-state");
 	if (!stateEl) return;
@@ -41,6 +23,7 @@
 
 	const supportedMime = pickSupportedMime();
 
+	// First container/codec this browser's MediaRecorder can actually produce.
 	function pickSupportedMime() {
 		const candidates = [
 			"audio/webm;codecs=opus",
@@ -121,6 +104,8 @@
 		recorder.start();
 	}
 
+	// Fires when the interval timer stops the recorder. Assemble the closed
+	// segment, restart recording right away so no audio is lost, then upload.
 	function onSegmentStop() {
 		const blob = new Blob(currentBlobs, { type: supportedMime || "audio/webm" });
 		startRecorder();
@@ -130,6 +115,7 @@
 	}
 
 	async function postSegment(blob) {
+		// Skip if a previous upload is still running; segments never overlap.
 		if (inFlight) return;
 		inFlight = true;
 		setStatus("uploading " + Math.round(blob.size / 1024) + " kB…");
@@ -173,6 +159,8 @@
 		}
 	}
 
+	// Stop the recorder every pollInterval seconds: MediaRecorder only emits a
+	// complete, decodable file on stop, so this is what cuts each segment.
 	function startInterval() {
 		clearInterval(intervalHandle);
 		intervalHandle = setInterval(() => {
@@ -226,11 +214,7 @@
 		}
 	}
 
-	// tryAutoGrant starts recording without a user click when the browser
-	// already remembers a granted microphone permission (Chrome's
-	// Permissions API). On Firefox/Safari, where this query throws or
-	// returns "prompt", we silently fall back to the idle state and wait
-	// for the teacher to tap the mic button.
+	// Resume capturing without a click if the user already granted the mic.
 	async function tryAutoGrant() {
 		if (!navigator.permissions || !navigator.permissions.query) return;
 		try {
@@ -277,10 +261,8 @@
 		tryAutoGrant();
 	}
 
-	// The audio card may be absent on initial render (the meeting hasn't
-	// started yet) and appear only after a status-body swap. Retry init
-	// on every htmx settle until it succeeds; it's a single-shot once
-	// the button shows up.
+	// The Audio card may arrive via an htmx swap, so retry init after settle
+	// if its button wasn't in the DOM on first load.
 	init();
 	if (!initialised) {
 		document.body.addEventListener("htmx:afterSettle", init);

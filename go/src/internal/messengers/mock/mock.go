@@ -9,7 +9,6 @@ import (
 	"presence-tracker/src/internal/messengers"
 )
 
-// SentChallenge records one delivered challenge for test inspection.
 type SentChallenge struct {
 	Handle  string
 	Prompt  messengers.ChallengePrompt
@@ -18,13 +17,10 @@ type SentChallenge struct {
 	Deleted bool
 }
 
-// Name is the canonical identifier this adapter reports through
-// Messenger.Name. The mock intentionally does not call
-// messengers.Register: it is a test-only adapter and stays out of the
-// production catalog returned by messengers.Names.
 const Name = "mock"
 
-// Messenger is a no-op messenger suitable for automated tests.
+// Messenger is an in-memory test double: it records what was sent (challenges,
+// confirmations) and lets tests inject incoming events via the Inject* methods.
 type Messenger struct {
 	mu            sync.Mutex
 	events        chan messengers.Event
@@ -33,7 +29,6 @@ type Messenger struct {
 	confirmations []SentConfirmation
 }
 
-// SentConfirmation records a join confirmation request for test inspection.
 type SentConfirmation struct {
 	Handle    string
 	MeetingID string
@@ -41,7 +36,6 @@ type SentConfirmation struct {
 	Ref       messengers.MessageRef
 }
 
-// New creates a Messenger for testing.
 func New() *Messenger {
 	return &Messenger{events: make(chan messengers.Event, 64)}
 }
@@ -106,7 +100,6 @@ func (m *Messenger) DeleteMessage(_ context.Context, ref messengers.MessageRef) 
 	return nil
 }
 
-// InjectAnswer simulates a student answering a challenge.
 func (m *Messenger) InjectAnswer(handle, challengeID, text string, selected []string) {
 	m.events <- messengers.Event{
 		Kind:        messengers.EventKindAnswerReceived,
@@ -118,7 +111,6 @@ func (m *Messenger) InjectAnswer(handle, challengeID, text string, selected []st
 	}
 }
 
-// InjectConfirmation simulates a student tapping Yes or No on a join confirmation.
 func (m *Messenger) InjectConfirmation(handle string, confirmed bool) {
 	m.events <- messengers.Event{
 		Kind:      messengers.EventKindJoinConfirmation,
@@ -128,7 +120,6 @@ func (m *Messenger) InjectConfirmation(handle string, confirmed bool) {
 	}
 }
 
-// Sent returns all challenges sent so far (safe to call concurrently).
 func (m *Messenger) Sent() []SentChallenge {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -139,7 +130,6 @@ func (m *Messenger) Sent() []SentChallenge {
 	return out
 }
 
-// Confirmations returns all join confirmations sent so far.
 func (m *Messenger) Confirmations() []SentConfirmation {
 	m.mu.Lock()
 	defer m.mu.Unlock()

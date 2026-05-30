@@ -36,7 +36,6 @@ import (
 	"presence-tracker/src/internal/stats"
 )
 
-// Server is the GUI HTTP server for ptrack serve.
 type Server struct {
 	cfg      *config.Config
 	registry participants.Registry
@@ -46,24 +45,17 @@ type Server struct {
 	mu     sync.RWMutex
 	active *activeSession
 
-	// shutdownFn, when non-nil, is invoked by POST /system/shutdown to
-	// stop the daemon process. cmd/ptrack wires it to the http.Server
-	// listener-shutdown path.
-	shutdownFn func()
+	shutdownFn func() // stops the daemon; set by cmd/ptrack via OnShutdown
 
-	// stopCh is closed by SignalShutdown so the long-lived /events SSE
-	// handlers can exit promptly instead of blocking http.Server.Shutdown
-	// for the full grace period. stopOnce makes the close idempotent.
+	// stopCh is closed by SignalShutdown so long-lived SSE handlers exit
+	// promptly instead of holding up the graceful shutdown.
 	stopOnce sync.Once
 	stopCh   chan struct{}
 }
 
-// OnShutdown registers the callback POST /system/shutdown invokes after
-// it has drained the active session. cmd/ptrack uses it to stop the
-// http.Server and release the listener.
 func (s *Server) OnShutdown(fn func()) { s.shutdownFn = fn }
 
-// activeSession holds state for the currently running tracking session.
+// activeSession is the currently running tracking session; nil when idle.
 type activeSession struct {
 	meetingID    string
 	providerName string
@@ -72,12 +64,9 @@ type activeSession struct {
 	cancel       context.CancelFunc
 	startedAt    time.Time
 	done         chan struct{}
-	buf          *logBuffer
+	buf          *logBuffer // captures slog output for the live status log
 }
 
-// New creates a Server. The router owns the long-running messenger
-// that handles registrations; the Server installs the active session's
-// coordinator as the router's event handler while a session is running.
 func New(cfg *config.Config, registry participants.Registry, router *messengers.Router) *Server {
 	return &Server{
 		cfg:      cfg,
@@ -88,17 +77,10 @@ func New(cfg *config.Config, registry participants.Registry, router *messengers.
 	}
 }
 
-// SignalShutdown closes stopCh so any open /events SSE handlers
-// return immediately. Safe to call multiple times; cmd/ptrack invokes
-// it both from the shutdown button path and from the SIGINT/SIGTERM
-// path so http.Server.Shutdown isn't held up by the long-poll
-// handlers for its full grace period.
 func (s *Server) SignalShutdown() {
 	s.stopOnce.Do(func() { close(s.stopCh) })
 }
 
-// RegisterRoutes attaches the GUI's HTML and htmx routes to mux. The HTTP
-// server lifecycle is owned by the caller (cmd/ptrack).
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	sub, _ := fs.Sub(views.Assets, "assets")
 	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServerFS(sub)))
@@ -124,9 +106,6 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /events", s.handleEvents)
 }
 
-// Coord returns the coordinator of the currently active session, or nil
-// when no session is running. Used by cmd/ptrack to mount the poll
-// handler with lazy access to the GUI-managed session.
 func (s *Server) Coord() *session.Coordinator {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -136,9 +115,6 @@ func (s *Server) Coord() *session.Coordinator {
 	return s.active.coord
 }
 
-// Challenger returns the auto-generator of the currently active session,
-// or nil when no session is running or auto-generation is disabled.
-// Used by cmd/ptrack to mount the audio-segment handler.
 func (s *Server) Challenger() *challenger.Service {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -148,10 +124,6 @@ func (s *Server) Challenger() *challenger.Service {
 	return s.active.challenger
 }
 
-// handleHome renders the home page (Connect to a meeting form). When a
-// session is already active it redirects to /status — there is no
-// meaningful home action while tracking, and the live view is what the
-// user wants.
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	act := s.active
@@ -169,9 +141,6 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	_ = views.Home(data, locale).Render(r.Context(), w)
 }
 
-// handleMeetings renders the Meeting files page, listing every Parquet
-// file in the meetings directory. Sorting and filtering are done
-// client-side; the server hands rows back sorted newest first.
 func (s *Server) handleMeetings(w http.ResponseWriter, r *http.Request) {
 	entries, err := os.ReadDir(s.cfg.Get().MeetingsDir)
 	if err != nil && !os.IsNotExist(err) {
@@ -205,8 +174,7 @@ func (s *Server) handleMeetings(w http.ResponseWriter, r *http.Request) {
 	_ = views.Meetings(views.MeetingsData{Meetings: meetings}, locale).Render(r.Context(), w)
 }
 
-// handleStartSession starts a new tracking session.
-func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) { //nolint:contextcheck // the tracking session outlives the request, so it runs on a detached context
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form data", http.StatusBadRequest)
 		return
@@ -326,7 +294,6 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/status", http.StatusSeeOther)
 }
 
-// handleStopSession cancels the active session.
 func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	act := s.active
@@ -346,7 +313,6 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-// handleStatus renders the live status page shell.
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	data, ok := s.statusData()
 	if !ok {
@@ -357,30 +323,12 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	_ = views.Status(data, locale).Render(r.Context(), w)
 }
 
-// statusStreamTick is how often the SSE handler re-renders each
-// region and compares it to the last sent payload. A 2 s tick keeps
-// the perceived lag low for log lines and roster joins while leaving
-// the network idle when nothing has changed (a render that matches
-// the previous send is suppressed).
 const statusStreamTick = 2 * time.Second
 
-// handleStatusStream is the live-status SSE stream. The page renders
-// itself once on GET /status; this stream then pushes finer-grained
-// fragment updates as the underlying state changes:
-//
-//	started → the "Tracking/Meeting started at …" line in the header
-//	body    → the entire #status-body (sent on the waiting↔live phase
-//	          transition; rebuilds the controls and roster wrappers)
-//	roster  → the two roster cards' contents
-//	log     → the system log entries
-//	pending → the auto-generated bank "Generate now" button state
-//
-// Each fragment is only emitted when it differs from the last value
-// sent on this connection, so an idle session produces no events
-// beyond the periodic SSE keep-alive comment. The handler returns when
-// the request is cancelled, the daemon is shutting down, or the
-// session has stopped (the session-ended event tells the client to
-// navigate back to /).
+// handleStatusStream is the live-status SSE stream. Each region (started
+// row, body, rosters, log, pending-bank button) is re-rendered on a tick and
+// re-sent only when it differs from the last value, so an idle session emits
+// nothing but keep-alives.
 func (s *Server) handleStatusStream(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -416,12 +364,8 @@ func (s *Server) handleStatusStream(w http.ResponseWriter, r *http.Request) {
 		return "live"
 	}
 
-	// Seed every region with the page's initial render so we only emit
-	// on real changes — the first connect carries the same HTML that's
-	// already in the DOM, so re-sending it would just churn the client.
-	// lastPhase is tracked separately from the body fragment because
-	// the body event is gated solely on the waiting↔live transition,
-	// and sub-region events are responsible for everything else.
+	// Seed each region with the initial render so the first tick only emits
+	// real changes (the page already holds this HTML).
 	var lastStarted, lastRoster, lastLog, lastPending, lastPhase string
 	if data, ok := s.statusData(); ok {
 		lastPhase = phaseOf(data)
@@ -453,9 +397,6 @@ func (s *Server) handleStatusStream(w http.ResponseWriter, r *http.Request) {
 			body := render(views.StatusBodyInner(data, locale))
 			writeSSEEvent(w, "body", body)
 			lastPhase = phase
-			// The new body carries fresh roster/log/pending content;
-			// seed the per-region caches so the next tick only emits
-			// on subsequent changes.
 			lastRoster = render(views.StatusRosters(data, locale))
 			lastLog = render(views.StatusLog(data, locale))
 			if data.AutoGenEnabled {
@@ -513,19 +454,14 @@ func (s *Server) handleStatusStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// writeSSEEvent writes one SSE message. Multi-line payloads (templ
-// renders HTML with embedded newlines) get one data: line per
-// physical line, per the SSE wire format.
 func writeSSEEvent(w io.Writer, event, payload string) {
 	_, _ = fmt.Fprintf(w, "event: %s\n", event)
-	for _, line := range strings.Split(payload, "\n") {
+	for line := range strings.SplitSeq(payload, "\n") {
 		_, _ = fmt.Fprintf(w, "data: %s\n", line)
 	}
 	_, _ = io.WriteString(w, "\n")
 }
 
-// statusData captures the current session state into a StatusData
-// view model. Returns ok=false when no session is active.
 func (s *Server) statusData() (views.StatusData, bool) {
 	s.mu.RLock()
 	act := s.active
@@ -564,9 +500,6 @@ func (s *Server) statusData() (views.StatusData, bool) {
 	}, true
 }
 
-// latestPendingBank returns the freshest auto-*.yaml in the review dir,
-// or nil when the challenger is offline, in auto_submit mode, or the
-// dir is empty.
 func latestPendingBank(svc *challenger.Service) *views.PendingBank {
 	if svc == nil {
 		return nil
@@ -604,9 +537,6 @@ func latestPendingBank(svc *challenger.Service) *views.PendingBank {
 	}
 }
 
-// handlePollPendingPreview returns the pending YAML's raw text wrapped
-// in a <pre> for inline display. Keeps it simple — full edit is the
-// teacher's text editor, not the GUI.
 func (s *Server) handlePollPendingPreview(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	act := s.active
@@ -631,18 +561,8 @@ func (s *Server) handlePollPendingPreview(w http.ResponseWriter, r *http.Request
 	_, _ = w.Write([]byte(`</pre>`))
 }
 
-// pollFileMaxBytes caps the multipart upload from the GUI's "Trigger
-// poll" card. Question banks are plain YAML of a few KB even in the
-// worst case; 1 MiB rejects pasted binaries without truncating any
-// realistic bank.
 const pollFileMaxBytes = 1 << 20
 
-// handlePollFile accepts a YAML question bank as multipart/form-data
-// from the live status page, writes it to a temp file the active
-// session can read, dispatches it through the same RunPoll path as
-// ptrack poll, and removes the temp file afterwards. Replaces the
-// previous "type a server-side path" input on the GUI — the teacher's
-// browser is the source of truth for the file.
 func (s *Server) handlePollFile(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	act := s.active
@@ -690,12 +610,12 @@ func (s *Server) handlePollFile(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()}) //nolint:errchkjson // map[string]string cannot fail to marshal
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{ //nolint:errchkjson // response fields are JSON-safe scalars
 		"poll_id":         result.PollID,
 		"scheduled_count": result.ScheduledCount,
 		"skipped_count":   result.SkippedCount,
@@ -703,13 +623,9 @@ func (s *Server) handlePollFile(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleEvents is the daemon-liveness SSE stream that every page opens
-// in its layout. The connection is held open for the lifetime of the
-// daemon; the browser's EventSource fires onerror the moment the
-// stream drops (Ctrl-C, OS kill, graceful shutdown) and the layout's
-// detector flips the body to the stopped template. We send periodic
-// comment-only keep-alives so intermediate proxies and the browser's
-// idle-connection heuristics don't cut us off prematurely.
+// handleEvents is the daemon-liveness SSE stream every page holds open. When
+// it drops (shutdown, Ctrl-C, kill) the browser's EventSource fires onerror
+// and the layout flips to the "stopped" screen.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -722,8 +638,6 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	h.Set("Connection", "keep-alive")
 	h.Set("X-Accel-Buffering", "no")
 
-	// Send something immediately so the client's EventSource fires
-	// onopen rather than sitting in CONNECTING.
 	if _, err := io.WriteString(w, "event: hello\ndata: ok\n\n"); err != nil {
 		return
 	}
@@ -746,11 +660,6 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleShutdown stops the active session and triggers the daemon-
-// level shutdown callback (if registered). The response carries no
-// body — instead an HX-Trigger header fires `ptrack-shutdown` on the
-// client, which routes through the same showStopped() detector used
-// for SIGINT/Ctrl-C, so both shutdown paths produce identical UI.
 func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	act := s.active
@@ -762,13 +671,13 @@ func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 		case <-time.After(10 * time.Second):
 		}
 	}
+	// HX-Trigger fires ptrack-shutdown so this path and SIGINT paint the same
+	// "stopped" screen; the short delay lets the response reach the browser
+	// before the listener closes.
 	w.Header().Set("HX-Trigger", "ptrack-shutdown")
 	w.WriteHeader(http.StatusNoContent)
 	if s.shutdownFn != nil {
 		go func() {
-			// Brief delay so the HX-Trigger response reaches the
-			// browser and showStopped() paints the screen before the
-			// listener goes away.
 			time.Sleep(200 * time.Millisecond)
 			s.SignalShutdown()
 			s.shutdownFn()
@@ -781,10 +690,6 @@ func htmlEscape(s string) string {
 	return r.Replace(s)
 }
 
-// handleStats renders the unified per-meeting / cross-meeting stats
-// page. The file= query carries one or more meeting-basename values;
-// stats.Loader fetches the JSON (from cache when fresh) and the templ
-// view picks the right layout based on file count.
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	files, basenames, err := s.collectStatsFiles(r)
 	if err != nil {
@@ -807,9 +712,6 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	_ = views.Stats(data, locale).Render(r.Context(), w)
 }
 
-// handleReport serves the CSV equivalent of the same file query that
-// /stats reads. The Python report command auto-aggregates when more
-// than one --in is supplied.
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	files, basenames, err := s.collectStatsFiles(r)
 	if err != nil {
@@ -832,9 +734,6 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(csv)
 }
 
-// handleRenameParticipant rewrites every file= listed in the query so
-// that rows previously matching the path's {p} display name carry the
-// new= value instead. Files outside the request are not touched.
 func (s *Server) handleRenameParticipant(w http.ResponseWriter, r *http.Request) {
 	oldName := r.PathValue("p")
 	newName := r.URL.Query().Get("new")
@@ -861,7 +760,7 @@ func (s *Server) handleRenameParticipant(w http.ResponseWriter, r *http.Request)
 	}
 
 	for _, path := range files {
-		if err := eventstore.UpdateDisplayName(path, oldName, newName); err != nil {
+		if err := eventstore.UpdateDisplayName(path, oldName, newName); err != nil { //nolint:contextcheck // synchronous Parquet rewrite; not cancellable mid-write
 			http.Error(w, "rename failed for "+filepath.Base(path)+": "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -870,10 +769,6 @@ func (s *Server) handleRenameParticipant(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// collectStatsFiles parses the file= query into validated absolute
-// paths under MeetingsDir. The basename list returned alongside is
-// the form templates use for self-referential links (it preserves the
-// caller's order).
 func (s *Server) collectStatsFiles(r *http.Request) (paths, basenames []string, err error) {
 	raw := r.URL.Query()["file"]
 	if len(raw) == 0 {
@@ -889,7 +784,7 @@ func (s *Server) collectStatsFiles(r *http.Request) (paths, basenames []string, 
 			name += ".parquet"
 		}
 		full := filepath.Join(dir, name)
-		if _, statErr := os.Stat(full); statErr != nil {
+		if _, statErr := os.Stat(full); statErr != nil { //nolint:gosec // name is validated against path separators and ".." just above
 			return nil, nil, fmt.Errorf("file %q not found in meetings dir", name)
 		}
 		paths = append(paths, full)
@@ -905,10 +800,6 @@ func reportFilename(basenames []string) string {
 	return "report.csv"
 }
 
-// handleRegistry renders the registry page in its initial state — the
-// filter form is empty and every entry is listed. Subsequent filtering
-// and deletion happen over POST endpoints that carry the form in the
-// request body and return only the fragment that needs to swap.
 func (s *Server) handleRegistry(w http.ResponseWriter, r *http.Request) {
 	all, err := s.registry.Find(r.Context(), participants.Filter{})
 	if err != nil {
@@ -924,12 +815,6 @@ func (s *Server) handleRegistry(w http.ResponseWriter, r *http.Request) {
 	_ = views.Registry(data, locale).Render(r.Context(), w)
 }
 
-// handleFilterRegistry executes the user's filter against the registry
-// and returns just the results fragment (htmx swaps it into the
-// #registry-results container) plus an OOB swap that refreshes the
-// match-count line. On validation errors only the count line is
-// updated — retargeted to #registry-info so the participants table is
-// left untouched.
 func (s *Server) handleFilterRegistry(w http.ResponseWriter, r *http.Request) {
 	req, err := parseRegistryRequest(r)
 	if err != nil {
@@ -953,20 +838,6 @@ func (s *Server) handleFilterRegistry(w http.ResponseWriter, r *http.Request) {
 	_ = views.RegistryInfo(len(entries), nil, locale, true).Render(r.Context(), w)
 }
 
-// handleDeleteRegistry removes registry entries. The body decides the
-// scope:
-//
-//   - If display_name values are present, exactly those entries are
-//     removed. Used by both the per-row trash icon (one name) and the
-//     header's bulk-selection trash (many names). The filter form is
-//     not consulted in this branch.
-//   - Otherwise the filter form drives the delete: the filter inputs
-//     are validated and every matching entry is removed. An empty
-//     filter clears every registration.
-//
-// In either branch, when the registry becomes empty as a result the
-// response carries HX-Refresh so the GET handler can rerender the
-// empty-state layout (no filter form, no table).
 func (s *Server) handleDeleteRegistry(w http.ResponseWriter, r *http.Request) {
 	req, err := parseRegistryRequest(r)
 	if err != nil {
@@ -1004,8 +875,6 @@ func (s *Server) handleDeleteRegistry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Re-apply the current filter so the participants list reflects the
-	// post-deletion state under whatever narrowing the user had active.
 	visible := total
 	if len(req.DisplayNames) == 0 {
 		visible, err = s.registry.Find(r.Context(), filter)
@@ -1014,8 +883,6 @@ func (s *Server) handleDeleteRegistry(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		// Bulk-by-name delete: respect the filter form values that came
-		// along on the request so the user's current view stays applied.
 		f, vErrs := validateInputs(req.Filter)
 		if len(vErrs) == 0 {
 			visible, err = s.registry.Find(r.Context(), f)
@@ -1029,7 +896,6 @@ func (s *Server) handleDeleteRegistry(w http.ResponseWriter, r *http.Request) {
 	_ = views.RegistryInfo(len(visible), nil, locale, true).Render(r.Context(), w)
 }
 
-// handleQuestion returns a question record as JSON.
 func (s *Server) handleQuestion(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -1044,10 +910,9 @@ func (s *Server) handleQuestion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(q)
+	_ = json.NewEncoder(w).Encode(q) //nolint:errchkjson // question record is JSON-safe
 }
 
-// handleConfig renders the config editor.
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	schema, err := config.Schema()
 	if err != nil {
@@ -1066,12 +931,6 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	_ = views.ConfigEditor(data, locale).Render(r.Context(), w)
 }
 
-// handleSaveConfig applies the posted form to the current Values via
-// cfg.Apply, which runs the shared validate → prune → write pipeline.
-// Secrets marked writeOnly in the schema keep their existing value when
-// the corresponding form field is empty (the form never echoes them).
-// On validation/write failure the editor is re-rendered with the
-// submitted values preserved and an inline error next to the Save button.
 func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form data", http.StatusBadRequest)
@@ -1174,9 +1033,6 @@ func formBool(form url.Values, key string) bool {
 	return form.Get(key) != ""
 }
 
-// formStringList collects every submission under key, trims whitespace,
-// and drops empties. Returns nil for a fully-empty list so the saved
-// config prunes the field rather than persisting an empty array.
 func formStringList(form url.Values, key string) []string {
 	raw := form[key]
 	if len(raw) == 0 {
@@ -1194,9 +1050,6 @@ func formStringList(form url.Values, key string) []string {
 	return out
 }
 
-// formSecret returns the submitted value when non-empty, otherwise the
-// existing one. The form intentionally never round-trips writeOnly
-// secrets, so a blank field means "keep what's on disk".
 func formSecret(form url.Values, key string, current string) string {
 	v := form.Get(key)
 	if v == "" {
@@ -1205,7 +1058,6 @@ func formSecret(form url.Values, key string, current string) string {
 	return v
 }
 
-// buildServeProvider creates a provider for the serve context (no fixture support).
 func buildServeProvider(name string, cfg *config.Config) (providers.Provider, error) {
 	switch name {
 	case "bbb":
@@ -1219,10 +1071,6 @@ func buildServeProvider(name string, cfg *config.Config) (providers.Provider, er
 	}
 }
 
-// enabledProviderOptions returns the list of providers the teacher has
-// enabled in config, in a fixed display order. The Connect form on the
-// dashboard renders these as the provider dropdown; an empty result
-// triggers the "configure a provider first" hint instead.
 func enabledProviderOptions(p config.ProvidersConfig) []views.ProviderOption {
 	var out []views.ProviderOption
 	if p.BBB.Enabled {

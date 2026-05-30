@@ -1,21 +1,13 @@
 package stats
 
-// Document is the parsed JSON returned by `ptrack_py stats`. Field
-// names match the JSON keys via struct tags so the same struct works
-// for both single-meeting and cross-meeting modes — only the
-// cardinality of Meetings and ParticipantRows changes.
+// Document is the GUI stats payload, mirroring the JSON from `ptrack_py stats`.
+// Mode is "meeting" (one file) or "cross_meeting" (several).
 type Document struct {
 	Mode         string        `json:"mode"`
 	Meetings     []Meeting     `json:"meetings"`
 	Participants []Participant `json:"participants"`
 }
 
-// Meeting is the per-meeting envelope shared across every Participant
-// row that references it via MeetingID.
-//
-// StartedCause / EndedCause carry the session_started.cause and
-// session_ended.cause values ("meeting" or "tracking"); they tell the
-// GUI which open-band tooltip variant to use (see docs/EVENT_SCHEMA.md).
 type Meeting struct {
 	MeetingID       string  `json:"meeting_id"`
 	StartedAt       string  `json:"started_at"`
@@ -27,16 +19,11 @@ type Meeting struct {
 	SourceFile      string  `json:"source_file"`
 }
 
-// Participant is one student in canonical display-name order. Rows
-// holds one entry per meeting in the request set (with Absent=true for
-// meetings the participant did not attend, in cross-meeting mode).
 type Participant struct {
 	DisplayName string           `json:"display_name"`
 	Rows        []ParticipantRow `json:"rows"`
 }
 
-// ParticipantRow is the (participant, meeting) cell — the unit one
-// row of the timeband list renders from.
 type ParticipantRow struct {
 	MeetingID            string    `json:"meeting_id"`
 	Absent               bool      `json:"absent"`
@@ -50,8 +37,7 @@ type ParticipantRow struct {
 	Markers              []Marker  `json:"markers"`
 }
 
-// Segment is a presence band span. Percent fields drive SVG layout;
-// the millisecond offsets and metadata strings feed boundary tooltips.
+// Segment is one presence band as percentage offsets for the SVG timeline.
 type Segment struct {
 	StartPct     float64 `json:"start_pct"`
 	WidthPct     float64 `json:"width_pct"`
@@ -63,16 +49,9 @@ type Segment struct {
 	LeaveReason  string  `json:"leave_reason"`
 }
 
-// Marker is a challenge event positioned along the meeting timeline.
-// Prompt and the type-specific question fields come from the meeting's
-// questions JSONL when one exists; they're empty/zero when the file is
-// missing. SubmittedAnswer is the student's verbatim response captured
-// on result events (empty string for unanswered challenges).
-//
-// Result values: "correct" | "incorrect" | "unanswered" | "skipped".
-// For skipped markers SkipReason carries the metadata "reason" value
-// (delivery_failed, min_gap, …) and the question fields are blank
-// because the participant never received the question.
+// Marker is one challenge on the timeline. The question payload (Prompt,
+// Choices, CorrectAnswer, …) is merged in by stats.Loader from the JSONL;
+// Python supplies the event-side fields.
 type Marker struct {
 	XPct            float64  `json:"x_pct"`
 	AutoSubmitted   bool     `json:"auto_submitted"`

@@ -14,17 +14,12 @@ import (
 	"presence-tracker/src/internal/config"
 )
 
-// llmTimeout bounds one chat-completions round-trip. Small local models
-// generate a 5-question bank in a few seconds; a generous cap covers
-// cold starts without hanging the session.
 const llmTimeout = 3 * time.Minute
 
-// llmTemperature is the conservative middle ground between deterministic
-// repetition and topic drift. Hard-coded for v1; expose as config later
-// if real lessons show it matters.
 const llmTemperature = 0.4
 
-// LLMClient calls an OpenAI-compatible /v1/chat/completions endpoint.
+// LLMClient calls an OpenAI-compatible /v1/chat/completions endpoint to turn a
+// transcript into a question bank.
 type LLMClient struct {
 	baseURL string
 	apiKey  string
@@ -32,8 +27,6 @@ type LLMClient struct {
 	http    *http.Client
 }
 
-// NewLLMClient builds an LLMClient. The returned client is safe for
-// concurrent use.
 func NewLLMClient(cfg config.AIBackendConfig) *LLMClient {
 	return &LLMClient{
 		baseURL: strings.TrimRight(cfg.BaseURL, "/"),
@@ -60,9 +53,6 @@ type chatResponse struct {
 	} `json:"choices"`
 }
 
-// Complete sends one chat-completions request and returns the assistant
-// message content. System + user prompts are taken verbatim — the caller
-// is responsible for prompt engineering (see prompts.go).
 func (c *LLMClient) Complete(ctx context.Context, system, user string) (string, error) {
 	if c.baseURL == "" {
 		return "", errors.New("challenger: LLM base_url not configured")

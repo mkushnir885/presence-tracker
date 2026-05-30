@@ -23,13 +23,6 @@ templ Registry(data RegistryData, locale Locale) {
 	}
 }
 
-// RegistryResults renders the table fragment swapped into
-// #registry-results by the filter and bulk-delete endpoints. The
-// validation-error path no longer renders here — errors land in the
-// #registry-info span next to the Apply button via an OOB swap, and
-// the table is left untouched. An empty result set keeps the table
-// structure intact and surfaces the "no matches" message in a single
-// centered row, so the column layout does not jump between states.
 templ RegistryResults(entries []participants.RegistryEntry, locale Locale) {
 	<table class="registry-table">
 		<thead>
@@ -100,11 +93,9 @@ templ RegistryResults(entries []participants.RegistryEntry, locale Locale) {
 	</table>
 }
 
-// RegistryInfo renders the status line that sits on the filter action
-// row, after the Reset button. It carries either the current match
-// count or the per-field validation errors. When oob is true, the
-// element is emitted as an htmx OOB swap so the same fragment can
-// update the line on the page without touching the participants list.
+// RegistryInfo is the match-count / validation line. When oob is set it
+// renders as an htmx out-of-band swap so it can update on its own, separate
+// from the main #registry-results target.
 templ RegistryInfo(count int, errors RegistryFilterErrors, locale Locale, oob bool) {
 	if oob {
 		<span id="registry-info" class={ registryInfoClass(errors) } hx-swap-oob="true">
@@ -207,13 +198,12 @@ templ registryFilters(data RegistryData, count int, locale Locale) {
 	</div>
 }
 
-// registryScript wires the select-all and bulk-delete behavior. It
-// listens on the document so it survives htmx swaps of
-// #registry-results (the rows live there); the bulk-delete button is
-// also part of the swapped fragment, which is fine because the
-// listener delegates by id.
 templ registryScript() {
 	<script>
+		// Select-all + bulk delete: keep the header checkbox tri-state
+		// (checked / indeterminate) in sync with the rows and reveal the
+		// bulk-delete button only when something is selected. Re-runs after
+		// htmx swaps the results table back in.
 		(function() {
 			const bulkBtn = () => document.getElementById('registry-bulk-delete');
 			const selectAll = () => document.getElementById('registry-select-all');

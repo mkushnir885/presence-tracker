@@ -1,11 +1,5 @@
 package views
 
-// meetingFieldKey builds the i18n key for one of the per-provider
-// meeting-input strings (label, placeholder, hint). Each provider
-// accepts a different shape of meeting identifier — e.g. BBB takes
-// either a meeting ID or a Greenlight URL, Meet takes a code or
-// meet.google.com link — so the Connect form swaps these strings in
-// when the provider dropdown changes.
 func meetingFieldKey(provider, suffix string) string {
 	return "dashboard.connect.meeting_id." + provider + "." + suffix
 }
@@ -53,10 +47,10 @@ templ Home(data HomeData, locale Locale) {
 	}
 }
 
-// connectMeetingFieldScript syncs the meeting-input label, placeholder,
-// and hint with the selected provider's data-* attributes.
 templ connectMeetingFieldScript() {
 	<script>
+		// Swap the meeting-ID label/placeholder/hint to match the selected
+		// provider — each platform expects a different identifier format.
 		(function() {
 			const sel = document.getElementById('provider');
 			const label = document.getElementById('meeting_id_label');

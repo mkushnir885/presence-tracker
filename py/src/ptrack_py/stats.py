@@ -1,15 +1,5 @@
-"""
-JSON stats payload for the GUI's /stats view.
-
-The Go GUI calls `ptrack_py stats --in <a> [--in <b> ...]` and renders the
-returned JSON. With one input the response describes a single meeting; with
-more than one it describes every (participant, meeting) cell across the
-requested files so the cross-meeting paged container can navigate locally
-without further subprocess calls.
-
-The JSON shape is intentionally uniform across both modes — only the
-`mode` field and the cardinality of `meetings` / `rows` change. See
-docs/GUI.md for the consumer contract.
+"""JSON stats payload for the GUI's /stats view. See docs/GUI.md for the
+consumer contract.
 """
 
 from __future__ import annotations
@@ -25,18 +15,8 @@ def generate_stats(
     events: pl.LazyFrame,
     mode: str,
 ) -> dict[str, Any]:
-    """
-    Build the JSON-serialisable stats document for *events*.
-
-    *mode* is "meeting" when *events* covers exactly one Parquet file and
-    "cross_meeting" otherwise; the caller (CLI) decides based on the
-    number of --in arguments. Single-meeting mode omits absent-participant
-    placeholder rows; cross-meeting mode includes one row per (participant,
-    meeting) cell with `absent: true` when the participant did not appear.
-
-    Markers carry only the event-side fields (timestamps, result,
-    submitted_answer, …). Prompt/choices/correct_answer are merged in
-    by the Go stats loader from the paired questions JSONL file.
+    """Build the stats document. mode "cross_meeting" adds absent-participant
+    placeholder rows; "meeting" omits them.
     """
     meetings = _collect_meetings(events)
     segments = _collect_segments(events, meetings)
@@ -62,9 +42,6 @@ def generate_stats(
             meetings, summary, segments, markers, include_absent=mode == "cross_meeting"
         ),
     }
-
-
-# ── collection helpers ──────────────────────────────────────────────────────
 
 
 def _collect_meetings(events: pl.LazyFrame) -> list[dict[str, Any]]:
@@ -96,20 +73,18 @@ def _collect_meetings(events: pl.LazyFrame) -> list[dict[str, Any]]:
             .alias("ended_cause"),
         )
     )
-    # session_ended is the meeting's true upper bound. Tail max() is the
-    # fallback when the file has no session_ended yet (e.g. crash) or
-    # carries pre-asymmetric-rule late leaves whose timestamp overshoots
-    # the real end — we still want a duration but capped to the bound.
     tail = (
         events.filter(pl.col("event_type") != "session_started")
         .group_by("meeting_id")
         .agg(pl.col("timestamp").max().alias("tail_ms"))
     )
+    # duration_ms: prefer the session_ended offset, else the largest event
+    # offset (both are ms from the session start).
     duration = tail.join(ended, on="meeting_id", how="left").select(
         pl.col("meeting_id"),
         pl.coalesce([pl.col("ended_ms"), pl.col("tail_ms")]).alias("duration_ms"),
     )
-    df: pl.DataFrame = (  # type: ignore  # ty limitation: collect returns InProcessQuery union
+    df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
         start.join(duration, on="meeting_id", how="left")
         .join(ended, on="meeting_id", how="left")
         .with_columns(
@@ -133,20 +108,8 @@ def _collect_meetings(events: pl.LazyFrame) -> list[dict[str, Any]]:
 def _collect_segments(
     events: pl.LazyFrame, meetings: list[dict[str, Any]]
 ) -> dict[tuple[str, str], list[dict[str, Any]]]:
-    """Per-(display_name, meeting_id) list of presence band segments.
-
-    Each segment carries both percentages (for SVG layout) and raw ms
-    offsets + the source events' metadata fields (for tooltip text).
-    Segments are pulled directly from participant_joined / _left rows so
-    the metadata columns ride along without re-parsing.
-
-    Joins and leaves are paired positionally per (display_name,
-    meeting_id): the n-th join matches the n-th leave so a rejoin after
-    a leave becomes its own segment. Surplus joins (still present at
-    session end) get a null left_ms; surplus leaves (no matching join)
-    are dropped — the latter shouldn't happen for verified participants
-    but the join shape tolerates it.
-    """
+    # n-th join pairs with n-th leave (a rejoin is its own segment); a
+    # surplus join gets null left_ms. Must match reports.py's pairing.
     durations = pl.LazyFrame(
         {
             "meeting_id": [m["meeting_id"] for m in meetings],
@@ -191,16 +154,16 @@ def _collect_segments(
         left, on=["display_name", "meeting_id", "pair_idx"], how="left"
     ).drop("pair_idx")
 
-    df: pl.DataFrame = (  # type: ignore  # ty limitation
+    # Express each band as start/width percentages of the meeting for the SVG;
+    # a band with no leave (or one past the end) is still-present and closes at
+    # duration.
+    df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
         paired.join(durations, on="meeting_id", how="left")
         .with_columns(
-            # A leave beyond duration is the legacy "provider tore down
-            # its roster after session_ended" noise. New writers drop
-            # those, but old files still carry them — treat them as
-            # still-present so the right-edge tooltip says "till meeting
-            # end" instead of a confusing post-end "Left at".
-            (pl.col("left_ms").is_null() | (pl.col("left_ms") > pl.col("duration_ms")))
-            .alias("still_present"),
+            (
+                pl.col("left_ms").is_null()
+                | (pl.col("left_ms") > pl.col("duration_ms"))
+            ).alias("still_present"),
         )
         .with_columns(
             pl.when(pl.col("still_present"))
@@ -209,12 +172,6 @@ def _collect_segments(
             .alias("end_ms"),
         )
         .with_columns(
-            # Clip start and end independently, then derive width from
-            # the clipped endpoints. Computing width as a single clipped
-            # delta loses the real end position for segments that began
-            # before the session_started anchor (cause=tracking joins
-            # carry negative joined_ms) and visually stretches them
-            # across the whole band.
             (pl.col("joined_ms") / pl.col("duration_ms") * 100.0)
             .clip(0.0, 100.0)
             .alias("start_pct"),
@@ -254,9 +211,10 @@ def _collect_summary(
     meetings: list[dict[str, Any]],
     segments: dict[tuple[str, str], list[dict[str, Any]]],
 ) -> dict[tuple[str, str], dict[str, Any]]:
-    """Per-(display_name, meeting_id) presence ratio + per-state challenge counts."""
     duration_by_id = {m["meeting_id"]: m["duration_seconds"] for m in meetings}
 
+    # Sum presence straight from the already-built segments so the totals match
+    # the timeline exactly, rather than recomputing the bands here.
     presence_rows: dict[tuple[str, str], float] = {}
     for key, segs in segments.items():
         total = 0
@@ -264,7 +222,7 @@ def _collect_summary(
             total += s["end_ms"] - s["start_ms"]
         presence_rows[key] = total / 1_000.0
 
-    chal_df: pl.DataFrame = (  # type: ignore  # ty limitation
+    chal_df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
         _challenge_frame(events)
         .group_by(["display_name", "meeting_id"])
         .agg(
@@ -318,7 +276,7 @@ def _collect_summary(
 
 
 def _collect_max_participants(events: pl.LazyFrame) -> dict[str, int]:
-    """Peak concurrent participant count per meeting (sweep-line on join/leave)."""
+    # Sweep-line: +1 per join, -1 per leave, track the running max.
     joined = events.filter(pl.col("event_type") == "participant_joined").select(
         pl.col("meeting_id"),
         pl.col("timestamp").alias("t"),
@@ -329,9 +287,9 @@ def _collect_max_participants(events: pl.LazyFrame) -> dict[str, int]:
         pl.col("timestamp").alias("t"),
         pl.lit(-1, dtype=pl.Int64).alias("delta"),
     )
-    # descending=[..., True] on delta sorts +1 before -1 at the same timestamp
-    # so a simultaneous join-and-leave doesn't undercount the moment.
-    df: pl.DataFrame = (  # type: ignore  # ty limitation
+    # Sorting delta descending puts joins (+1) before leaves (-1) at the same
+    # instant, so a simultaneous swap still counts the momentary peak.
+    df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
         pl.concat([joined, left])
         .sort(["meeting_id", "t", "delta"], descending=[False, False, True])
         .with_columns(pl.col("delta").cum_sum().over("meeting_id").alias("concurrent"))
@@ -346,15 +304,8 @@ def _collect_markers(
     events: pl.LazyFrame,
     meetings: list[dict[str, Any]],
 ) -> dict[tuple[str, str], list[dict[str, Any]]]:
-    """Per-(display_name, meeting_id) list of challenge markers.
-
-    Issued challenges (correct/incorrect/unanswered) and skipped
-    challenges are rendered as markers; the latter never reached the
-    participant and so carry a ``skip_reason`` instead of a
-    ``question_id``. The question payload (prompt, choices, correct
-    answer, …) is filled in by the Go stats loader from the paired
-    JSONL file.
-    """
+    # Issued and skipped challenges become markers; the question payload is
+    # merged in later by the Go stats loader from the paired JSONL.
     durations = pl.LazyFrame(
         {
             "meeting_id": [m["meeting_id"] for m in meetings],
@@ -362,7 +313,7 @@ def _collect_markers(
         }
     )
 
-    issued_df: pl.DataFrame = (  # type: ignore  # ty limitation
+    issued_df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
         _challenge_frame(events)
         .join(durations, on="meeting_id", how="left")
         .with_columns(
@@ -416,11 +367,8 @@ def _collect_markers(
     return out
 
 
-def _collect_skipped(
-    events: pl.LazyFrame, durations: pl.LazyFrame
-) -> pl.DataFrame:
-    """One row per challenge_skipped event with x_pct + skip_reason."""
-    df: pl.DataFrame = (  # type: ignore  # ty limitation: collect() return includes InProcessQuery
+def _collect_skipped(events: pl.LazyFrame, durations: pl.LazyFrame) -> pl.DataFrame:
+    df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
         events.filter(pl.col("event_type") == "challenge_skipped")
         .select(
             pl.col("display_name"),
@@ -454,6 +402,9 @@ def _assemble_participants(
     markers: dict[tuple[str, str], list[dict[str, Any]]],
     include_absent: bool,
 ) -> list[dict[str, Any]]:
+    # One row per (participant, meeting). In cross-meeting mode every
+    # participant gets a cell for every meeting — an absent placeholder where
+    # they did not appear — so the GUI can page through a uniform grid.
     names = sorted({n for (n, _) in summary}, key=str.lower)
     meeting_ids = [m["meeting_id"] for m in meetings]
 

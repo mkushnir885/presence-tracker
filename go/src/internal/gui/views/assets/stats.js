@@ -1,3 +1,6 @@
+// Cross-meeting view: page through one participant at a time — prev/next, a
+// URL hash that keeps the position bookmarkable, and a search box that jumps
+// to a name with keyboard navigation.
 (function setupPager() {
   const pagesEl = document.getElementById('stats-participant-pages');
   if (!pagesEl) return;
@@ -107,12 +110,15 @@
       }
     });
 
+    // Delay so a click (mousedown) on a result lands before blur clears it.
     search.addEventListener('blur', () => setTimeout(clearResults, 100));
   }
 
   show(current);
 })();
 
+// Rename a participant: PATCH the display name across exactly the loaded
+// files (carried in data-files), then reload to show the result.
 (function setupRename() {
   const filesQuery = (document.querySelector('.stats-page') || {}).dataset?.files || '';
   document.querySelectorAll('button[data-action="rename"]').forEach(btn => {
@@ -136,6 +142,8 @@
   });
 })();
 
+// Single-meeting view: filter the participant rows by name, with a search
+// dropdown that scrolls/selects a matching row.
 (function setupMeetingFilter() {
   const input = document.getElementById('stats-filter-input');
   if (!input) return;
@@ -220,9 +228,12 @@
       clearResults();
     }
   });
+  // Delay so a click (mousedown) on a result lands before blur clears it.
   input.addEventListener('blur', () => setTimeout(clearResults, 100));
 })();
 
+// Click-to-open detail popovers for the timeline: markers (challenges),
+// meetings, and grouped-challenge dots. Only one is open at a time.
 (function setupPopovers() {
   let popoverEl = null;
   let triggerEl = null;
@@ -238,6 +249,8 @@
     }
   }
 
+  // Center the popover under the trigger, clamp it to the viewport, and flip
+  // it above the trigger when it would overflow the bottom edge.
   function position(trigger, pop) {
     const r = trigger.getBoundingClientRect();
     const ph = pop.offsetHeight;
@@ -258,6 +271,8 @@
     pop.style.top = (top + window.scrollY) + 'px';
   }
 
+  // Pick a renderer from whichever data-popover-* attribute the trigger
+  // carries; plain data-popover is the text-only fallback.
   function open(trigger) {
     const markerJSON = trigger.getAttribute('data-popover-marker');
     if (markerJSON) {

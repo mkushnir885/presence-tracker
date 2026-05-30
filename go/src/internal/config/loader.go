@@ -5,23 +5,14 @@ import (
 	"path/filepath"
 )
 
-// Load constructs a Config bound to path. When path is empty, the loader
-// searches the OS config dir and the current working directory for
-// config.json; if none exists, the Config is bound to the canonical
-// default location (configDir()/config.json) and the file will be
-// created on the first save.
-//
-// Load runs the same commit pipeline as Reload: any existing file is
-// read, validated, pruned to a minimal overrides form, and rewritten
-// canonically (with $schema annotation). A loadable but non-canonical
-// file is silently normalised on every start; this keeps hand edits
-// from drifting.
+// Load reads the config at path (or the default location) and commits it back
+// canonically — so a plain load also normalizes the file on disk (prunes
+// default-equal fields, adds the $schema reference).
 func Load(path string) (*Config, error) {
 	c := &Config{
 		path:     resolvePath(path),
 		defaults: defaults(),
 	}
-	// Seed current so Get() works before commit() runs.
 	seed := c.defaults
 	c.current.Store(&seed)
 
@@ -37,9 +28,6 @@ func Load(path string) (*Config, error) {
 	return c, nil
 }
 
-// resolvePath returns the explicit path when set, otherwise the first
-// existing default candidate, otherwise the canonical default path
-// (which may not yet exist on disk).
 func resolvePath(path string) string {
 	if path != "" {
 		return path
@@ -59,10 +47,6 @@ func defaultCandidates() []string {
 	}
 }
 
-// Default returns the path of the first existing config.json found,
-// searching the OS config directory and the current working directory.
-// Used by callers that need to know whether a file actually exists
-// (as opposed to where one would be created).
 func Default() (string, bool) {
 	for _, p := range defaultCandidates() {
 		if _, err := os.Stat(p); err == nil {

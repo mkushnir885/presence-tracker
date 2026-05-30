@@ -25,7 +25,8 @@ globs: ["go/**/*.go", "go/go.mod", "go/go.sum"]
 ## Project-specific patterns
 
 - `internal/` for everything. Nothing in this project is a public library.
-- Every exported package has a `doc.go` with a package comment.
+- No `doc.go` files and no package-doc comments. This is an application,
+  not a library; package names carry their own meaning.
 - Interfaces defined on the consumer side, kept small. Adapter packages
   don't define the interface — the consumer package does.
   - `go/src/internal/providers/provider.go` defines `Provider`
@@ -38,13 +39,14 @@ globs: ["go/**/*.go", "go/go.mod", "go/go.sum"]
 
 ## Comments
 
-- Write comments only where the logic is non-obvious or the intent cannot
-  be inferred from the names alone. Self-documenting code needs no comment.
-- Never restate what the code does in a comment ("increment counter",
-  "return error"). Say _why_ when the why is not obvious.
-- Every exported identifier in `doc.go` gets a package comment; other
-  exported identifiers get doc comments. Unexported identifiers: comment
-  only if the behavior would surprise a reader.
+- Comment sparingly. The default is no comment: names and types should
+  carry the meaning. Do not write a doc comment on every function, type,
+  or struct field.
+- Add a comment only for the genuinely non-obvious: an external-API
+  landmine (e.g. an empty array required where null is rejected), a
+  cross-package invariant that must stay in sync, a subtle concurrency
+  guard, or the reason behind a magic number. Say _why_, never _what_.
+- Keep `//go:` directives and `//nolint` (with its reason) as-is.
 
 ## Long-running processes
 

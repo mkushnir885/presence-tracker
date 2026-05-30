@@ -21,22 +21,19 @@ import (
 const (
 	meetAPIBase = "https://meet.googleapis.com/v2"
 	authURL     = "https://accounts.google.com/o/oauth2/v2/auth"
-	tokenURL    = "https://oauth2.googleapis.com/token"
+	tokenURL    = "https://oauth2.googleapis.com/token" //nolint:gosec // G101: OAuth token endpoint URL, not a credential
 )
 
 var meetScopes = []string{
 	"https://www.googleapis.com/auth/meetings.space.readonly",
 }
 
-// Adapter is the Google Meet provider.
 type Adapter struct {
 	cfg    *config.Config
 	client *http.Client
 	events chan providers.Event
 }
 
-// New creates a Meet adapter. OAuth tokens are persisted under
-// config.DataDir().
 func New(cfg *config.Config) *Adapter {
 	return &Adapter{
 		cfg:    cfg,
@@ -46,19 +43,8 @@ func New(cfg *config.Config) *Adapter {
 
 func (a *Adapter) Name() string { return "meet" }
 
-// ParseMeetingID accepts a Meet meeting code, a canonical "spaces/<id>"
-// resource name, or a meet.google.com URL, and returns the form that
-// [Adapter.Subscribe] can resolve to a space. Recognised shapes:
-//
-//   - a canonical "spaces/<id>" name — returned unchanged
-//   - a bare meeting code (e.g. "abc-defg-hij") — returned unchanged
-//   - a https://meet.google.com/<code> URL — code extracted from the path
-//
-// /lookup/ URLs and other non-code paths are rejected with an explicit
-// error so the teacher sees a clear message instead of an API failure.
 func (a *Adapter) ParseMeetingID(input string) (string, error) { return ParseMeetingID(input) }
 
-// ParseMeetingID is the package-level form of [Adapter.ParseMeetingID].
 func ParseMeetingID(input string) (string, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
@@ -83,7 +69,6 @@ func ParseMeetingID(input string) (string, error) {
 		return "", fmt.Errorf("meet: cannot extract meeting code from %q", input)
 	}
 	code := parts[0]
-	// Reserved Meet paths that are not themselves meeting codes.
 	switch code {
 	case "lookup", "new", "landing", "_meet":
 		return "", fmt.Errorf("meet: cannot extract meeting code from %q", input)
@@ -91,8 +76,6 @@ func ParseMeetingID(input string) (string, error) {
 	return code, nil
 }
 
-// Authenticate runs the PKCE OAuth flow if no valid token is stored, then
-// verifies API access by listing spaces.
 func (a *Adapter) Authenticate(ctx context.Context) error {
 	meet := a.cfg.Get().Providers.Meet
 	oauthCfg := providersoauth.Config{
@@ -110,7 +93,6 @@ func (a *Adapter) Authenticate(ctx context.Context) error {
 	}
 	a.client = client
 
-	// Verify access with a lightweight API call.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		meetAPIBase+"/spaces", nil)
 	if err != nil {
@@ -127,10 +109,6 @@ func (a *Adapter) Authenticate(ctx context.Context) error {
 	return nil
 }
 
-// Subscribe begins polling the Meet API for the meeting identified by meetingID.
-// meetingID may be a meeting code (e.g. "abc-defg-hij") or a space name
-// (e.g. "spaces/jQCFfuBOdN5z"). The returned channel is closed when the meeting
-// ends or ctx is cancelled.
 func (a *Adapter) Subscribe(ctx context.Context, meetingID string) (<-chan providers.Event, error) {
 	spaceName, err := a.resolveSpace(ctx, meetingID)
 	if err != nil {
@@ -142,12 +120,10 @@ func (a *Adapter) Subscribe(ctx context.Context, meetingID string) (<-chan provi
 	return a.events, nil
 }
 
-// resolveSpace turns a meeting code or space alias into a canonical space name.
 func (a *Adapter) resolveSpace(ctx context.Context, meetingID string) (string, error) {
 	if strings.HasPrefix(meetingID, "spaces/") {
 		return meetingID, nil
 	}
-	// Look up the space by alias (the meeting code).
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		meetAPIBase+"/spaces/"+meetingID, nil)
 	if err != nil {
@@ -180,14 +156,8 @@ func (a *Adapter) pollLoop(ctx context.Context, spaceName string) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// activeParticipants tracks participants currently in the meeting.
-	// key = participant resource name, value = display name at join time.
 	activeParticipants := map[string]string{}
-	var currentRecord string // conferenceRecord resource name
-	// observedNoRecord becomes true the first poll that finds no active
-	// record before one appears. It distinguishes "attached and watched
-	// the meeting start" from "attached while the meeting was already in
-	// progress".
+	var currentRecord string
 	observedNoRecord := false
 
 	for {
@@ -197,7 +167,6 @@ func (a *Adapter) pollLoop(ctx context.Context, spaceName string) {
 		case <-ticker.C:
 		}
 
-		// Find the active conference record for the space.
 		if currentRecord == "" {
 			record, startTime, err := a.findActiveRecord(ctx, spaceName)
 			if err != nil {
@@ -265,11 +234,6 @@ func (a *Adapter) pollLoop(ctx context.Context, spaceName string) {
 			if endTime.IsZero() {
 				endTime = time.Now()
 			}
-			// Stragglers still in activeParticipants are intentionally
-			// left without a participant_left event — the session
-			// coordinator closes any open band at session_ended (see
-			// docs/EVENT_SCHEMA.md), and synthesising leaves here would
-			// erase the "till the end" distinction the GUI surfaces.
 
 			slog.Info("meet: meeting ended", "record", currentRecord, "end_time", endTime)
 			a.send(ctx, providers.Event{
@@ -292,18 +256,14 @@ func (a *Adapter) send(ctx context.Context, evt providers.Event) {
 }
 
 type participantInfo struct {
-	// name is the conferenceRecords/.../participants/... resource name.
-	// It is stable from join to leave within a single conference record,
-	// so it doubles as the PlatformID emitted on both join and leave events
-	// — the session coordinator matches the two by that field.
 	name        string
 	displayName string
 	joinTime    time.Time
 }
 
-// findActiveRecord returns the name and start time of the active
-// conferenceRecord for the space. The returned name is "" when the meeting
-// has not started yet.
+// Meet models a live meeting as a "conferenceRecord" on the space; the active
+// one is the record with no end_time. There is no participant API until one
+// exists, so polling starts here.
 func (a *Adapter) findActiveRecord(ctx context.Context, spaceName string) (string, time.Time, error) {
 	filter := fmt.Sprintf("space.name=\"%s\" AND end_time IS NULL", spaceName)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
@@ -336,10 +296,7 @@ func (a *Adapter) findActiveRecord(ctx context.Context, spaceName string) (strin
 	return rec.Name, startTime, nil
 }
 
-// listParticipants returns participants currently in the conference record
-// (those without a latestEndTime).
 func (a *Adapter) listParticipants(ctx context.Context, recordName string) ([]participantInfo, error) {
-	// Filter to participants still present (no end time yet).
 	filter := "latest_end_time IS NULL"
 	url := meetAPIBase + "/" + recordName + "/participants?filter=" + encodeFilter(filter)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -359,9 +316,7 @@ func (a *Adapter) listParticipants(ctx context.Context, recordName string) ([]pa
 		Participants []struct {
 			Name              string `json:"name"`
 			EarliestStartTime string `json:"earliestStartTime"`
-			// Proto3 oneof: signedInUser and anonymousUser appear as peer fields,
-			// not nested inside a "user" wrapper.
-			SignedInUser *struct {
+			SignedInUser      *struct {
 				User        string `json:"user"`
 				DisplayName string `json:"displayName"`
 			} `json:"signedInUser"`
@@ -393,9 +348,6 @@ func (a *Adapter) listParticipants(ctx context.Context, recordName string) ([]pa
 	return out, nil
 }
 
-// recordEndTime returns the conferenceRecord's end_time if the record has
-// ended, or the zero time if it is still in progress. A 404 is treated as
-// ended with an unknown (zero) end time, so the caller falls back to now.
 func (a *Adapter) recordEndTime(ctx context.Context, recordName string) (time.Time, bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		meetAPIBase+"/"+recordName, nil)
@@ -407,6 +359,7 @@ func (a *Adapter) recordEndTime(ctx context.Context, recordName string) (time.Ti
 		return time.Time{}, false, err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	// A vanished record (404) means the meeting is over.
 	if resp.StatusCode == http.StatusNotFound {
 		return time.Time{}, true, nil
 	}
@@ -426,7 +379,6 @@ func (a *Adapter) recordEndTime(ctx context.Context, recordName string) (time.Ti
 	return endTime, true, nil
 }
 
-// encodeFilter percent-encodes the filter string for use in a query parameter.
 func encodeFilter(filter string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(filter, " ", "%20"), "\"", "%22")
 }

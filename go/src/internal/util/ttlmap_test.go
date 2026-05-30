@@ -7,8 +7,6 @@ import (
 	"time"
 )
 
-// ttlSink collects (key, value) pairs delivered to the onExpire
-// callback so tests can assert on them deterministically.
 type ttlSink struct {
 	mu     sync.Mutex
 	events []ttlSinkEvent
@@ -33,7 +31,6 @@ func (s *ttlSink) record(k int, v string) {
 	s.wg.Done()
 }
 
-// wait blocks until all expected expirations fire or timeout elapses.
 func (s *ttlSink) wait(t *testing.T, timeout time.Duration) {
 	t.Helper()
 	done := make(chan struct{})
@@ -80,11 +77,10 @@ func TestTTLMapDeleteSuppressesCallback(t *testing.T) {
 }
 
 func TestTTLMapPutReplacesAndCancelsPreviousTimer(t *testing.T) {
-	sink := newTTLSink(1) // only the second entry should expire
+	sink := newTTLSink(1)
 	m := NewTTLMap(sink.record)
 
 	m.Put(1, "old", 30*time.Millisecond)
-	// Replace well before old's TTL — old's onExpire must not fire.
 	m.Put(1, "new", 60*time.Millisecond)
 
 	sink.wait(t, time.Second)

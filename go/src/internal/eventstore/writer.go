@@ -19,44 +19,30 @@ import (
 	"github.com/apache/arrow/go/v17/parquet/pqarrow"
 )
 
-// Record is one row of the event log. DisplayName is the canonical
-// registered name and is the participant identity used end-to-end.
-// ChallengeID and QuestionID are first-class join keys; empty → null.
+// Record is one event row; empty optional fields are written as null.
 type Record struct {
 	MeetingID   string
 	Timestamp   time.Time
 	EventType   string
-	DisplayName string            // empty → null
-	ChallengeID string            // empty → null
-	QuestionID  string            // empty → null
-	Metadata    map[string]string // nil → null
+	DisplayName string
+	ChallengeID string
+	QuestionID  string
+	Metadata    map[string]string
 }
 
-// fileTimeFormat is the Go time layout for the date-time stamp in file names: ddmmyy_hhmm.
 const fileTimeFormat = "020106_1504"
 
-// Writer buffers meeting events and flushes them to a Parquet file.
-// It is safe to call from multiple goroutines.
 type Writer struct {
 	mu           sync.Mutex
 	buf          []Record
 	dir          string
 	startTime    time.Time
-	tmpPath      string // <dir>/<start>.parquet — renamed to <start>-<end>.parquet on Close
-	customName   string // user-supplied base name (no .parquet); when set, tmpPath is the final path and no rename happens
+	tmpPath      string
+	customName   string
 	compression  string
 	rowGroupSize int
 }
 
-// NewWriter creates a Writer that writes to a Parquet file under meetingsDir.
-//
-// When fileName is empty, the file is named after the start time: written
-// as <start>.parquet during the session and renamed to <start>-<end>.parquet
-// on Close. When fileName is non-empty, it must pass ValidateFileName and is
-// used verbatim (with a .parquet extension); no rename happens on Close, and
-// an existing file at that path is rejected up front.
-//
-// dir is created if it does not exist.
 func NewWriter(meetingsDir, fileName string, startTime time.Time, compression string, rowGroupSize int) (*Writer, error) {
 	if err := os.MkdirAll(meetingsDir, 0o755); err != nil {
 		return nil, fmt.Errorf("eventstore: mkdir %s: %w", meetingsDir, err)
@@ -85,12 +71,6 @@ func NewWriter(meetingsDir, fileName string, startTime time.Time, compression st
 	return w, nil
 }
 
-// ValidateFileName returns a sanitized base name (no .parquet extension)
-// suitable for use under the meetings directory, or an error describing
-// why the input is unacceptable. Allowed characters: letters, digits,
-// space, dot, dash, underscore. The input is trimmed, the .parquet
-// suffix is stripped if present, and "." / ".." / names containing path
-// separators or "../" segments are rejected.
 func ValidateFileName(s string) (string, error) {
 	s = strings.TrimSpace(s)
 	s = strings.TrimSuffix(s, ".parquet")
@@ -116,16 +96,12 @@ func ValidateFileName(s string) (string, error) {
 	return s, nil
 }
 
-// Append adds a record to the in-memory buffer.
 func (w *Writer) Append(r Record) {
 	w.mu.Lock()
 	w.buf = append(w.buf, r)
 	w.mu.Unlock()
 }
 
-// Flush writes all buffered records to the Parquet file and clears the buffer.
-// If the file already exists, the new records are appended as an additional
-// row group.
 func (w *Writer) Flush(_ context.Context) error {
 	w.mu.Lock()
 	if len(w.buf) == 0 {
@@ -141,31 +117,21 @@ func (w *Writer) Flush(_ context.Context) error {
 	return w.writeRowGroup(rows, startTime)
 }
 
-// SetStartTime updates the meeting start time used to build the final file name.
-// Safe to call any time before Close; has no effect on data already flushed to disk.
 func (w *Writer) SetStartTime(t time.Time) {
 	w.mu.Lock()
 	w.startTime = t
 	w.mu.Unlock()
 }
 
-// BaseName returns the current Parquet file basename without the
-// .parquet extension. Sidecar files (questions JSONL, etc.) follow this
-// name so they stay paired with the meeting events. Close may change
-// the basename via rename — call BaseName before Close to obtain the
-// pre-close value and use Close's return value for the post-close one.
 func (w *Writer) BaseName() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return strings.TrimSuffix(filepath.Base(w.tmpPath), ".parquet")
 }
 
-// Close flushes remaining buffered records and, for the default
-// timestamp-named file, renames it from <start>.parquet to
-// <start>-<end>.parquet. When the Writer was constructed with a custom
-// file name, the file is already at its final path and no rename
-// happens. The returned basename is the final file's basename without
-// the .parquet extension (or "" when no Parquet file ended up on disk).
+// Close flushes and renames the working file to its final
+// <start>-<end>.parquet name (unless a custom name was set). Returns the
+// final basename, or "" when no rows were ever written.
 func (w *Writer) Close(ctx context.Context) (string, error) {
 	if err := w.Flush(ctx); err != nil {
 		return "", err
@@ -228,13 +194,6 @@ func (w *Writer) writeRowGroup(rows []Record, startTime time.Time) error {
 	return pw.Close()
 }
 
-// buildRecord encodes rows into an Arrow record batch.
-// timestamp encoding (schema v2):
-//   - session_started row → absolute Unix ms (the anchor for other events).
-//   - all other rows → ms elapsed since startTime (the session start).
-//
-// If startTime is zero, all rows are stored as absolute Unix ms (safe fallback
-// when no session_started event was recorded).
 func buildRecord(rows []Record, startTime time.Time) arrow.Record {
 	pool := memory.NewGoAllocator()
 
@@ -257,6 +216,8 @@ func buildRecord(rows []Record, startTime time.Time) arrow.Record {
 	for i := range rows {
 		r := &rows[i]
 		meetingID.Append(r.MeetingID)
+		// session_started is stored as absolute Unix ms; every other row as
+		// a ms offset from it (see Schema). The Python side reverses this.
 		if r.EventType == "session_started" || startTime.IsZero() {
 			ts.Append(r.Timestamp.UnixMilli())
 		} else {

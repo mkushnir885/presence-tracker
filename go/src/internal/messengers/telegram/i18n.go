@@ -2,7 +2,6 @@ package telegram
 
 import (
 	_ "embed"
-	"log/slog"
 	"strings"
 
 	"presence-tracker/src/internal/i18n"
@@ -17,18 +16,10 @@ var ukJSON []byte
 
 func newCatalog() *i18n.Catalog {
 	c := messengers.SharedCatalog()
-	if err := c.Add("en", enJSON); err != nil {
-		slog.Warn("telegram: load en locale", "err", err)
-	}
-	if err := c.Add("uk", ukJSON); err != nil {
-		slog.Warn("telegram: load uk locale", "err", err)
-	}
+	c.Load("telegram", map[string][]byte{"en": enJSON, "uk": ukJSON})
 	return c
 }
 
-// languageFromCode reduces Telegram's BCP-47 hint to one of the
-// catalog languages by stripping any region subtag. Unknown primary
-// tags fall back to English.
 func languageFromCode(code string) string {
 	primary, _, _ := strings.Cut(strings.ToLower(code), "-")
 	switch primary {

@@ -7,67 +7,47 @@ import (
 	"time"
 )
 
-// ErrNameTaken is returned by Register when the displayName is already
-// claimed by a different messenger handle.
 var ErrNameTaken = errors.New("participants: display name already registered by another account")
 
-// RegistryEntry is one row in the participant registry. DisplayName is
-// the identity end to end: the canonical name written to every
-// per-participant Parquet event and the key used everywhere else.
-// MessengerName scopes the Handle, which is only unique within one
-// messenger.
+// NormalizeName is the canonical display-name key: case-sensitive, with only
+// surrounding whitespace trimmed. The registry and the session coordinator
+// both key on it so the two can never diverge.
+func NormalizeName(displayName string) string {
+	return strings.TrimSpace(displayName)
+}
+
 type RegistryEntry struct {
-	DisplayName    string // canonical casing as supplied at registration
-	MessengerName  string // stable identifier reported by the Messenger (e.g. "telegram")
-	Handle         string // messenger-specific persistent contact identifier
-	MessengerLabel string // human-readable: Telegram @username or first name
-	Language       string // preferred catalog language (e.g. "en", "uk"); empty means "fall back"
+	DisplayName    string
+	MessengerName  string
+	Handle         string
+	MessengerLabel string
+	Language       string
 	RegisteredAt   time.Time
 }
 
-// Filter narrows a Find or Delete to a subset of the registry. Every
-// field is optional; the zero value matches every entry. Set fields
-// combine with AND.
+// Filter selects registry entries; set fields are combined with AND. The
+// zero Filter matches everything. RegisteredTo is exclusive.
 type Filter struct {
-	// DisplayNames matches any entry whose canonical display name
-	// (whitespace-trimmed, case-sensitive — same rule as Resolve)
-	// appears in the list. An empty slice imposes no constraint.
-	DisplayNames []string
-
-	// DisplayNameContains matches entries whose display name contains
-	// this substring, case-insensitive.
+	DisplayNames        []string
 	DisplayNameContains string
-
-	// MessengerName matches a specific messenger (e.g. "telegram").
-	MessengerName string
-
-	// Handle matches a specific messenger handle. Handles are only
-	// unique within one messenger, so callers normally set
-	// MessengerName alongside this field.
-	Handle string
-
-	// RegisteredFrom matches entries registered at or after this instant.
-	RegisteredFrom time.Time
-
-	// RegisteredTo is an exclusive upper bound on RegisteredAt.
-	RegisteredTo time.Time
+	MessengerName       string
+	Handle              string
+	RegisteredFrom      time.Time
+	RegisteredTo        time.Time
 }
 
-// IsZero reports whether f has every field at its zero value (i.e.
-// matches every entry).
 func (f Filter) IsZero() bool {
 	return len(f.DisplayNames) == 0 && f.DisplayNameContains == "" &&
 		f.MessengerName == "" && f.Handle == "" &&
 		f.RegisteredFrom.IsZero() && f.RegisteredTo.IsZero()
 }
 
-// Match reports whether e satisfies every set field of f.
 func (f Filter) Match(e RegistryEntry) bool {
 	if len(f.DisplayNames) > 0 {
-		want := normName(e.DisplayName)
+		want := NormalizeName(e.DisplayName)
 		var ok bool
 		for _, n := range f.DisplayNames {
-			if normName(n) == want {
+			if NormalizeName(n) == want {
 				ok = true
 				break
 			}
@@ -95,48 +75,25 @@ func (f Filter) Match(e RegistryEntry) bool {
 	return true
 }
 
-// Registry maps display names to messenger handles. A messenger account
-// holds at most one registration at a time; calling Register again from
-// the same handle replaces the previous entry (after freeing the old
-// name).
+// Registry maps each display name to one messenger account. The display name
+// is the participant identity used end to end.
 type Registry interface {
-	// Resolve looks up a participant by display name. Matching is
-	// case-sensitive and ignores leading/trailing whitespace; the returned
-	// entry carries the casing supplied at registration.
 	Resolve(displayName string) (RegistryEntry, bool)
 
-	// Register stores a displayName → handle binding persistently.
-	// language is the catalog language captured at the moment of
-	// registration (e.g. from a messenger's user.language_code hint);
-	// pass "" if unknown. Returns ErrNameTaken if the name is already
-	// claimed by a different handle. If the handle already has a
-	// registration under a different name, the previous entry is
-	// replaced atomically.
+	// Register binds displayName to (messengerName, handle). Each handle holds
+	// at most one registration, so re-registering replaces the previous name.
+	// Returns ErrNameTaken if the name is already held by another account.
 	Register(ctx context.Context, messengerName, handle, messengerLabel, displayName, language string) error
 
-	// SetLanguage updates the persisted language preference for the
-	// entry owned by (messengerName, handle). Returns false if no such
-	// entry exists; the registry is not modified in that case.
+	// SetLanguage updates the stored language; the bool reports whether a
+	// registration existed.
 	SetLanguage(ctx context.Context, messengerName, handle, language string) (bool, error)
 
-	// HandleForName returns the messenger handle bound to displayName,
-	// when the registration uses messengerName. Used by the session
-	// coordinator to look up where to send the verification DM.
 	HandleForName(displayName, messengerName string) (string, bool)
-
-	// LookupByHandle returns the entry owned by (messengerName, handle), if any.
-	// Used by the messenger adapter to answer "what name am I registered as?".
 	LookupByHandle(messengerName, handle string) (RegistryEntry, bool)
 
-	// Find returns every entry that satisfies f. The zero Filter
-	// returns every entry. Results come back in bucket order (sorted
-	// by normalized display name).
 	Find(ctx context.Context, f Filter) ([]RegistryEntry, error)
-
-	// Delete removes every entry that satisfies f and returns the
-	// number removed. The zero Filter clears the entire registry.
 	Delete(ctx context.Context, f Filter) (int, error)
 
-	// Close releases resources held by the registry.
 	Close() error
 }

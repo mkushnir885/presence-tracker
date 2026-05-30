@@ -1,5 +1,3 @@
-// Command ptrack is the main CLI binary for the presence tracker.
-// Sub-commands: track, poll, serve, report.
 package main
 
 import (
@@ -58,7 +56,6 @@ func rootCmd() *cobra.Command {
 	return root
 }
 
-// trackCmd subscribes to a meeting and records events.
 func trackCmd() *cobra.Command {
 	var (
 		cfgPath      string
@@ -85,7 +82,6 @@ func trackCmd() *cobra.Command {
 	return cmd
 }
 
-// pollCmd is a thin HTTP client to the running daemon.
 func pollCmd() *cobra.Command {
 	var (
 		cfgPath       string
@@ -111,7 +107,6 @@ func pollCmd() *cobra.Command {
 	return cmd
 }
 
-// reloadCmd asks a running daemon to re-read its config from disk.
 func reloadCmd() *cobra.Command {
 	var (
 		cfgPath   string
@@ -153,7 +148,6 @@ func runReload(ctx context.Context, cfgPath, serverURL string, port int) error {
 	return nil
 }
 
-// reportCmd generates a CSV report from one or more meeting Parquet files.
 func reportCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "report <paths...>",
@@ -249,9 +243,8 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 		}
 	}()
 
-	// internalMeetingID is a time-based UUID that identifies this session in the
-	// Parquet event log. It is independent of the provider meeting ID (--meeting
-	// flag), which is only used for platform-side meeting lookup.
+	// Identifies the session in the event log, independent of the
+	// provider-side --meeting ID used only for platform lookup.
 	internalMeetingID := uuid.Must(uuid.NewV7()).String()
 	startTime := time.Now()
 
@@ -290,7 +283,8 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 	mountAudioHandler(mux, func() *challenger.Service { return chSvc })
 
 	addr := fmt.Sprintf("127.0.0.1:%d", bindPort)
-	ln, err := net.Listen("tcp", addr)
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", addr)
 	if err != nil {
 		return wrapPortBindError(addr, err)
 	}
@@ -301,11 +295,9 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 	return coord.Run(ctx)
 }
 
-// runHTTPServer serves mux on ln until ctx is cancelled. Blocks; intended
-// to be called from a goroutine when the caller needs to do other work.
-// beforeShutdown, when non-nil, runs after ctx cancels but before
-// http.Server.Shutdown begins — used by the GUI server to release its
-// long-lived SSE handlers so the graceful shutdown isn't held up.
+// runHTTPServer serves mux until ctx is cancelled. beforeShutdown, if set,
+// runs before the graceful shutdown begins — the GUI uses it to release its
+// long-lived SSE handlers so shutdown isn't held up.
 func runHTTPServer(ctx context.Context, ln net.Listener, mux *http.ServeMux, beforeShutdown func()) {
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
@@ -315,15 +307,15 @@ func runHTTPServer(ctx context.Context, ln net.Listener, mux *http.ServeMux, bef
 		}
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = srv.Shutdown(shutCtx)
+		_ = srv.Shutdown(shutCtx) //nolint:contextcheck // graceful shutdown runs after the parent ctx is already cancelled
 	}()
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		slog.Error("http: serve", "err", err)
 	}
 }
 
-// pollRequest / pollResponse / pollErrorResponse are the wire types shared
-// between the daemon's POST /poll endpoint and ptrack poll.
+// pollRequest/pollResponse are the POST /poll wire types, shared between the
+// daemon and the ptrack poll client.
 type pollRequest struct {
 	AutoSubmitted bool   `json:"auto_submitted"`
 	BankPath      string `json:"bank_path"`
@@ -339,8 +331,8 @@ type pollErrorResponse struct {
 	Error string `json:"error"`
 }
 
-// mountPollHandler registers POST /poll on mux. coordFn returns the active
-// session coordinator, or nil when no session is running yet.
+// mountPollHandler mounts POST /poll. coordFn returns the active session's
+// coordinator, or nil when no session is running.
 func mountPollHandler(mux *http.ServeMux, coordFn func() *session.Coordinator) {
 	mux.HandleFunc("POST /poll", func(w http.ResponseWriter, r *http.Request) {
 		var req pollRequest
@@ -387,9 +379,6 @@ func writePollError(w http.ResponseWriter, status int, msg string) {
 	writePollJSON(w, status, pollErrorResponse{Error: msg})
 }
 
-// mountReloadHandler registers POST /config/reload on mux. The handler
-// calls cfg.Reload(); on success it returns 204, on validation/IO error
-// it returns 422 with the error message.
 func mountReloadHandler(mux *http.ServeMux, cfg *config.Config) {
 	mux.HandleFunc("POST /config/reload", func(w http.ResponseWriter, _ *http.Request) {
 		if err := cfg.Reload(); err != nil {
@@ -400,15 +389,11 @@ func mountReloadHandler(mux *http.ServeMux, cfg *config.Config) {
 	})
 }
 
-// audioBodyLimit caps one /audio/segment request body. 64 MB covers
-// ~30 min of Opus at typical bitrates and rejects accidental raw PCM.
+// audioBodyLimit caps one /audio/segment upload (~30 min of Opus).
 const audioBodyLimit = 64 << 20
 
-// mountAudioHandler registers POST /audio/segment on mux. challengerFn
-// returns the active session's challenger, or nil when none is running
-// or auto-generation is disabled. The browser POSTs one Opus/WebM blob
-// per poll interval; the handler runs ASR + accumulator + (optional)
-// LLM in-process and returns the structured Result as JSON.
+// mountAudioHandler mounts POST /audio/segment: the browser posts one audio
+// blob per interval and the challenger runs ASR (+ optional LLM) in-process.
 func mountAudioHandler(mux *http.ServeMux, challengerFn func() *challenger.Service) {
 	mux.HandleFunc("POST /audio/segment", func(w http.ResponseWriter, r *http.Request) {
 		svc := challengerFn()
@@ -432,9 +417,6 @@ func mountAudioHandler(mux *http.ServeMux, challengerFn func() *challenger.Servi
 	})
 }
 
-// wrapPortBindError annotates a net.Listen failure on addr with a hint
-// when the port is already in use, so the user knows to pass --port
-// (instead of being told to read syscall numbers).
 func wrapPortBindError(addr string, err error) error {
 	if errors.Is(err, syscall.EADDRINUSE) {
 		return fmt.Errorf("listen %s: address already in use — another ptrack daemon is likely running on this port; pass --port=<free port> or stop the other daemon", addr)
@@ -442,7 +424,6 @@ func wrapPortBindError(addr string, err error) error {
 	return fmt.Errorf("listen %s: %w", addr, err)
 }
 
-// runPoll posts to the running daemon's POST /poll endpoint.
 func runPoll(ctx context.Context, cfgPath, serverURL string, autoSubmitted bool, port int, bankPath string) error {
 	abs, err := filepath.Abs(bankPath)
 	if err != nil {
@@ -454,7 +435,7 @@ func runPoll(ctx context.Context, cfgPath, serverURL string, autoSubmitted bool,
 		return err
 	}
 
-	body, _ := json.Marshal(pollRequest{AutoSubmitted: autoSubmitted, BankPath: abs})
+	body, _ := json.Marshal(pollRequest{AutoSubmitted: autoSubmitted, BankPath: abs}) //nolint:errchkjson // plain bool+string struct cannot fail to marshal
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/poll", bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -475,10 +456,6 @@ func runPoll(ctx context.Context, cfgPath, serverURL string, autoSubmitted bool,
 	return nil
 }
 
-// resolveDaemonURL picks the daemon's base URL in priority order:
-// --server flag, --port flag, config gui.port. When the user is running
-// multiple daemons on different ports they must pass --port (or
-// --server) explicitly; there is no env-based discovery any more.
 func resolveDaemonURL(serverURL, cfgPath string, port int) (string, error) {
 	if serverURL != "" {
 		return serverURL, nil
@@ -498,7 +475,6 @@ func resolveDaemonURL(serverURL, cfgPath string, port int) (string, error) {
 	return "", fmt.Errorf("cannot determine daemon URL: pass --port=<port> (or --server=<url>), or set gui.port in config")
 }
 
-// serveCmd starts the GUI web server.
 func serveCmd() *cobra.Command {
 	var (
 		cfgPath string
@@ -523,8 +499,6 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 	}
 	v := cfg.Get()
 	setupLogging(v.Logging)
-	// --port is a one-shot binding override; do not persist it to
-	// config.json (the user's value there is what reload restores).
 	bindPort := v.GUI.Port
 	if portOverride != 0 {
 		bindPort = portOverride
@@ -564,16 +538,14 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 
 	srvCtx, cancelSrv := context.WithCancel(ctx)
 	defer cancelSrv()
-	// shutdownFn cancels the signal context (not just srvCtx) so the
-	// messenger router's forwarding goroutine — started under the
-	// outer ctx — also unblocks, allowing the deferred router.Stop()
-	// to return. Otherwise router.Stop hangs forever on the
-	// shutdown-button path because only SIGINT/SIGTERM would cancel
-	// its ctx.
+	// The shutdown button cancels the signal context (not just srvCtx) so
+	// the messenger router's forwarding goroutine unblocks and the
+	// deferred router.Stop() can return instead of hanging.
 	srv.OnShutdown(stop)
 
 	addr := fmt.Sprintf("%s:%d", v.GUI.BindAddr, bindPort)
-	ln, err := net.Listen("tcp", addr)
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", addr)
 	if err != nil {
 		return wrapPortBindError(addr, err)
 	}
@@ -618,10 +590,6 @@ func buildProvider(name, fixture string, cfg *config.Config) (providers.Provider
 	}
 }
 
-// loadConfig loads the named config file. Unlike config.Load (which
-// happily uses defaults when no file exists — desired by ptrack serve),
-// loadConfig fails when the file is missing. Use it for commands that
-// require credentials (ptrack track).
 func loadConfig(path string) (*config.Config, error) {
 	if path == "" {
 		var ok bool

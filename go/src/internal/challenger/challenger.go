@@ -13,14 +13,11 @@ import (
 	"presence-tracker/src/internal/config"
 )
 
-// silenceFloorWords drops ASR results shorter than this before appending
-// to the accumulator. The cheapest defence against Whisper hallucinations
-// ("Thanks for watching!", "Subtitles by ...") on silent input. Tunable
-// only by editing this constant — it never made it into config.
+// silenceFloorWords drops ASR results shorter than this, the cheapest
+// defence against Whisper hallucinating phrases ("Thanks for watching!")
+// on near-silent input.
 const silenceFloorWords = 5
 
-// Status is the outcome of one Generate call, surfaced to the browser as
-// the JSON response body of POST /audio/segment.
 type Status string
 
 const (
@@ -29,7 +26,6 @@ const (
 	StatusFailed    Status = "failed"
 )
 
-// Result is the response payload of POST /audio/segment.
 type Result struct {
 	Status    Status `json:"status"`
 	Reason    string `json:"reason,omitempty"`
@@ -38,21 +34,19 @@ type Result struct {
 	Needed    int    `json:"needed,omitempty"`
 }
 
-// Dispatcher hands a generated bank to the running session's challenge
-// pipeline. Implemented by *session.Coordinator's in-memory poll entry.
+// Dispatcher hands a generated bank straight to the running poll pipeline
+// (the auto_submit path); implemented by the session coordinator.
 type Dispatcher interface {
 	RunPollBank(ctx context.Context, bank challenges.Bank, autoSubmitted bool) (challenges.PollResult, error)
 }
 
-// EventSink records the diagnostic events the challenger emits when
-// generation fails. Implemented by *session.Coordinator.
 type EventSink interface {
 	RecordGeneratorFailed(ctx context.Context, reason string)
 }
 
-// Service drives one session's auto-generation pipeline. One Service is
-// created when a session starts and discarded on session end — the
-// accumulator is therefore inherently per-session.
+// Service drives one session's auto-generation: it accumulates ASR
+// transcripts across intervals and produces a question bank once enough
+// speech has built up. Created per session.
 type Service struct {
 	cfg        config.AutoGenerationConfig
 	asr        *ASRClient
@@ -67,10 +61,6 @@ type Service struct {
 	words       int
 }
 
-// New constructs a Service. dispatcher and sink may both be nil, in which
-// case Generate is degraded: dispatch errors when auto_submit is true,
-// and failed-generation events are dropped. They are nil only in unit
-// tests; cmd/ptrack always wires them.
 func New(cfg config.AutoGenerationConfig, dispatcher Dispatcher, sink EventSink) *Service {
 	s := &Service{
 		cfg:        cfg,
@@ -86,17 +76,13 @@ func New(cfg config.AutoGenerationConfig, dispatcher Dispatcher, sink EventSink)
 	return s
 }
 
-// ResetAccumulator clears any buffered transcript. Called at session
-// start (sweep stale state) and indirectly on successful generation.
-func (s *Service) ResetAccumulator() {
+func (s *Service) resetAccumulator() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.accumulator.Reset()
 	s.words = 0
 }
 
-// ReviewDirPath returns the configured review directory, or "" when
-// auto_submit is true (in which case the challenger never writes to disk).
 func (s *Service) ReviewDirPath() string {
 	if s.review == nil {
 		return ""
@@ -104,8 +90,6 @@ func (s *Service) ReviewDirPath() string {
 	return s.review.Dir()
 }
 
-// SweepReviewDir removes every pending auto-*.yaml so a new session does
-// not see stale files from a prior one. No-op when auto_submit is true.
 func (s *Service) SweepReviewDir() error {
 	if s.review == nil {
 		return nil
@@ -113,11 +97,11 @@ func (s *Service) SweepReviewDir() error {
 	return s.review.Sweep()
 }
 
-// Generate runs one cycle: ASR → accumulator append → optional LLM call
-// → either in-memory dispatch or review-dir write. Returns a non-nil
-// error only for programming bugs; every operational outcome (silence,
-// below-threshold transcript, ASR/LLM/dispatch failure) is folded into
-// Result so the HTTP handler can return 200 with a structured body.
+// Generate runs one interval: transcribe the audio, append it to the running
+// transcript, and once enough words accumulate, ask the LLM for a bank and
+// either dispatch it (auto_submit) or write it to the review dir. Operational
+// outcomes (silence, ASR/LLM/dispatch failure) are folded into Result; a
+// non-nil error means a programming bug.
 func (s *Service) Generate(ctx context.Context, audio io.Reader, mime string) (Result, error) {
 	transcript, err := s.asr.Transcribe(ctx, audio, mime)
 	if err != nil {
@@ -184,14 +168,10 @@ func (s *Service) Generate(ctx context.Context, audio io.Reader, mime string) (R
 		}
 	}
 
-	s.ResetAccumulator()
+	s.resetAccumulator()
 	return Result{Status: StatusGenerated, Questions: len(bank.Questions)}, nil
 }
 
-// failed logs the failure and (when wired) emits a
-// challenge_generator_failed event so the teacher sees it in the system
-// log. The accumulator is intentionally not cleared on failure — the
-// content is still useful next interval.
 func (s *Service) failed(ctx context.Context, reason string, cause error) {
 	slog.Warn("challenger: generation failed", "reason", reason, "err", cause)
 	if s.sink != nil {
@@ -199,8 +179,6 @@ func (s *Service) failed(ctx context.Context, reason string, cause error) {
 	}
 }
 
-// wordCount counts whitespace-separated tokens. Good enough for thresholding —
-// no need to be tokenizer-accurate when the threshold itself is a guess.
 func wordCount(s string) int {
 	return len(strings.Fields(s))
 }

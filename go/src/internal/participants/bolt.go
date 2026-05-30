@@ -6,30 +6,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
 )
 
-// normName is the canonical key under which entries are stored. It
-// must stay in sync with session.normName, which converts the same
-// display names into session map keys.
-func normName(displayName string) string {
-	return strings.TrimSpace(displayName)
-}
-
-// bucketParticipants stores norm(displayName) → RegistryEntry (JSON).
-// Lookups by handle scan the bucket; at classroom scale this is cheaper than
-// maintaining a secondary index in sync.
 var bucketParticipants = []byte("participants")
 
-// BoltRegistry is a BoltDB-backed Registry implementation.
 type BoltRegistry struct {
 	db *bolt.DB
 }
 
-// OpenBolt opens (or creates) the participant database at dataDir/participants.db.
 func OpenBolt(dataDir string) (*BoltRegistry, error) {
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return nil, fmt.Errorf("participants: mkdir: %w", err)
@@ -50,9 +37,6 @@ func OpenBolt(dataDir string) (*BoltRegistry, error) {
 
 func (r *BoltRegistry) Close() error { return r.db.Close() }
 
-// findByHandle scans the bucket for an entry owned by (messengerName, handle).
-// Returns the bucket key (normalized display name), the entry, and whether a
-// match was found. Bucket scan is fine at classroom scale.
 func findByHandle(b *bolt.Bucket, messengerName, handle string) ([]byte, RegistryEntry, bool) {
 	var (
 		foundKey   []byte
@@ -80,7 +64,7 @@ func (r *BoltRegistry) Resolve(displayName string) (RegistryEntry, bool) {
 		found bool
 	)
 	_ = r.db.View(func(tx *bolt.Tx) error {
-		raw := tx.Bucket(bucketParticipants).Get([]byte(normName(displayName)))
+		raw := tx.Bucket(bucketParticipants).Get([]byte(NormalizeName(displayName)))
 		if raw == nil {
 			return nil
 		}
@@ -94,7 +78,7 @@ func (r *BoltRegistry) Resolve(displayName string) (RegistryEntry, bool) {
 }
 
 func (r *BoltRegistry) Register(_ context.Context, messengerName, handle, messengerLabel, displayName, language string) error {
-	nameKey := []byte(normName(displayName))
+	nameKey := []byte(NormalizeName(displayName))
 
 	return r.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bucketParticipants)
@@ -105,9 +89,6 @@ func (r *BoltRegistry) Register(_ context.Context, messengerName, handle, messen
 			if entry.Handle != handle || entry.MessengerName != messengerName {
 				return ErrNameTaken
 			}
-			// Same handle re-registering the same name: refresh label/casing.
-			// Language stays as-is unless the caller supplies a new value, so
-			// the user's explicit /language choice survives a re-register.
 			entry.DisplayName = displayName
 			entry.MessengerLabel = messengerLabel
 			if language != "" {
@@ -116,8 +97,8 @@ func (r *BoltRegistry) Register(_ context.Context, messengerName, handle, messen
 			return putEntry(b, nameKey, entry)
 		}
 
-		// New name. If the handle already owns a different registration,
-		// carry its language preference over to the new entry and drop the old one.
+		// This handle already had a different name; free that slot first so a
+		// handle never holds more than one registration. Carry its language over.
 		if prevKey, prev, ok := findByHandle(b, messengerName, handle); ok {
 			if language == "" {
 				language = prev.Language
@@ -208,9 +189,6 @@ func (r *BoltRegistry) Find(_ context.Context, f Filter) ([]RegistryEntry, error
 
 func (r *BoltRegistry) Delete(_ context.Context, f Filter) (int, error) {
 	if f.IsZero() {
-		// Fast path: empty filter clears every entry. DeleteBucket +
-		// CreateBucket avoids walking the index, then we return the
-		// pre-clear count for the caller.
 		var n int
 		err := r.db.Update(func(tx *bolt.Tx) error {
 			n = tx.Bucket(bucketParticipants).Stats().KeyN
@@ -226,7 +204,6 @@ func (r *BoltRegistry) Delete(_ context.Context, f Filter) (int, error) {
 	var n int
 	err := r.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bucketParticipants)
-		// Bolt forbids deleting keys during iteration, so collect first.
 		var keys [][]byte
 		_ = b.ForEach(func(k, v []byte) error {
 			var entry RegistryEntry

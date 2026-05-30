@@ -1,12 +1,3 @@
-// Command schemagen emits the JSON Schema artifacts for the project:
-// config.schema.json (Config) and bank.schema.json (question banks).
-//
-// Both schemas are built by the runtime packages themselves; this tool
-// just marshals the result to disk so editors and other external tools
-// can consume them. Wired into `just gen` (and so `just build`); also
-// runnable directly:
-//
-//	go run ./src/cmd/schemagen --dir ..
 package main
 
 import (
@@ -23,6 +14,8 @@ import (
 	"presence-tracker/src/internal/config"
 )
 
+// schemagen writes config.schema.json and bank.schema.json from the Go schema
+// definitions. Run by `just gen` so the committed schemas stay in sync.
 func main() {
 	dir := flag.String("dir", "..", "output directory; one .json file per schema is written here")
 	flag.Parse()
@@ -51,5 +44,5 @@ func writeSchema(path string, s *jsonschema.Schema) error {
 		return err
 	}
 	body = append(body, '\n')
-	return os.WriteFile(path, body, 0o644)
+	return os.WriteFile(path, body, 0o644) //nolint:gosec // schema files are public, world-readable by design
 }

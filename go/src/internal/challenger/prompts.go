@@ -5,21 +5,6 @@ import (
 	"strings"
 )
 
-// This file is the documented public contract of the auto-generator's
-// LLM interface. Treat changes as breaking — the prompt shape is the
-// only specification the model has of the bank YAML format.
-//
-// Output-format strategy: prose-and-examples in the prompt only. No
-// response_format field on the request, no embedded JSON Schema. Small
-// local models (Qwen 2.5 3B class) follow worked examples more reliably
-// than abstract schemas, and `response_format: json_schema` is not
-// portably supported across the backends ptrack must work with.
-//
-// Producer.Generate tolerates JSON or YAML, with or without
-// surrounding prose / Markdown fences. challenges.Validate is the
-// single source of truth for what counts as valid — bad questions are
-// dropped silently.
-
 const systemPromptHeader = `You generate short quiz banks for an attendance tool.
 Given a transcript of part of a lesson and a target question count N, return a YAML question bank that tests understanding of what was said.
 
@@ -45,10 +30,6 @@ Schema (by example):
     match: substring_ci
 ` + "```"
 
-// baseRules are the non-negotiable instructions enforcing the schema
-// contract parseLLMBank depends on. They are always emitted; user
-// extra_rules are appended after them so a teacher can steer style or
-// topic focus but cannot break the format.
 var baseRules = []string{
 	`"type" is one of "multiple_choice", "numeric", "short_text".`,
 	`multiple_choice: "choices" is a 2..6 element list of distinct short strings; "answer" is a list of one or more entries, each present verbatim in "choices".`,
@@ -60,10 +41,6 @@ var baseRules = []string{
 	`Produce exactly the number of questions requested.`,
 }
 
-// buildSystemPrompt joins the immutable header, the base rules, and any
-// teacher-supplied extra rules into a single system message. Empty or
-// whitespace-only extras are skipped so a stray blank row in the GUI does
-// not pollute the prompt.
 func buildSystemPrompt(extra []string) string {
 	var b strings.Builder
 	b.WriteString(systemPromptHeader)
@@ -83,12 +60,6 @@ func buildSystemPrompt(extra []string) string {
 	return b.String()
 }
 
-// userPrompt builds the per-call instruction. The transcript is wrapped
-// in fenced markers so the model does not confuse it with the schema
-// example above. When language is a concrete BCP-47 / ISO 639-1 tag
-// (e.g. "en", "uk") it is injected as a hard constraint on the output
-// language; the empty string and the "auto" sentinel both opt out and
-// let the model match the transcript.
 func userPrompt(transcript string, n int, language string) string {
 	langLine := ""
 	if normalized := strings.ToLower(strings.TrimSpace(language)); normalized != "" && normalized != "auto" {

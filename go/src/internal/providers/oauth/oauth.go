@@ -19,7 +19,6 @@ import (
 	"github.com/cli/browser"
 )
 
-// Token holds an OAuth access/refresh token pair.
 type Token struct {
 	AccessToken  string    `json:"access_token"`
 	RefreshToken string    `json:"refresh_token"`
@@ -27,25 +26,25 @@ type Token struct {
 	TokenType    string    `json:"token_type"`
 }
 
+// Valid reports whether the token is usable, treating it as expired 30s early
+// so a request never goes out with a token about to lapse.
 func (t *Token) Valid() bool {
 	return t != nil && t.AccessToken != "" && time.Now().Before(t.Expiry.Add(-30*time.Second))
 }
 
-// Config holds the parameters needed to run a PKCE flow.
 type Config struct {
-	ClientID string
-	// ClientSecret is optional. Most PKCE providers (e.g. Zoom) do not require
-	// it, but Google's token endpoint demands it even for Desktop-app clients.
+	ClientID     string
 	ClientSecret string
 	AuthURL      string
 	TokenURL     string
 	Scopes       []string
 	RedirectPort int
-	// TokenFile is the full path where the token is persisted between runs.
-	TokenFile string
+	TokenFile    string
 }
 
-// EnsureToken returns a valid token, running the PKCE flow or refreshing as needed.
+// EnsureToken returns a usable token: from the on-disk cache if still valid,
+// by refreshing it, or — as a last resort — by running the interactive browser
+// PKCE flow.
 func EnsureToken(ctx context.Context, cfg Config) (*Token, error) {
 	tok, err := loadToken(cfg.TokenFile)
 	if err == nil && tok.Valid() {
@@ -73,8 +72,6 @@ func EnsureToken(ctx context.Context, cfg Config) (*Token, error) {
 	return tok, nil
 }
 
-// AuthorizedClient returns an *http.Client whose requests carry the Bearer token,
-// auto-refreshing when it expires.
 func AuthorizedClient(ctx context.Context, cfg Config) (*http.Client, error) {
 	tok, err := EnsureToken(ctx, cfg)
 	if err != nil {
@@ -85,7 +82,8 @@ func AuthorizedClient(ctx context.Context, cfg Config) (*http.Client, error) {
 	}, nil
 }
 
-// bearerTransport injects the Bearer token and refreshes it when expired.
+// bearerTransport injects the Bearer token on every request and refreshes it
+// in-band when stale, so callers get a self-renewing http.Client.
 type bearerTransport struct {
 	cfg Config
 	tok *Token
@@ -95,7 +93,6 @@ func (t *bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if !t.tok.Valid() {
 		refreshed, err := refreshToken(req.Context(), t.cfg, t.tok.RefreshToken)
 		if err != nil {
-			// Fall through with stale token; server will return 401.
 			slog.Warn("oauth: background refresh failed", "err", err)
 		} else {
 			t.tok = refreshed
@@ -109,7 +106,9 @@ func (t *bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return http.DefaultTransport.RoundTrip(clone)
 }
 
-// runPKCEFlow opens the system browser and waits for the OAuth callback.
+// runPKCEFlow runs the interactive Authorization Code + PKCE flow: spin up a
+// localhost callback server, open the browser to the consent page, wait for
+// the redirect carrying the code, then exchange it for a token.
 func runPKCEFlow(ctx context.Context, cfg Config) (*Token, error) {
 	verifier, challenge, err := pkceChallenge()
 	if err != nil {
@@ -131,14 +130,15 @@ func runPKCEFlow(ctx context.Context, cfg Config) (*Token, error) {
 		"state":                 {state},
 		"code_challenge":        {challenge},
 		"code_challenge_method": {"S256"},
-		"access_type":           {"offline"}, // for Google; ignored by Zoom
+		"access_type":           {"offline"},
 	}
 	authURL := cfg.AuthURL + "?" + params.Encode()
 
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", cfg.RedirectPort))
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", cfg.RedirectPort))
 	if err != nil {
 		return nil, fmt.Errorf("oauth: listen on port %d: %w", cfg.RedirectPort, err)
 	}
@@ -172,7 +172,7 @@ func runPKCEFlow(ctx context.Context, cfg Config) (*Token, error) {
 			errCh <- fmt.Errorf("oauth: callback server: %w", serr)
 		}
 	}()
-	defer func() {
+	defer func() { //nolint:contextcheck // shuts down the temporary callback server with a fresh context after the flow ends
 		shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutCtx)
@@ -222,7 +222,6 @@ func refreshToken(ctx context.Context, cfg Config, refreshTok string) (*Token, e
 	if err != nil {
 		return nil, err
 	}
-	// Some providers omit refresh_token on refresh; keep the old one.
 	if tok.RefreshToken == "" {
 		tok.RefreshToken = refreshTok
 	}
@@ -279,14 +278,14 @@ func loadToken(path string) (*Token, error) {
 }
 
 func saveToken(path string, tok *Token) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil { //nolint:gosec // path is the internal token-cache location, not user input
 		return err
 	}
-	data, err := json.Marshal(tok)
+	data, err := json.Marshal(tok) //nolint:gosec // the token is deliberately persisted to the local cache
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	return os.WriteFile(path, data, 0o600) //nolint:gosec // path is the internal token-cache location, not user input
 }
 
 func pkceChallenge() (verifier, challenge string, err error) {

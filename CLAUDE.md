@@ -347,7 +347,8 @@ See `@.claude/rules/go-style.md` for details when writing Go.
 
 Summary: `internal/` for everything; `slog` for logs; errors wrapped with
 `%w`; `context.Context` first-arg everywhere I/O happens; table-driven
-tests; no DI frameworks; comments only where logic is non-obvious.
+tests; no DI frameworks; no `doc.go` or package comments; comment only
+the genuinely non-obvious (say why, not what).
 
 ## Python conventions
 

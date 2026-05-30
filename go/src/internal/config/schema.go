@@ -11,12 +11,9 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-// Schema returns a fresh JSON Schema describing Values. Built by
-// reflecting over the struct (jsonschema.For), then annotated with the
-// values from defaults() and the constraints in applyConstraints.
-//
-// Home-directory prefixes in path defaults are rewritten to "~/..." so
-// the emitted schema is identical across user accounts.
+// Schema builds the JSON Schema from the Values struct, fills each field's
+// default from defaults(), and applies extra constraints. It is the single
+// source of truth for both config validation and the editor form.
 func Schema() (*jsonschema.Schema, error) {
 	schema, err := jsonschema.For[Values](nil)
 	if err != nil {
@@ -34,8 +31,6 @@ func Schema() (*jsonschema.Schema, error) {
 	return schema, nil
 }
 
-// ResolvedSchema returns a cached *jsonschema.Resolved; safe for
-// concurrent use by validators.
 func ResolvedSchema() (*jsonschema.Resolved, error) {
 	resolvedSchemaOnce.Do(func() {
 		s, err := Schema()
@@ -57,10 +52,6 @@ var (
 	resolvedSchemaErr  error
 )
 
-// injectDefaults walks schema and v in lockstep, setting Default on
-// every leaf property. Nested structs recurse; slices/maps are left
-// without a default. Any string default starting with home is rewritten
-// to "~/..." so the emitted schema is reproducible across machines.
 func injectDefaults(schema *jsonschema.Schema, v reflect.Value, home string) error {
 	if v.Kind() != reflect.Struct {
 		return nil
@@ -89,6 +80,8 @@ func injectDefaults(schema *jsonschema.Schema, v reflect.Value, home string) err
 		}
 
 		val := fv.Interface()
+		// Show path defaults as ~-relative so the schema isn't tied to the
+		// machine's home directory.
 		if s, ok := val.(string); ok && home != "" && strings.HasPrefix(s, home) {
 			val = "~" + s[len(home):]
 		}

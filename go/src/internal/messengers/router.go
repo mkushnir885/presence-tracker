@@ -6,19 +6,15 @@ import (
 	"sync"
 )
 
-// EventHandler consumes events emitted by a Messenger.
 type EventHandler interface {
 	HandleMessengerEvent(ctx context.Context, evt Event)
 }
 
-// Router owns a Messenger's lifetime and forwards its events to a
-// swappable handler. The messenger runs for the whole daemon process so
-// registrations work before any meeting starts; the handler is
-// (re-)installed by whichever session is currently active.
-//
-// Events that arrive while no handler is set are dropped silently —
-// the adapter has already persisted /register through the Registry, and
-// join confirmations / answers outside an active session are not actionable.
+// Router owns the long-lived Messenger and forwards its events to a swappable
+// handler. The messenger runs for the whole daemon (so /register works before
+// any meeting); each session installs itself as the handler while active.
+// Events that arrive with no handler are dropped — a registration is already
+// persisted, and confirmations/answers outside a session aren't actionable.
 type Router struct {
 	m    Messenger
 	done chan struct{}
@@ -27,16 +23,12 @@ type Router struct {
 	h  EventHandler
 }
 
-// NewRouter wraps m. The Messenger is not started until Start is called.
 func NewRouter(m Messenger) *Router {
 	return &Router{m: m, done: make(chan struct{})}
 }
 
-// Messenger returns the underlying Messenger so the active session can
-// send DMs and challenges through it.
 func (r *Router) Messenger() Messenger { return r.m }
 
-// SetHandler installs h as the current event target. Pass nil to detach.
 func (r *Router) SetHandler(h EventHandler) {
 	r.mu.Lock()
 	r.h = h
@@ -49,9 +41,6 @@ func (r *Router) handler() EventHandler {
 	return r.h
 }
 
-// Start launches the Messenger and begins forwarding events on a
-// background goroutine that exits when ctx is cancelled or the
-// Messenger closes its event channel.
 func (r *Router) Start(ctx context.Context) error {
 	events, err := r.m.Start(ctx)
 	if err != nil {
@@ -80,8 +69,6 @@ func (r *Router) run(ctx context.Context, events <-chan Event) {
 	}
 }
 
-// Stop shuts down the Messenger and waits for the forwarding goroutine
-// to drain.
 func (r *Router) Stop(ctx context.Context) error {
 	err := r.m.Stop(ctx)
 	<-r.done

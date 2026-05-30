@@ -8,13 +8,8 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-// BankSchema returns a fresh JSON Schema describing a question-bank file.
-// The schema is hand-built (rather than inferred from rawBank) because
-// the answer field is polymorphic per question type — multiple_choice and
-// short_text take an array of strings, numeric takes a single number.
-//
-// Each variant uses the type field as a discriminator (const value);
-// oneOf selects the matching variant per question.
+// BankSchema is the JSON Schema for question banks: each question must match
+// exactly one type variant (OneOf, discriminated by the "type" const).
 func BankSchema() *jsonschema.Schema {
 	mcq := variantSchema(MultipleChoice,
 		map[string]*jsonschema.Schema{
@@ -71,8 +66,6 @@ func BankSchema() *jsonschema.Schema {
 	}
 }
 
-// variantSchema builds one question-type variant: prompt + type
-// discriminator + the type-specific properties.
 func variantSchema(typeConst QuestionType, extra map[string]*jsonschema.Schema, required []string) *jsonschema.Schema {
 	tc := any(string(typeConst))
 	props := map[string]*jsonschema.Schema{
@@ -88,15 +81,12 @@ func variantSchema(typeConst QuestionType, extra map[string]*jsonschema.Schema, 
 	}
 }
 
-// falseSchema returns the schema {"not": {}} — equivalent to JSON Schema's
-// "additionalProperties: false" but expressed via the *Schema field type.
+// falseSchema is the JSON Schema "false" (not(anything) = matches nothing),
+// used as additionalProperties to forbid unknown keys.
 func falseSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{Not: &jsonschema.Schema{}}
 }
 
-// ResolvedBankSchema returns a cached *jsonschema.Resolved built from
-// BankSchema. The same Resolved is safe for concurrent use across Load
-// calls.
 func ResolvedBankSchema() (*jsonschema.Resolved, error) {
 	resolvedBankOnce.Do(func() {
 		resolvedBank, resolvedBankErr = BankSchema().Resolve(nil)

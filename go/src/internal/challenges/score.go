@@ -6,7 +6,6 @@ import (
 	"strings"
 )
 
-// Score evaluates a submitted answer against a question's answer key.
 func Score(q Question, submitted Answer) ScoreResult {
 	switch q.QuestionType {
 	case MultipleChoice:
@@ -61,7 +60,8 @@ func matchText(mode, submitted, expected string) bool {
 	case "regex":
 		ok, _ := regexp.MatchString("(?i)"+expected, submitted)
 		return ok
-	default: // substring_ci
+	default:
+		// substring_ci (the bank default): case-insensitive substring match.
 		return strings.Contains(strings.ToLower(submitted), strings.ToLower(expected))
 	}
 }

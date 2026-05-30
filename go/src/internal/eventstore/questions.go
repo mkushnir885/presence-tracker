@@ -9,8 +9,9 @@ import (
 	"path/filepath"
 )
 
-// QuestionRecord is one line in the per-meeting JSON Lines file.
-// Fields match docs/CHALLENGES.md § "Question record fields".
+// QuestionRecord is one line of a meeting's questions JSONL sidecar (paired
+// with its Parquet file by basename); challenge_issued events reference it by
+// question_id.
 type QuestionRecord struct {
 	QuestionID    string   `json:"question_id"`
 	AutoSubmitted bool     `json:"auto_submitted"`
@@ -20,13 +21,9 @@ type QuestionRecord struct {
 	CorrectAnswer any      `json:"correct_answer"`
 	MatchMode     string   `json:"match_mode,omitempty"`
 	Tolerance     float64  `json:"tolerance,omitempty"`
-	IssuedAt      string   `json:"issued_at"` // ISO-8601 UTC
+	IssuedAt      string   `json:"issued_at"`
 }
 
-// AppendQuestions appends all question records to the meeting's .jsonl file in
-// questionsDir, named after the meeting's Parquet basename so the GUI
-// stats loader can pair them by file. The file is created if it does
-// not exist.
 func AppendQuestions(questionsDir, fileBaseName string, questions []QuestionRecord) error {
 	if len(questions) == 0 {
 		return nil
@@ -54,10 +51,6 @@ func AppendQuestions(questionsDir, fileBaseName string, questions []QuestionReco
 	return nil
 }
 
-// LoadQuestions reads every record from a JSONL file into a map keyed
-// by question_id. A missing file is not an error — it returns an empty
-// map so callers can use the result unconditionally. Malformed lines
-// are skipped (matching the read tolerance of scanJSONL).
 func LoadQuestions(path string) (map[string]QuestionRecord, error) {
 	out := map[string]QuestionRecord{}
 	f, err := os.Open(path) //nolint:gosec // path comes from a validated config dir + parquet basename
@@ -70,6 +63,8 @@ func LoadQuestions(path string) (map[string]QuestionRecord, error) {
 	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
+	// Raise the line cap to 1 MiB — a question's prompt and choices can exceed
+	// bufio's 64 KB default.
 	scanner.Buffer(make([]byte, 64*1024), 1<<20)
 	for scanner.Scan() {
 		line := scanner.Bytes()

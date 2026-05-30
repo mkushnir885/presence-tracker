@@ -9,16 +9,15 @@ import (
 	"time"
 )
 
-// LogEntry is one captured log record.
 type LogEntry struct {
 	Time    time.Time
 	Level   string
 	Message string
-	Attrs   string // space-separated key=value pairs
+	Attrs   string
 }
 
-// logBuffer is a thread-safe rolling slog.Handler that keeps the most recent
-// cap entries in memory while forwarding every record to a next handler.
+// logBuffer is a slog.Handler that tees records into a capped, newest-first
+// ring for the GUI's live status log while still forwarding to next (stderr).
 type logBuffer struct {
 	mu      sync.Mutex
 	entries []LogEntry
@@ -69,7 +68,6 @@ func (b *logBuffer) WithGroup(name string) slog.Handler {
 	return &logBuffer{cap: b.cap, next: b.next.WithGroup(name)}
 }
 
-// Entries returns a snapshot of captured entries, newest first.
 func (b *logBuffer) Entries() []LogEntry {
 	b.mu.Lock()
 	defer b.mu.Unlock()

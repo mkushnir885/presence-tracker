@@ -1,18 +1,5 @@
-// Live status page interactions, written so it does not have to be
-// re-bound after every htmx full-body swap (the status page reloads
-// itself every 5 s). Strategy:
-//   * Use event delegation off document for inputs and clicks.
-//   * On every DOMContentLoaded and htmx:afterSettle, re-apply the
-//     roster filter (saved in localStorage) and rebuild the "chosen
-//     file" chip if the picker still has a file selected.
-//
-// Surface:
-//   * Tracked / untracked roster filter inputs — case-insensitive
-//     substring of the display name.
-//   * "Upload file" → "filename × clear" chip swap inside the trigger-
-//     poll card.
-//   * "Start a poll" multipart submission to /poll/file.
-
+// Live status page: roster name-filtering, the Trigger-poll upload card, and
+// the SSE stream that swaps status fragments in place.
 (function () {
 	const FILTER_KEY = "ptrack.status.filter.";
 
@@ -109,13 +96,13 @@
 		if (startBtn) startBtn.disabled = false;
 	}
 
+	// Keep the poll card in sync with the file input: an upload button when
+	// empty, a removable file chip once a bank is chosen.
 	function refreshPollCard() {
 		const slot = document.getElementById("poll-file-slot");
 		const picker = document.getElementById("poll-bank-picker");
 		const startBtn = document.getElementById("poll-start-btn");
 		if (!slot || !picker) return;
-		// Capture the initial server-rendered label exactly once so the
-		// JS-rebuilt button keeps the localized text.
 		const initBtn = slot.querySelector("#poll-upload-btn");
 		if (initBtn && !slot.dataset.labelUpload) {
 			slot.dataset.labelUpload = initBtn.textContent.trim();
@@ -168,8 +155,6 @@
 		const file = picker && picker.files && picker.files[0];
 		if (!file) return;
 		if (startBtn) startBtn.disabled = true;
-		// Reset the picker immediately so the upload button swaps back
-		// in; the captured `file` ref keeps the in-flight upload alive.
 		if (picker) picker.value = "";
 		if (slot) renderUploadButton(slot, startBtn);
 		try {
@@ -186,12 +171,8 @@
 		refreshPollCard();
 	}
 
-	// connectStatusStream subscribes to the per-region SSE feed served
-	// by ptrack. Each named event carries the fragment HTML for one
-	// stable wrapper (matched via data-sse=<name>), so unchanged
-	// regions are never touched and the audio + poll cards survive
-	// across updates. The body event is reserved for the waiting↔live
-	// phase swap; sub-region events handle everything else.
+	// Consume the status SSE stream: each named event carries fresh HTML for
+	// the region(s) tagged data-sse="<name>" (see server handleStatusStream).
 	function connectStatusStream() {
 		if (typeof EventSource === "undefined") return;
 		const es = new EventSource("/status/stream");
@@ -207,13 +188,12 @@
 		es.addEventListener("roster", swap("roster"));
 		es.addEventListener("log", swap("log"));
 		es.addEventListener("pending", swap("pending"));
+		// body replaces the whole status body on the waiting→live transition;
+		// re-fire htmx:afterSettle so the Audio card re-initialises.
 		es.addEventListener("body", (ev) => {
 			const body = document.getElementById("status-body");
 			if (body) body.innerHTML = ev.data;
 			onReady();
-			// Audio + roster filter init normally piggyback on htmx
-			// settle; dispatch the same event so they re-bind to the
-			// fresh nodes the phase swap just introduced.
 			document.body.dispatchEvent(new Event("htmx:afterSettle"));
 		});
 		es.addEventListener("session-ended", () => {

@@ -16,18 +16,10 @@ import (
 	"github.com/apache/arrow/go/v17/parquet/pqarrow"
 )
 
-// UpdateDisplayName rewrites all events in parquetPath whose display_name
-// matches oldName, replacing it with newName. Matching is exact (no case
-// folding or trim) — the GUI sends back the value it showed the teacher.
-//
-// The file is overwritten in place (same inode) so its birth time stays
-// stable — that's what the Meetings page's "Created" column reads. A
-// sibling "<path>.backup" is created beforehand and removed only after
-// the truncated write completes; if the write fails, the original is
-// restored from that backup.
-//
-// This is called by the GUI when the teacher renames a participant in
-// the meeting analysis view.
+// UpdateDisplayName rewrites every row whose display_name equals oldName to
+// newName, in place. It reads the whole file, re-encodes, then swaps through a
+// .backup copy so a failed overwrite can be rolled back instead of corrupting
+// the meeting file.
 func UpdateDisplayName(parquetPath, oldName, newName string) error {
 	records, err := ReadAll(context.Background(), parquetPath)
 	if err != nil {
@@ -66,7 +58,6 @@ func UpdateDisplayName(parquetPath, oldName, newName string) error {
 
 const defaultRowGroupSize = 10000
 
-// writeAllTo encodes records as a complete Parquet stream into w.
 func writeAllTo(w io.Writer, records []Record, compression string, rowGroupSize int) error {
 	codec, err := parseCompression(compression)
 	if err != nil {
@@ -106,8 +97,6 @@ func writeAllTo(w io.Writer, records []Record, compression string, rowGroupSize 
 	return pw.Close()
 }
 
-// overwriteFile truncates the existing file at path and writes data,
-// preserving the inode (and therefore its birth time).
 func overwriteFile(path string, data []byte) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
 	if err != nil {
@@ -138,8 +127,6 @@ func copyFile(src, dst string) error {
 	return out.Close()
 }
 
-// ReadQuestion scans all *.jsonl files in questionsDir for a record whose
-// question_id matches questionID. Returns nil, nil if not found.
 func ReadQuestion(questionsDir, questionID string) (*QuestionRecord, error) {
 	pattern := filepath.Join(questionsDir, "*.jsonl")
 	files, err := filepath.Glob(pattern)
@@ -174,7 +161,7 @@ func scanJSONL(path, questionID string) (*QuestionRecord, error) {
 		}
 		var q QuestionRecord
 		if err := json.Unmarshal(line, &q); err != nil {
-			continue // skip malformed lines
+			continue
 		}
 		if q.QuestionID == questionID {
 			return &q, nil

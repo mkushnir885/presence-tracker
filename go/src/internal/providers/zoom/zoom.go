@@ -23,19 +23,14 @@ const (
 	zoomAPIBase  = "https://api.zoom.us/v2"
 )
 
-// dashboard_meetings:read:admin requires account-admin authorisation on a
-// Zoom Pro plan or higher.
 var zoomScopes = []string{"meeting:read:meeting", "dashboard_meetings:read:admin"}
 
-// Adapter polls the Zoom Dashboard API for live participant state.
 type Adapter struct {
 	cfg    *config.Config
 	client *http.Client
 	events chan providers.Event
 }
 
-// New creates a Zoom poll adapter. OAuth tokens are persisted under
-// config.DataDir().
 func New(cfg *config.Config) *Adapter {
 	return &Adapter{
 		cfg:    cfg,
@@ -45,19 +40,8 @@ func New(cfg *config.Config) *Adapter {
 
 func (a *Adapter) Name() string { return "zoom" }
 
-// ParseMeetingID accepts either a bare Zoom meeting ID or a Zoom join URL
-// and returns the canonical numeric meeting ID used by the Dashboard API.
-// Recognised shapes:
-//
-//   - a bare ID with optional embedded spaces (the Zoom UI displays meeting
-//     numbers with visual grouping, e.g. "123 4567 890")
-//   - a join URL with /j/<id>, /s/<id>, /w/<id>, or /wc/join/<id> in the path
-//
-// Personal meeting room URLs (/my/<vanity>) are rejected because they cannot
-// be resolved to a meeting ID without an extra API call.
 func (a *Adapter) ParseMeetingID(input string) (string, error) { return ParseMeetingID(input) }
 
-// ParseMeetingID is the package-level form of [Adapter.ParseMeetingID].
 func ParseMeetingID(input string) (string, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
@@ -94,9 +78,6 @@ func ParseMeetingID(input string) (string, error) {
 	return "", fmt.Errorf("zoom: cannot extract meeting ID from %q", input)
 }
 
-// Authenticate runs the PKCE OAuth flow with the
-// dashboard_meetings:read:admin scope. The authorising account must be a
-// Zoom account admin.
 func (a *Adapter) Authenticate(ctx context.Context) error {
 	zoom := a.cfg.Get().Providers.Zoom
 	oauthCfg := providersoauth.Config{
@@ -115,15 +96,13 @@ func (a *Adapter) Authenticate(ctx context.Context) error {
 	return nil
 }
 
-// Subscribe starts polling the Zoom Dashboard API and returns a channel of
-// events. The channel is closed when the meeting ends or ctx is cancelled.
 func (a *Adapter) Subscribe(ctx context.Context, meetingID string) (<-chan providers.Event, error) {
 	go a.pollLoop(ctx, meetingID)
 	return a.events, nil
 }
 
 type zoomParticipant struct {
-	id    string // participantUUID
+	id    string
 	name  string
 	email string
 }
@@ -136,7 +115,7 @@ func (a *Adapter) pollLoop(ctx context.Context, meetingID string) {
 	defer ticker.Stop()
 
 	state := pollState{
-		active: map[string]string{}, // platformID → displayName
+		active: map[string]string{},
 	}
 
 	for {
@@ -151,16 +130,12 @@ func (a *Adapter) pollLoop(ctx context.Context, meetingID string) {
 	}
 }
 
-// pollState carries cross-tick bookkeeping for pollLoop. observedNotLive is
-// set the first time a poll finds the meeting not live before it goes live,
-// distinguishing "watched the meeting start" from "attached mid-meeting".
 type pollState struct {
 	active          map[string]string
 	meetingLive     bool
 	observedNotLive bool
 }
 
-// tick performs one poll cycle. Returns true when the meeting has ended.
 func (a *Adapter) tick(ctx context.Context, meetingID string, state *pollState) bool {
 	participants, live, err := a.fetchParticipants(ctx, meetingID)
 	if err != nil {
@@ -185,6 +160,8 @@ func (a *Adapter) tick(ctx context.Context, meetingID string, state *pollState) 
 	if state.meetingLive {
 		current := map[string]string{}
 		for _, p := range participants {
+			// Prefer email as the stable key; the Dashboard API's participant
+			// id can be empty or differ between polls.
 			id := p.email
 			if id == "" {
 				id = p.id
@@ -228,9 +205,6 @@ func (a *Adapter) tick(ctx context.Context, meetingID string, state *pollState) 
 	return false
 }
 
-// fetchParticipants calls the Zoom Dashboard API for live participants.
-// live is false when the meeting is not yet started or has ended; in that
-// case the returned slice is empty and err is nil.
 func (a *Adapter) fetchParticipants(ctx context.Context, meetingID string) ([]zoomParticipant, bool, error) {
 	var all []zoomParticipant
 	pageToken := ""
@@ -252,7 +226,7 @@ func (a *Adapter) fetchParticipants(ctx context.Context, meetingID string) ([]zo
 
 		if resp.StatusCode == http.StatusNotFound {
 			_ = resp.Body.Close()
-			return nil, false, nil // meeting not live
+			return nil, false, nil
 		}
 		if resp.StatusCode != http.StatusOK {
 			_ = resp.Body.Close()

@@ -15,22 +15,12 @@ import (
 
 var cachedPath atomic.Pointer[string]
 
-// ErrBinaryNotFound is returned by Locate when ptrack_py can be found
-// neither next to the running ptrack binary nor in PATH.
 var ErrBinaryNotFound = errors.New("ptrackpy: ptrack_py not found next to ptrack or in PATH")
 
-// ErrIncompleteMeeting is returned by Run when ptrack_py rejects an
-// input because it has no session_ended event (meeting still in
-// progress). Wrapped with the file path detail in stderr.
 var ErrIncompleteMeeting = errors.New("ptrackpy: meeting still in progress")
 
-// incompleteMeetingExitCode mirrors INCOMPLETE_MEETING_EXIT_CODE in
-// py/src/ptrack_py/__main__.py.
 const incompleteMeetingExitCode = 3
 
-// Locate returns the absolute path to the ptrack_py executable, checking
-// first next to the running ptrack binary and then PATH. The returned
-// path is cached after the first successful lookup.
 func Locate() (string, error) {
 	if p := cachedPath.Load(); p != nil {
 		return *p, nil
@@ -43,9 +33,9 @@ func Locate() (string, error) {
 	return path, nil
 }
 
-// Run executes `ptrack_py <args...>` and returns its stdout bytes. On
-// failure the captured stderr is folded into the returned error so the
-// caller does not have to wire up its own diagnostic capture.
+// Run invokes the ptrack_py binary and returns its stdout. Exit code 3 — the
+// Python side's "meeting still in progress" signal — is mapped to
+// ErrIncompleteMeeting so callers (the GUI) can show a 409 instead of failing.
 func Run(ctx context.Context, args ...string) ([]byte, error) {
 	bin, err := Locate()
 	if err != nil {
@@ -53,7 +43,7 @@ func Run(ctx context.Context, args ...string) ([]byte, error) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd := exec.CommandContext(ctx, bin, args...) //nolint:gosec // bin is the resolved ptrack_py path; args are fixed subcommands and validated paths
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
@@ -97,8 +87,6 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-// argSummary keeps a short hint of which subcommand failed without
-// dumping the full --in path list into every error.
 func argSummary(args []string) string {
 	if len(args) == 0 {
 		return "ptrack_py"

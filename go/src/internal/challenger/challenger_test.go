@@ -117,7 +117,6 @@ func TestGenerateSilenceSkips(t *testing.T) {
 }
 
 func TestGenerateBelowThresholdHolds(t *testing.T) {
-	// "five six seven eight nine ten" = 6 words >= silence floor, < 30 min_words.
 	asrURL, llmURL := newFakeBackends(t, "five six seven eight nine ten", "")
 	svc := New(config.AutoGenerationConfig{
 		Enabled:             true,

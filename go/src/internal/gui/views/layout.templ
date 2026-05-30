@@ -1,8 +1,5 @@
 package views
 
-// Layout is the page chrome shared by every view. navExtras is an
-// optional component injected into the nav-tools group ahead of the
-// theme and language menus — pages that don't need it pass nil.
 templ Layout(title string, locale Locale, navExtras templ.Component) {
 	<!DOCTYPE html>
 	<html lang={ locale.Lang }>
@@ -12,6 +9,7 @@ templ Layout(title string, locale Locale, navExtras templ.Component) {
 			<title>{ title } — Presence Tracker</title>
 			<link rel="stylesheet" href="/assets/style.css"/>
 			<script>
+				// Apply the saved theme before first paint to avoid a flash of the wrong one.
 				(function() {
 					var t = localStorage.getItem('ptrack-theme') || 'system';
 					if (t === 'light' || t === 'dark') {
@@ -59,26 +57,14 @@ templ Layout(title string, locale Locale, navExtras templ.Component) {
 			</template>
 			<script src="https://unpkg.com/htmx.org@2.0.4" crossorigin="anonymous"></script>
 			<script>
-				// Daemon-down detector. Two signals feed it:
-				//   1. An /events Server-Sent Events stream the layout
-				//      opens once per page. When the daemon stops the
-				//      browser fires `error` on the EventSource and we
-				//      swap the body for the "stopped" template.
-				//   2. htmx:sendError, raised when any user-triggered
-				//      htmx request fails to reach the daemon — covers
-				//      the brief gap between an action and the SSE
-				//      detecting the drop.
+				// Daemon-liveness detector: hold the /events SSE open and, if it drops
+				// after connecting (Ctrl-C, shutdown button, kill), swap the page to the
+				// "stopped" screen. The unloading guard suppresses this during normal
+				// navigation so a page change doesn't look like a crash.
 				(function() {
 					var shown = false;
 					var unloading = false;
 					var es = null;
-					// pagehide / beforeunload fire when the browser is
-					// navigating away. Without this guard, the browser
-					// tearing down the SSE connection during navigation
-					// fires `error` on EventSource, our detector paints
-					// the stopped screen on the still-visible old DOM,
-					// and the user sees a flash of it before the new
-					// page arrives.
 					function markUnload() {
 						unloading = true;
 						if (es) { try { es.close(); } catch (_) {} }
@@ -94,22 +80,12 @@ templ Layout(title string, locale Locale, navExtras templ.Component) {
 						document.body.innerHTML = tmpl.innerHTML;
 					}
 					document.body.addEventListener('htmx:sendError', showStopped);
-					// POST /system/shutdown returns 204 + an HX-Trigger
-					// header that fires this event. Routing through
-					// showStopped here keeps the GUI-shutdown UX
-					// identical to the SIGINT/Ctrl-C path.
 					document.body.addEventListener('ptrack-shutdown', showStopped);
 					if (typeof EventSource !== 'undefined') {
 						es = new EventSource('/events');
 						var connected = false;
 						es.addEventListener('open', function() { connected = true; });
 						es.addEventListener('error', function() {
-							// EventSource auto-reconnects, so `error` can
-							// fire transiently. Only treat it as a drop
-							// once we've seen at least one successful
-							// connection — that rules out the user
-							// opening the page while the daemon is down,
-							// which would also fail the initial GET.
 							if (connected) {
 								es.close();
 								showStopped();
@@ -171,10 +147,6 @@ templ Layout(title string, locale Locale, navExtras templ.Component) {
 	</html>
 }
 
-// pageHeader is the consistent page-title row used by every top-level
-// view. Pages without inline controls render `@pageHeader("Title")`;
-// pages with extras pass them as children, which render to the right
-// of the title without changing the title's vertical position.
 templ pageHeader(title string) {
 	<header class="page-header">
 		<h1>{ title }</h1>
@@ -251,15 +223,12 @@ templ langMenu(locale Locale) {
 	</details>
 }
 
-// iconThemeCurrent picks the icon that matches the persisted theme. The
-// inline script in <head> applies data-theme before paint, but the
-// stored preference is what we render here so the icon matches even when
-// theme=system inherits from the OS.
 templ iconThemeCurrent() {
 	@iconSun()
 	@iconMoon()
 	@iconMonitor()
 	<script>
+		// Show only the icon matching the currently-selected theme.
 		(function() {
 			var t = localStorage.getItem('ptrack-theme') || 'system';
 			var s = document.currentScript.parentElement;

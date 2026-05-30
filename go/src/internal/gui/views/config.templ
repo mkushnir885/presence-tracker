@@ -2,6 +2,9 @@ package views
 
 import "strconv"
 
+// ConfigEditor renders the config form. Each field helper takes the schema
+// path (trailing args) so number and enum inputs read their min/max/enum
+// constraints straight from the JSON Schema.
 templ ConfigEditor(data ConfigData, locale Locale) {
 	@Layout(locale.T("config.title"), locale, nil) {
 		@pageHeader(locale.T("config.title")) {
@@ -121,6 +124,8 @@ templ ConfigEditor(data ConfigData, locale Locale) {
 			</div>
 		</form>
 		<script>
+			// Enable Save only once the form is dirty (differs from its loaded
+			// snapshot), or immediately if the last save returned an error.
 			(function() {
 				var form = document.getElementById('config-form');
 				if (!form) return;
@@ -143,8 +148,6 @@ templ ConfigEditor(data ConfigData, locale Locale) {
 	}
 }
 
-// textField renders a labelled text input. Extra schemaPath args (if any)
-// are used to look up minLength / pattern hints from the schema.
 templ textField(data ConfigData, name string, label string, value string, schemaPath ...string) {
 	<div class="field">
 		<label for={ name }>{ label }</label>
@@ -152,9 +155,8 @@ templ textField(data ConfigData, name string, label string, value string, schema
 	</div>
 }
 
-// secretField renders a writeOnly password input. The current value is
-// never echoed; the placeholder communicates that fact, and an empty
-// submission means "keep the existing value".
+// secretField renders an always-empty password input: the stored secret is
+// never echoed back, and a blank submit means "keep the existing value".
 templ secretField(data ConfigData, name string, label string, hint string, schemaPath ...string) {
 	<div class="field">
 		<label for={ name }>{ label }</label>
@@ -209,10 +211,9 @@ templ enumField(data ConfigData, label string, name string, value string, schema
 	</div>
 }
 
-// extraRulesField renders the teacher's custom LLM rules as a repeatable
-// list. Each input shares the same form name so the handler reads it as
-// url.Values[name] []string preserving DOM order. The "+" button appends
-// a blank row; per-row "×" buttons remove. Empty rows are pruned server-side.
+// extraRulesField is a repeatable list of free-text LLM rules. The Add button
+// clones the hidden <template> row; all rows share one field name so the
+// server collects them into a slice.
 templ extraRulesField(locale Locale, rules []string) {
 	<div class="field extra-rules" data-extra-rules>
 		<label>{ locale.T("config.auto_generation.extra_rules") }</label>

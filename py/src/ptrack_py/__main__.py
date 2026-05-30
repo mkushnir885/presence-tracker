@@ -1,13 +1,4 @@
-"""
-CLI entry point for the ptrack_py binary (PyInstaller target).
-
-Subcommands:
-  report      Generate a CSV report; per-meeting with one --in, aggregate
-              with more than one.
-  stats       Emit JSON stats payload consumed by the Go GUI's /stats view.
-
-TODO: challenger subcommand (AI-generated challenges) not implemented yet.
-"""
+"""CLI entry point for the ptrack_py binary (PyInstaller target)."""
 
 from __future__ import annotations
 
@@ -21,14 +12,10 @@ import typer
 
 from ptrack_analytics.load import LoadError
 from ptrack_analytics.schema import EVENT_SCHEMA
+from ptrack_py.reports import generate_aggregate_csv, generate_csv
+from ptrack_py.stats import generate_stats
+from ptrack_py.validate import IncompleteMeetingError, ensure_session_ended
 
-from .reports import generate_aggregate_csv, generate_csv
-from .stats import generate_stats
-from .validate import IncompleteMeetingError, ensure_session_ended
-
-# Exit code returned when an input file is missing its session_ended
-# event (meeting still in progress). Distinct from the generic exit code
-# 1 so the Go GUI can map it to a clear "tracking still active" message.
 INCOMPLETE_MEETING_EXIT_CODE = 3
 
 app = typer.Typer(
@@ -79,13 +66,7 @@ def stats(
         ),
     ),
 ) -> None:
-    """Emit the GUI stats JSON for one or more Parquet files.
-
-    Markers come back with only the event-side fields filled in
-    (timestamps, result, submitted_answer, …). The caller is expected
-    to merge in question payloads from the matching JSONL file — see
-    Go's stats.Loader.
-    """
+    """Emit the GUI stats JSON for one or more Parquet files."""
     paths = _expand_globs(inputs)
     _validate_complete(paths)
 
@@ -107,11 +88,7 @@ def stats(
 
 
 def _validate_complete(paths: list[str]) -> None:
-    """Reject inputs that lack a session_ended event.
-
-    Exits with INCOMPLETE_MEETING_EXIT_CODE so the Go GUI can render a
-    "meeting still in progress" message instead of a generic failure.
-    """
+    # Exit code 3 lets the Go GUI show "meeting still in progress".
     for p in paths:
         try:
             ensure_session_ended(p)
@@ -121,11 +98,6 @@ def _validate_complete(paths: list[str]) -> None:
 
 
 def _expand_globs(patterns: list[str]) -> list[str]:
-    """Expand glob patterns into a sorted list of Parquet paths.
-
-    Exits the program with code 1 if no pattern matches anything; that
-    matches how the previous per-pattern loader surfaced missing files.
-    """
     paths: list[str] = []
     for pattern in patterns:
         paths.extend(sorted(_glob.glob(str(Path(pattern).expanduser()))))
@@ -136,14 +108,9 @@ def _expand_globs(patterns: list[str]) -> list[str]:
 
 
 def _build_source_file_map(inputs: list[str]) -> dict[str, str]:
-    """Map each meeting_id to the parquet path it came from.
-
-    Lets the GUI display the actual filename even when it differs from
-    the meeting_id convention.
-    """
     out: dict[str, str] = {}
     for p in inputs:
-        df: pl.DataFrame = (  # type: ignore  # ty limitation: collect returns InProcessQuery union
+        df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
             pl.scan_parquet(p, schema=pl.Schema(EVENT_SCHEMA))
             .select(pl.col("meeting_id").first().alias("meeting_id"))
             .collect()

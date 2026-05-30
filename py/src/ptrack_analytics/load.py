@@ -1,19 +1,11 @@
-"""
-Functions for loading meeting Parquet and question JSONL files.
-"""
-
 from __future__ import annotations
 
 import glob as _glob
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import polars as pl
 
 from .schema import EVENT_SCHEMA
-
-if TYPE_CHECKING:
-    pass
 
 
 class LoadError(Exception):
@@ -21,12 +13,7 @@ class LoadError(Exception):
 
 
 def load_events(pattern: str) -> pl.LazyFrame:
-    """
-    Load all meeting Parquet files matching *pattern* into a lazy frame.
-
-    Raises LoadError if no files are found or if any file has an
-    incompatible schema_version.
-    """
+    """Load every meeting Parquet matching *pattern* into one lazy frame."""
     paths = sorted(_glob.glob(str(Path(pattern).expanduser())))
     if not paths:
         raise LoadError(f"no Parquet files matched: {pattern}")
@@ -39,11 +26,7 @@ def load_events(pattern: str) -> pl.LazyFrame:
 
 
 def load_questions(questions_dir: str, meeting_ids: list[str]) -> pl.LazyFrame:
-    """
-    Load JSONL question files for the given meeting IDs into a lazy frame.
-
-    Missing files are silently skipped (meeting may have had no challenges).
-    """
+    """Load the question JSONL for each meeting; missing files are skipped."""
     qdir = Path(questions_dir).expanduser()
     frames: list[pl.LazyFrame] = []
     for mid in meeting_ids:
@@ -51,8 +34,9 @@ def load_questions(questions_dir: str, meeting_ids: list[str]) -> pl.LazyFrame:
         if path.exists():
             frames.append(pl.scan_ndjson(str(path)))
 
+    # No question files (e.g. a tracking-only session): return a typed empty
+    # frame so the `questions` schema stays stable for downstream joins.
     if not frames:
-        # Return an empty frame with expected columns so joins always work.
         return pl.LazyFrame(
             schema={
                 "question_id": pl.String,
