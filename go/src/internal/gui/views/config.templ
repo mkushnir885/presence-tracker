@@ -87,6 +87,7 @@ templ ConfigEditor(data ConfigData, locale Locale) {
 					@textField(data, "challenges.auto_generation.llm.base_url", locale.T("config.auto_generation.base_url"), data.V.Challenges.AutoGeneration.LLM.BaseURL, "challenges", "auto_generation", "llm", "base_url")
 					@secretField(data, "challenges.auto_generation.llm.api_key", locale.T("config.auto_generation.api_key"), locale.T("config.secret_hint"), "challenges", "auto_generation", "llm", "api_key")
 					@textField(data, "challenges.auto_generation.llm.model", locale.T("config.auto_generation.model"), data.V.Challenges.AutoGeneration.LLM.Model, "challenges", "auto_generation", "llm", "model")
+					@extraRulesField(locale, data.V.Challenges.AutoGeneration.ExtraRules)
 				</div>
 			</details>
 			<details>
@@ -205,5 +206,70 @@ templ enumField(data ConfigData, label string, name string, value string, schema
 				<option value={ opt } selected?={ opt == value }>{ opt }</option>
 			}
 		</select>
+	</div>
+}
+
+// extraRulesField renders the teacher's custom LLM rules as a repeatable
+// list. Each input shares the same form name so the handler reads it as
+// url.Values[name] []string preserving DOM order. The "+" button appends
+// a blank row; per-row "×" buttons remove. Empty rows are pruned server-side.
+templ extraRulesField(locale Locale, rules []string) {
+	<div class="field extra-rules" data-extra-rules>
+		<label>{ locale.T("config.auto_generation.extra_rules") }</label>
+		<div class="text-muted" style="font-size:0.75rem;margin-bottom:0.4rem;">{ locale.T("config.auto_generation.extra_rules.hint") }</div>
+		<div class="extra-rules-list" data-extra-rules-list>
+			for _, r := range rules {
+				@extraRuleRow(locale, r)
+			}
+		</div>
+		<button
+			type="button"
+			class="btn btn-secondary"
+			data-extra-rules-add
+			aria-label={ locale.T("config.auto_generation.extra_rules.add") }
+			style="margin-top:0.25rem;"
+		>+ { locale.T("config.auto_generation.extra_rules.add") }</button>
+		<template data-extra-rules-template>
+			@extraRuleRow(locale, "")
+		</template>
+	</div>
+	<script>
+		(function() {
+			document.querySelectorAll('[data-extra-rules]').forEach(function(root) {
+				var list = root.querySelector('[data-extra-rules-list]');
+				var tpl = root.querySelector('[data-extra-rules-template]');
+				root.querySelector('[data-extra-rules-add]').addEventListener('click', function() {
+					var clone = tpl.content.firstElementChild.cloneNode(true);
+					list.appendChild(clone);
+					var input = clone.querySelector('input');
+					if (input) input.focus();
+					root.dispatchEvent(new Event('input', { bubbles: true }));
+				});
+				root.addEventListener('click', function(ev) {
+					var btn = ev.target.closest('[data-extra-rule-remove]');
+					if (!btn) return;
+					var row = btn.closest('[data-extra-rule]');
+					if (row) row.remove();
+					root.dispatchEvent(new Event('input', { bubbles: true }));
+				});
+			});
+		})();
+	</script>
+}
+
+templ extraRuleRow(locale Locale, value string) {
+	<div class="extra-rule-row" data-extra-rule style="display:flex;gap:0.4rem;margin-bottom:0.3rem;">
+		<input
+			type="text"
+			name="challenges.auto_generation.extra_rules"
+			value={ value }
+			style="flex:1;"
+		/>
+		<button
+			type="button"
+			class="btn btn-secondary"
+			data-extra-rule-remove
+			aria-label={ locale.T("config.auto_generation.extra_rules.remove") }
+		>×</button>
 	</div>
 }

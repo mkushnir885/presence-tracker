@@ -100,6 +100,12 @@ type AutoGenerationConfig struct {
 	Language string          `json:"language,omitempty"`
 	ASR      AIBackendConfig `json:"asr,omitzero"`
 	LLM      AIBackendConfig `json:"llm,omitzero"`
+	// ExtraRules is appended to the built-in "Rules" section of the LLM
+	// system prompt, one bullet per entry. Empty/whitespace-only entries
+	// are dropped at save time. The base rules — including the YAML
+	// schema contract — are not user-overridable to keep Producer.Generate
+	// parseable.
+	ExtraRules []string `json:"extra_rules,omitempty"`
 }
 
 // AIBackendConfig is the connection target for one OpenAI-compatible

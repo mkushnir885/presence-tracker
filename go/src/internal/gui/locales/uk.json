@@ -240,6 +240,10 @@
   "config.auto_generation.base_url": "Базова URL-адреса",
   "config.auto_generation.api_key": "API-ключ",
   "config.auto_generation.model": "Модель",
+  "config.auto_generation.extra_rules": "Додаткові правила для генератора запитань",
+  "config.auto_generation.extra_rules.hint": "Додаються до розділу «Rules» системного промпту, по одному пункту на рядок. Вбудовані правила схеми перевизначити не можна.",
+  "config.auto_generation.extra_rules.add": "Додати правило",
+  "config.auto_generation.extra_rules.remove": "Прибрати правило",
 
   "status.poll.menu": "Опитування",
   "status.poll.or": "або",

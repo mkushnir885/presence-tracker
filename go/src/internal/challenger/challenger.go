@@ -79,7 +79,7 @@ func New(cfg config.AutoGenerationConfig, dispatcher Dispatcher, sink EventSink)
 		dispatcher: dispatcher,
 		sink:       sink,
 	}
-	s.producer = NewProducer(s.llm, cfg.Language)
+	s.producer = NewProducer(s.llm, cfg.Language, cfg.ExtraRules)
 	if !cfg.AutoSubmit {
 		s.review = NewReviewDir(cfg.ReviewDir)
 	}

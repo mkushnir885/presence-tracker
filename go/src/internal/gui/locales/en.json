@@ -240,6 +240,10 @@
   "config.auto_generation.base_url": "Base URL",
   "config.auto_generation.api_key": "API key",
   "config.auto_generation.model": "Model",
+  "config.auto_generation.extra_rules": "Additional rules for the question generator",
+  "config.auto_generation.extra_rules.hint": "Appended to the system prompt's Rules section, one bullet per row. The built-in schema rules cannot be overridden.",
+  "config.auto_generation.extra_rules.add": "Add rule",
+  "config.auto_generation.extra_rules.remove": "Remove rule",
 
   "status.poll.menu": "Challenge",
   "status.poll.or": "or",

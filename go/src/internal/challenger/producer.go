@@ -17,15 +17,17 @@ import (
 // tolerant of the model's output format: JSON or YAML, with or without
 // Markdown fences, with or without prose around the bank.
 type Producer struct {
-	llm      *LLMClient
-	language string
+	llm        *LLMClient
+	language   string
+	extraRules []string
 }
 
 // NewProducer builds a Producer around an LLM client. language is the
 // BCP-47 / ISO 639-1 tag that pins the output language; pass "" to let
-// the model match the transcript.
-func NewProducer(llm *LLMClient, language string) *Producer {
-	return &Producer{llm: llm, language: language}
+// the model match the transcript. extraRules are teacher-supplied
+// instructions appended to the system prompt's Rules section.
+func NewProducer(llm *LLMClient, language string, extraRules []string) *Producer {
+	return &Producer{llm: llm, language: language, extraRules: extraRules}
 }
 
 // Generate calls the LLM with the configured prompts and returns a
@@ -33,7 +35,7 @@ func NewProducer(llm *LLMClient, language string) *Producer {
 // every question is invalid the returned bank has zero questions and
 // the caller treats it as a failure.
 func (p *Producer) Generate(ctx context.Context, transcript string, n int) (challenges.Bank, error) {
-	raw, err := p.llm.Complete(ctx, systemPrompt, userPrompt(transcript, n, p.language))
+	raw, err := p.llm.Complete(ctx, buildSystemPrompt(p.extraRules), userPrompt(transcript, n, p.language))
 	if err != nil {
 		return challenges.Bank{}, err
 	}

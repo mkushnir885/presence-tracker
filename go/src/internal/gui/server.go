@@ -1121,6 +1121,7 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 		v.Challenges.AutoGeneration.LLM.BaseURL = form.Get("challenges.auto_generation.llm.base_url")
 		v.Challenges.AutoGeneration.LLM.APIKey = formSecret(form, "challenges.auto_generation.llm.api_key", v.Challenges.AutoGeneration.LLM.APIKey)
 		v.Challenges.AutoGeneration.LLM.Model = form.Get("challenges.auto_generation.llm.model")
+		v.Challenges.AutoGeneration.ExtraRules = formStringList(form, "challenges.auto_generation.extra_rules")
 
 		v.EventStore.Compression = form.Get("eventstore.compression")
 		v.EventStore.RowGroupSize = formInt(form, "eventstore.row_group_size", v.EventStore.RowGroupSize)
@@ -1171,6 +1172,26 @@ func formInt(form url.Values, key string, fallback int) int {
 
 func formBool(form url.Values, key string) bool {
 	return form.Get(key) != ""
+}
+
+// formStringList collects every submission under key, trims whitespace,
+// and drops empties. Returns nil for a fully-empty list so the saved
+// config prunes the field rather than persisting an empty array.
+func formStringList(form url.Values, key string) []string {
+	raw := form[key]
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // formSecret returns the submitted value when non-empty, otherwise the

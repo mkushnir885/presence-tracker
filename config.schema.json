@@ -256,6 +256,16 @@
                 }
               },
               "additionalProperties": false
+            },
+            "extra_rules": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              },
+              "default": null
             }
           },
           "additionalProperties": false
