@@ -179,12 +179,12 @@ func (c *Coordinator) onMeetingStarted(evt providers.Event) {
 	c.meetingInProgress = evt.MeetingInProgress
 	c.mu.Unlock()
 	c.store.SetStartTime(evt.Timestamp)
-	c.writeEvent(eventstore.Record{
-		Timestamp: evt.Timestamp,
+	c.writeEventAt(evt.Timestamp, eventstore.Record{
 		EventType: "session_started",
 		Metadata: map[string]string{
-			"platform": c.provider.Name(),
-			"cause":    cause,
+			"platform":     c.provider.Name(),
+			"cause":        cause,
+			"timestamp_ms": strconv.FormatInt(evt.Timestamp.UnixMilli(), 10),
 		},
 	})
 }
@@ -220,10 +220,12 @@ func (c *Coordinator) writeSessionEnded() {
 		cause = causeMeeting
 		ts = endedAt
 	}
-	c.writeEvent(eventstore.Record{
-		Timestamp: ts,
+	c.writeEventAt(ts, eventstore.Record{
 		EventType: "session_ended",
-		Metadata:  map[string]string{"cause": cause},
+		Metadata: map[string]string{
+			"cause":        cause,
+			"timestamp_ms": strconv.FormatInt(ts.UnixMilli(), 10),
+		},
 	})
 }
 
@@ -515,8 +517,7 @@ func (c *Coordinator) onJoinConfirmation(_ context.Context, evt messengers.Event
 		joinedAt = meetingStartedAt
 	}
 
-	c.writeEvent(eventstore.Record{
-		Timestamp:   joinedAt,
+	c.writeEventAt(joinedAt, eventstore.Record{
 		EventType:   "participant_joined",
 		DisplayName: canonicalName,
 		Metadata:    pending.metadata,
@@ -636,11 +637,27 @@ func (c *Coordinator) eligibleParticipants() ([]challenges.EligibleParticipant, 
 }
 
 func (c *Coordinator) writeEvent(r eventstore.Record) {
+	c.writeEventAt(time.Now().UTC(), r)
+}
+
+// writeEventAt stamps r with the meeting ID and its from_start_ms offset
+// (derived from at and the meeting start) before buffering it for the log.
+func (c *Coordinator) writeEventAt(at time.Time, r eventstore.Record) {
 	r.MeetingID = c.cfg.MeetingID
-	if r.Timestamp.IsZero() {
-		r.Timestamp = time.Now().UTC()
-	}
+	r.FromStartMS = c.offsetMS(at)
 	c.store.Append(r)
+}
+
+// offsetMS converts an absolute instant to ms since the meeting start. Events
+// at or before the start (including session_started itself) yield 0.
+func (c *Coordinator) offsetMS(at time.Time) int64 {
+	c.mu.Lock()
+	start := c.meetingStartedAt
+	c.mu.Unlock()
+	if start.IsZero() || at.Before(start) {
+		return 0
+	}
+	return at.Sub(start).Milliseconds()
 }
 
 func (c *Coordinator) RecordChallengeIssued(_ context.Context, issued challenges.IssuedChallenge) error {
@@ -703,9 +720,8 @@ func (c *Coordinator) RecordChallengeSkipped(_ context.Context, sk challenges.Sk
 	if ts.IsZero() {
 		ts = time.Now().UTC()
 	}
-	c.writeEvent(eventstore.Record{
+	c.writeEventAt(ts, eventstore.Record{
 		EventType:   "challenge_skipped",
-		Timestamp:   ts,
 		ChallengeID: sk.ChallengeID,
 		DisplayName: sk.DisplayName,
 		Metadata: map[string]string{

@@ -26,7 +26,7 @@ arrives.
 | Column         | Type                 | Nullable | Description                                                                                          |
 |----------------|----------------------|----------|------------------------------------------------------------------------------------------------------|
 | `meeting_id`   | `string`             | no       | Stable ID for this meeting session.                                                                  |
-| `timestamp`    | `int64`              | no       | For `session_started`: absolute Unix timestamp in ms. For all other events: ms elapsed since `session_started`. |
+| `from_start_ms`| `int64`              | no       | Ms elapsed since the meeting start; `0` for `session_started`. The absolute start/end instants live in `session_started`/`session_ended` metadata under `timestamp_ms`. |
 | `event_type`   | `string`             | no       | Event kind. See "Event types" below.                                                                 |
 | `display_name` | `string`             | yes      | Canonical registered name; null for meeting-scoped events.                                           |
 | `challenge_id` | `string`             | yes      | Join key threading the lifecycle of one participant's challenge; null for non-challenge events.      |
@@ -49,23 +49,24 @@ attached to the meeting; the `cause` metadata field records whether
 that boundary coincides with the meeting's actual boundary or with the
 tracking process attaching/detaching.
 
-| Event type        | `display_name` | Key metadata fields                       |
-|-------------------|----------------|-------------------------------------------|
-| `session_started` | null           | `platform`, `host_display_name`, `cause`  |
-| `session_ended`   | null           | `duration_seconds`, `cause`               |
+| Event type        | `display_name` | Key metadata fields                                       |
+|-------------------|----------------|-----------------------------------------------------------|
+| `session_started` | null           | `platform`, `host_display_name`, `cause`, `timestamp_ms`  |
+| `session_ended`   | null           | `cause`, `timestamp_ms`                                    |
 
 `cause` is one of:
 
 - `"meeting"` — the boundary is the meeting's actual boundary as
   observed by the provider. For `session_started`: tracking was already
-  attached when the meeting began, so the event's absolute timestamp is
-  the meeting's true start time. For `session_ended`: the provider
+  attached when the meeting began, so `session_started`'s `timestamp_ms`
+  is the meeting's true start time. For `session_ended`: the provider
   reported the meeting ending while tracking was still attached.
 - `"tracking"` — the boundary is the tracking process's boundary.
   For `session_started`: tracking attached after the meeting was
   already in progress, so the meeting's true start time is unknown and
-  not recorded. For `session_ended`: tracking detached (shutdown,
-  signal, error) while the meeting was still running.
+  not recorded — `timestamp_ms` is when tracking attached. For
+  `session_ended`: tracking detached (shutdown, signal, error) while the
+  meeting was still running.
 
 Only one start event and one end event are written per session; the
 producer picks the `cause` that matches what actually bounded the
@@ -74,10 +75,14 @@ in progress at attach time (e.g. a hypothetical webhook-only adapter
 that depends on receiving the meeting-start notification live) must
 fail at startup rather than emit a misleading `cause`.
 
-All other event timestamps remain relative to `session_started`
-regardless of `cause`. When `cause = "tracking"` on `session_started`,
-the meeting's true start time is not represented in the log at all —
-this is intentional; the event log only records what ptrack actually
+Every row's `from_start_ms` is an offset from the meeting start
+(`session_started` is `0`) regardless of `cause`. The absolute start is
+`session_started`'s `timestamp_ms`; the absolute end is
+`session_ended`'s `timestamp_ms`, read directly rather than by adding
+the end offset to the start. When `cause = "tracking"` on
+`session_started`, `timestamp_ms` is when tracking attached, not the
+meeting's true start — which is not represented in the log at all. This
+is intentional; the event log only records what ptrack actually
 observed.
 
 ### Participant lifecycle
@@ -163,7 +168,10 @@ The `ptrack_analytics` library does this automatically, exposing a
 - Values are always strings (per Arrow map constraints); numeric values
   are stringified and parsed back in analytics.
 - Boolean values use `"true"` / `"false"`.
-- Timestamps besides the top-level `timestamp` column are ISO-8601 in UTC.
+- The only absolute instants in the log are the `timestamp_ms` fields on
+  `session_started` and `session_ended`, stored as Unix ms (stringified
+  integer). Every other time value is a `from_start_ms` offset or a
+  duration (`latency_ms`, `answer_window_s`).
 
 ## Analytics-side derivations
 

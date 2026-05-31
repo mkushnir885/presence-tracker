@@ -24,7 +24,7 @@ def _events(rows: list[dict[str, object]]) -> pl.LazyFrame:
 
 def _ev(
     meeting_id: str,
-    timestamp: int,
+    from_start_ms: int,
     event_type: str,
     display_name: str | None = None,
     challenge_id: str | None = None,
@@ -33,7 +33,7 @@ def _ev(
 ) -> dict[str, object]:
     return {
         "meeting_id": meeting_id,
-        "timestamp": timestamp,
+        "from_start_ms": from_start_ms,
         "event_type": event_type,
         "display_name": display_name,
         "challenge_id": challenge_id,
@@ -46,8 +46,15 @@ def _sample() -> pl.LazyFrame:
     # Two meetings; a rejoin (Alice in m1), an open band (Carol in m2 never
     # leaves), and every challenge state so both surfaces see real data.
     left = '{"reason":"left"}'
+    # session_started is from_start_ms=0 with the absolute start in metadata;
+    # session_ended carries its own absolute timestamp_ms (start + offset).
     rows = [
-        _ev("m1", 1_700_000_000_000, "session_started", metadata='{"platform":"bbb"}'),
+        _ev(
+            "m1",
+            0,
+            "session_started",
+            metadata='{"platform":"bbb","timestamp_ms":"1700000000000"}',
+        ),
         _ev("m1", 0, "participant_joined", "Alice"),
         _ev("m1", 1_000, "participant_joined", "Bob"),
         _ev("m1", 100_000, "challenge_issued", "Alice", "c1", "q1"),
@@ -58,12 +65,27 @@ def _sample() -> pl.LazyFrame:
         _ev("m1", 305_000, "challenge_answered_incorrect", "Bob", "c2", "q2"),
         _ev("m1", 600_000, "participant_left", "Alice", metadata=left),
         _ev("m1", 600_000, "participant_left", "Bob", metadata=left),
-        _ev("m1", 600_000, "session_ended", metadata='{"cause":"manual"}'),
-        _ev("m2", 1_700_100_000_000, "session_started", metadata='{"platform":"meet"}'),
+        _ev(
+            "m1",
+            600_000,
+            "session_ended",
+            metadata='{"cause":"manual","timestamp_ms":"1700000600000"}',
+        ),
+        _ev(
+            "m2",
+            0,
+            "session_started",
+            metadata='{"platform":"meet","timestamp_ms":"1700100000000"}',
+        ),
         _ev("m2", 0, "participant_joined", "Carol"),
         _ev("m2", 10_000, "challenge_issued", "Carol", "c3", "q3"),
         _ev("m2", 15_000, "challenge_unanswered", "Carol", "c3", "q3"),
-        _ev("m2", 300_000, "session_ended", metadata='{"cause":"manual"}'),
+        _ev(
+            "m2",
+            300_000,
+            "session_ended",
+            metadata='{"cause":"manual","timestamp_ms":"1700100300000"}',
+        ),
     ]
     return _events(rows)
 

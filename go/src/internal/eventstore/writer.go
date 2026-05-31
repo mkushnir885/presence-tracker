@@ -21,9 +21,11 @@ import (
 )
 
 // Record is one event row; empty optional fields are written as null.
+// FromStartMS is ms elapsed since the meeting start (0 for session_started);
+// the absolute start/end live in session_started/session_ended metadata.
 type Record struct {
 	MeetingID   string
-	Timestamp   time.Time
+	FromStartMS int64
 	EventType   string
 	DisplayName string
 	ChallengeID string
@@ -114,8 +116,7 @@ func (w *Writer) Flush(_ context.Context) error {
 	w.buf = w.buf[:0]
 	w.mu.Unlock()
 
-	startTime := w.startTime
-	return w.writeRowGroup(rows, startTime)
+	return w.writeRowGroup(rows)
 }
 
 func (w *Writer) SetStartTime(t time.Time) {
@@ -156,7 +157,7 @@ func (w *Writer) Close(ctx context.Context) (string, error) {
 	return finalBase, nil
 }
 
-func (w *Writer) writeRowGroup(rows []Record, startTime time.Time) error {
+func (w *Writer) writeRowGroup(rows []Record) error {
 	flags := os.O_CREATE | os.O_WRONLY
 	if _, err := os.Stat(w.tmpPath); err == nil {
 		flags |= os.O_APPEND
@@ -169,15 +170,14 @@ func (w *Writer) writeRowGroup(rows []Record, startTime time.Time) error {
 	}
 	defer func() { _ = f.Close() }()
 
-	return writeRecordTo(f, rows, startTime, w.compression, w.rowGroupSize)
+	return writeRecordTo(f, rows, w.compression, w.rowGroupSize)
 }
 
 // writeRecordTo writes records as a single row group to w as one complete
-// Parquet stream. startTime anchors the relative-timestamp encoding (see
-// buildRecord); the caller supplies it because the session_started row may not
-// be in this batch. An empty records slice still yields a valid schema-only
-// file.
-func writeRecordTo(w io.Writer, records []Record, startTime time.Time, compression string, rowGroupSize int) error {
+// Parquet stream. Each row's from_start_ms is written verbatim (offsets are
+// computed upstream), so no session-start anchor is needed here. An empty
+// records slice still yields a valid schema-only file.
+func writeRecordTo(w io.Writer, records []Record, compression string, rowGroupSize int) error {
 	codec, err := parseCompression(compression)
 	if err != nil {
 		return err
@@ -194,7 +194,7 @@ func writeRecordTo(w io.Writer, records []Record, startTime time.Time, compressi
 		return pw.Close()
 	}
 
-	rec := buildRecord(records, startTime)
+	rec := buildRecord(records)
 	defer rec.Release()
 
 	if err := pw.Write(rec); err != nil {
@@ -204,7 +204,7 @@ func writeRecordTo(w io.Writer, records []Record, startTime time.Time, compressi
 	return pw.Close()
 }
 
-func buildRecord(rows []Record, startTime time.Time) arrow.Record {
+func buildRecord(rows []Record) arrow.Record {
 	pool := memory.NewGoAllocator()
 
 	meetingID := array.NewStringBuilder(pool)
@@ -226,13 +226,7 @@ func buildRecord(rows []Record, startTime time.Time) arrow.Record {
 	for i := range rows {
 		r := &rows[i]
 		meetingID.Append(r.MeetingID)
-		// session_started is stored as absolute Unix ms; every other row as
-		// a ms offset from it (see Schema). The Python side reverses this.
-		if r.EventType == "session_started" || startTime.IsZero() {
-			ts.Append(r.Timestamp.UnixMilli())
-		} else {
-			ts.Append(r.Timestamp.Sub(startTime).Milliseconds())
-		}
+		ts.Append(r.FromStartMS)
 		eventType.Append(r.EventType)
 		appendNullable(displayName, r.DisplayName)
 		appendNullable(challengeID, r.ChallengeID)

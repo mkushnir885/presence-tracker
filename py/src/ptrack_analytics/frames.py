@@ -25,7 +25,7 @@ def presence_bands(events: pl.LazyFrame) -> pl.LazyFrame:
         .select(
             pl.col("display_name"),
             pl.col("meeting_id"),
-            pl.col("timestamp").alias("joined_ms"),
+            pl.col("from_start_ms").alias("joined_ms"),
             pl.col("metadata")
             .str.json_path_match("$.join_method")
             .alias("join_method"),
@@ -42,7 +42,7 @@ def presence_bands(events: pl.LazyFrame) -> pl.LazyFrame:
         .select(
             pl.col("display_name"),
             pl.col("meeting_id"),
-            pl.col("timestamp").alias("left_ms"),
+            pl.col("from_start_ms").alias("left_ms"),
             pl.col("metadata").str.json_path_match("$.reason").alias("leave_reason"),
         )
         .sort(["display_name", "meeting_id", "left_ms"])
@@ -78,6 +78,8 @@ def presence(events: pl.LazyFrame) -> pl.LazyFrame:
 def meeting_times(events: pl.LazyFrame) -> pl.LazyFrame:
     """Per-meeting start time and duration.
 
+    started_at is the absolute meeting start, read from the session_started
+    metadata "timestamp_ms" anchor (the from_start_ms column is 0 there).
     duration_ms prefers the session_ended offset, else the largest non-start
     event offset (both are ms from the session start). duration_seconds floors
     at 1.0 so presence ratios stay finite.
@@ -86,20 +88,24 @@ def meeting_times(events: pl.LazyFrame) -> pl.LazyFrame:
         events.filter(pl.col("event_type") == "session_started")
         .group_by("meeting_id")
         .agg(
-            pl.from_epoch(pl.col("timestamp").first(), time_unit="ms").alias(
-                "started_at"
-            )
+            pl.from_epoch(
+                pl.col("metadata")
+                .str.json_path_match("$.timestamp_ms")
+                .cast(pl.Int64)
+                .first(),
+                time_unit="ms",
+            ).alias("started_at")
         )
     )
     ended = (
         events.filter(pl.col("event_type") == "session_ended")
         .group_by("meeting_id")
-        .agg(pl.col("timestamp").first().alias("ended_ms"))
+        .agg(pl.col("from_start_ms").first().alias("ended_ms"))
     )
     tail = (
         events.filter(pl.col("event_type") != "session_started")
         .group_by("meeting_id")
-        .agg(pl.col("timestamp").max().alias("tail_ms"))
+        .agg(pl.col("from_start_ms").max().alias("tail_ms"))
     )
     duration = tail.join(ended, on="meeting_id", how="left").select(
         pl.col("meeting_id"),
@@ -120,7 +126,7 @@ def challenge_results(events: pl.LazyFrame) -> pl.LazyFrame:
     issued = events.filter(pl.col("event_type") == "challenge_issued").select(
         pl.col("display_name"),
         pl.col("meeting_id"),
-        pl.col("timestamp").alias("issued_ms"),
+        pl.col("from_start_ms").alias("issued_ms"),
         pl.col("challenge_id"),
         pl.col("question_id"),
         pl.col("metadata")

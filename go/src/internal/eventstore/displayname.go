@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"time"
 )
 
 // UpdateDisplayName rewrites every row whose display_name equals oldName to
@@ -29,18 +28,10 @@ func UpdateDisplayName(parquetPath, oldName, newName string) error {
 		}
 	}
 
-	// Records read back carry absolute timestamps; the session_started row's
-	// timestamp is the anchor writeRecordTo needs to re-encode the offsets.
-	var startTime time.Time
-	for _, r := range records {
-		if r.EventType == "session_started" {
-			startTime = r.Timestamp
-			break
-		}
-	}
-
+	// Records carry from_start_ms offsets; the rename only rewrites display_name,
+	// so they round-trip verbatim with no timestamp re-encoding.
 	var buf bytes.Buffer
-	if err := writeRecordTo(&buf, records, startTime, "zstd", defaultRowGroupSize); err != nil {
+	if err := writeRecordTo(&buf, records, "zstd", defaultRowGroupSize); err != nil {
 		return fmt.Errorf("eventstore: encode parquet: %w", err)
 	}
 

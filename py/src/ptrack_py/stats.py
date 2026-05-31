@@ -231,12 +231,12 @@ def _collect_max_participants(events: pl.LazyFrame) -> dict[str, int]:
     # Sweep-line: +1 per join, -1 per leave, track the running max.
     joined = events.filter(pl.col("event_type") == "participant_joined").select(
         pl.col("meeting_id"),
-        pl.col("timestamp").alias("t"),
+        pl.col("from_start_ms").alias("t"),
         pl.lit(1, dtype=pl.Int64).alias("delta"),
     )
     left = events.filter(pl.col("event_type") == "participant_left").select(
         pl.col("meeting_id"),
-        pl.col("timestamp").alias("t"),
+        pl.col("from_start_ms").alias("t"),
         pl.lit(-1, dtype=pl.Int64).alias("delta"),
     )
     # Sorting delta descending puts joins (+1) before leaves (-1) at the same
@@ -326,7 +326,7 @@ def _collect_skipped(events: pl.LazyFrame, durations: pl.LazyFrame) -> pl.DataFr
             pl.col("display_name"),
             pl.col("meeting_id"),
             pl.col("challenge_id"),
-            pl.col("timestamp").alias("skipped_ms"),
+            pl.col("from_start_ms").alias("skipped_ms"),
             pl.col("metadata")
             .str.json_path_match("$.reason")
             .fill_null("")

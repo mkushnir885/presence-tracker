@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/apache/arrow/go/v17/arrow"
 	"github.com/apache/arrow/go/v17/arrow/array"
@@ -36,7 +35,7 @@ func ReadAll(ctx context.Context, path string) ([]Record, error) {
 
 	const (
 		colMeetingID   = 0
-		colTimestamp   = 1
+		colFromStartMS = 1
 		colEventType   = 2
 		colDisplayName = 3
 		colChallengeID = 4
@@ -46,41 +45,20 @@ func ReadAll(ctx context.Context, path string) ([]Record, error) {
 	)
 	strCols := make([]*strReader, numCols)
 	for i := range numCols {
-		if i == colTimestamp {
+		if i == colFromStartMS {
 			continue
 		}
 		strCols[i] = newStrReader(table.Column(i))
 	}
-	tsCol := newInt64Reader(table.Column(colTimestamp))
+	tsCol := newInt64Reader(table.Column(colFromStartMS))
 
-	// Timestamps are stored relative: session_started holds absolute Unix
-	// ms, every other event holds a ms offset from it. Reconstruct the
-	// session start first, then add each offset back to wall-clock time.
-	rawTS := make([]int64, n)
+	// from_start_ms is stored as a ms offset from the meeting start and read
+	// back verbatim — callers work in offsets, never reconstructing wall-clock.
 	for i := range n {
-		rawTS[i] = tsCol.get(i)
-	}
-
-	var sessionStart time.Time
-	for i := range n {
-		if strCols[colEventType].get(i) == "session_started" {
-			sessionStart = time.UnixMilli(rawTS[i]).UTC()
-			break
-		}
-	}
-
-	for i := range n {
-		var ts time.Time
-		if strCols[colEventType].get(i) == "session_started" || sessionStart.IsZero() {
-			ts = time.UnixMilli(rawTS[i]).UTC()
-		} else {
-			ts = sessionStart.Add(time.Duration(rawTS[i]) * time.Millisecond)
-		}
-
 		r := Record{
-			MeetingID: strCols[colMeetingID].get(i),
-			Timestamp: ts,
-			EventType: strCols[colEventType].get(i),
+			MeetingID:   strCols[colMeetingID].get(i),
+			FromStartMS: tsCol.get(i),
+			EventType:   strCols[colEventType].get(i),
 		}
 		if !strCols[colDisplayName].isNull(i) {
 			r.DisplayName = strCols[colDisplayName].get(i)
