@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -34,7 +33,6 @@ type Record struct {
 }
 
 const (
-	dirTimeFormat = "060102-1504"
 	// EventsFile is the parquet event log inside every meeting directory.
 	EventsFile          = "events.parquet"
 	defaultRowGroupSize = 10000
@@ -45,48 +43,39 @@ const (
 )
 
 // Writer streams events into <meetingsDir>/<dirName>/events.parquet. The
-// active dir is named active[_NN].tmp and renamed on Close to
-// <start>_<end>[_NN] (or kept as-is for a custom name).
+// active dir is named active[_NN].tmp; on Close the DirTemplate is rendered
+// with start+end and the dir is renamed to the final name (with _NN if the
+// rendered name collides).
 type Writer struct {
-	mu         sync.Mutex
-	buf        []Record
-	parentDir  string
-	dirName    string
-	startTime  time.Time
-	customName bool
+	mu        sync.Mutex
+	buf       []Record
+	parentDir string
+	dirName   string
+	tmpl      DirTemplate
+	startTime time.Time
 }
 
-func NewWriter(meetingsDir, customDirName string, startTime time.Time) (*Writer, error) {
+// NewWriter creates the writer with an active.tmp directory. dirNameTemplate
+// is rendered at Close. Use ParseDirTemplate to validate user input before
+// calling.
+func NewWriter(meetingsDir string, dirNameTemplate DirTemplate, startTime time.Time) (*Writer, error) {
 	if err := os.MkdirAll(meetingsDir, 0o755); err != nil {
 		return nil, fmt.Errorf("eventstore: mkdir %s: %w", meetingsDir, err)
 	}
-	w := &Writer{
-		parentDir: meetingsDir,
-		startTime: startTime,
+	unique, err := ensureUniqueDir(meetingsDir, activeBaseName, TmpSuffix)
+	if err != nil {
+		return nil, fmt.Errorf("eventstore: %w", err)
 	}
-	if customDirName == "" {
-		unique, err := ensureUniqueDir(meetingsDir, activeBaseName, TmpSuffix)
-		if err != nil {
-			return nil, fmt.Errorf("eventstore: %w", err)
-		}
-		w.dirName = unique
-	} else {
-		clean, err := ValidateDirName(customDirName)
-		if err != nil {
-			return nil, fmt.Errorf("eventstore: %w", err)
-		}
-		unique, err := ensureUniqueDir(meetingsDir, clean, "")
-		if err != nil {
-			return nil, fmt.Errorf("eventstore: %w", err)
-		}
-		w.dirName = unique
-		w.customName = true
-	}
-	full := filepath.Join(meetingsDir, w.dirName)
+	full := filepath.Join(meetingsDir, unique)
 	if err := os.MkdirAll(full, 0o755); err != nil {
 		return nil, fmt.Errorf("eventstore: mkdir %s: %w", full, err)
 	}
-	return w, nil
+	return &Writer{
+		parentDir: meetingsDir,
+		dirName:   unique,
+		tmpl:      dirNameTemplate,
+		startTime: startTime,
+	}, nil
 }
 
 func ensureUniqueDir(parent, baseName, suffix string) (string, error) {
@@ -104,33 +93,6 @@ func ensureUniqueDir(parent, baseName, suffix string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("too many collisions for %q", baseName+suffix)
-}
-
-func ValidateDirName(s string) (string, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return "", fmt.Errorf("dir name is empty")
-	}
-	if s == "." || s == ".." || strings.Contains(s, "..") {
-		return "", fmt.Errorf("dir name %q is not allowed", s)
-	}
-	if strings.ContainsAny(s, `/\`+"\x00") {
-		return "", fmt.Errorf("dir name %q contains a path separator", s)
-	}
-	if strings.HasSuffix(s, TmpSuffix) {
-		return "", fmt.Errorf("dir name %q ends with reserved suffix %q", s, TmpSuffix)
-	}
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z',
-			r >= 'A' && r <= 'Z',
-			r >= '0' && r <= '9',
-			r == '_', r == '-', r == '.', r == ' ':
-		default:
-			return "", fmt.Errorf("dir name contains invalid character %q", r)
-		}
-	}
-	return s, nil
 }
 
 func (w *Writer) Append(r Record) {
@@ -174,9 +136,9 @@ func (w *Writer) DirName() string {
 	return w.dirName
 }
 
-// Close flushes, renames the dir to <start>_<end>[_NN] (skipped for custom
-// names), and returns the final name — or "" when no events were written and
-// the empty dir was removed.
+// Close flushes, renders the template with start+end, and renames the dir to
+// the resulting name (with _NN if it collides). Returns the final name — or ""
+// when no events were written and the empty dir was removed.
 func (w *Writer) Close(ctx context.Context) (string, error) {
 	if err := w.Flush(ctx); err != nil {
 		return "", err
@@ -193,14 +155,8 @@ func (w *Writer) Close(ctx context.Context) (string, error) {
 		return "", nil
 	}
 
-	if w.customName {
-		slog.Info("eventstore: closed", "dir", currentPath)
-		return w.dirName, nil
-	}
-
-	startStr := w.startTime.UTC().Format(dirTimeFormat)
-	endStr := time.Now().UTC().Format(dirTimeFormat)
-	finalName, err := ensureUniqueDir(w.parentDir, startStr+"_"+endStr, "")
+	rendered := w.tmpl.Render(w.startTime.UTC(), time.Now().UTC())
+	finalName, err := ensureUniqueDir(w.parentDir, rendered, "")
 	if err != nil {
 		slog.Warn("eventstore: could not pick final meeting dir name", "err", err)
 		return w.dirName, nil

@@ -35,9 +35,12 @@ templ Home(data HomeData, locale Locale) {
 						<small id="meeting_id_hint" class="text-muted">{ locale.T(meetingFieldKey(data.EnabledProviders[0].Name, "hint")) }</small>
 					</div>
 					<div class="field">
-						<label for="dir_name">{ locale.T("dashboard.connect.dir_name") }</label>
-						<input id="dir_name" name="dir_name" type="text" placeholder={ locale.T("dashboard.connect.dir_name_placeholder") }/>
-						<small class="text-muted">{ locale.T("dashboard.connect.dir_name_hint") }</small>
+						<label for="dir_format">{ locale.T("dashboard.connect.dir_format") }</label>
+						<input id="dir_format" name="dir_format" type="text" placeholder={ locale.T("dashboard.connect.dir_format_placeholder") }/>
+						<small class="text-muted">
+							{ locale.T("dashboard.connect.dir_format_hint") }
+							<a href="/config#meetings_dir_format">{ locale.T("dashboard.connect.dir_format_hint_link") }</a>.
+						</small>
 					</div>
 					<button type="submit" class="btn btn-primary">{ locale.T("dashboard.connect.btn") }</button>
 				</form>

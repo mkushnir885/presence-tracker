@@ -20,6 +20,11 @@ templ ConfigEditor(data ConfigData, locale Locale) {
 				<summary>{ locale.T("config.general") }</summary>
 				<div class="card">
 					@textField(data, "meetings_dir", locale.T("config.meetings_dir"), data.V.MeetingsDir)
+					@textField(data, "meetings_dir_format", locale.T("config.meetings_dir_format"), data.V.MeetingsDirFormat)
+					<div class="text-muted" style="font-size:0.85rem;margin-top:-0.4rem;margin-bottom:0.5rem;">
+						{ locale.T("config.meetings_dir_format.hint") }
+						<a href="https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes" target="_blank" rel="noopener">{ locale.T("config.meetings_dir_format.strftime_link") }</a>.
+					</div>
 					@intField(data, locale.T("config.retention_days"), "retention_days", data.V.RetentionDays, "retention_days")
 				</div>
 			</details>

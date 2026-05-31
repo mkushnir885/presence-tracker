@@ -181,10 +181,20 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) { //
 
 	providerName := r.FormValue("provider")
 	meetingID := r.FormValue("meeting_id")
-	dirName := strings.TrimSpace(r.FormValue("dir_name"))
+	dirFormat := strings.TrimSpace(r.FormValue("dir_format"))
 
 	if providerName == "" || meetingID == "" {
 		http.Error(w, "provider and meeting_id are required", http.StatusBadRequest)
+		return
+	}
+
+	cfg := s.cfg.Get()
+	if dirFormat == "" {
+		dirFormat = cfg.MeetingsDirFormat
+	}
+	tmpl, err := eventstore.ParseDirTemplate(dirFormat)
+	if err != nil {
+		http.Error(w, "dir_format: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -219,13 +229,9 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) { //
 	internalMeetingID := uuid.Must(uuid.NewV7()).String()
 	startTime := time.Now()
 
-	store, err := eventstore.NewWriter(s.cfg.Get().MeetingsDir, dirName, startTime)
+	store, err := eventstore.NewWriter(cfg.MeetingsDir, tmpl, startTime)
 	if err != nil {
-		status := http.StatusInternalServerError
-		if dirName != "" {
-			status = http.StatusBadRequest
-		}
-		http.Error(w, "event store error: "+err.Error(), status)
+		http.Error(w, "event store error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -941,6 +947,7 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	form := r.PostForm
 	mutator := func(v *config.Values) {
 		v.MeetingsDir = form.Get("meetings_dir")
+		v.MeetingsDirFormat = form.Get("meetings_dir_format")
 		v.RetentionDays = formInt(form, "retention_days", v.RetentionDays)
 
 		v.Providers.BBB.Enabled = formBool(form, "providers.bbb.enabled")
@@ -990,7 +997,20 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 		v.Logging.Format = form.Get("logging.format")
 		v.Logging.File = form.Get("logging.file")
 	}
-	if err := s.cfg.Apply(mutator); err != nil {
+	// Template syntax can't be expressed in JSON Schema; check up front so an
+	// invalid value never reaches disk.
+	candidate := s.cfg.Get()
+	mutator(&candidate)
+	var applyErr error
+	if candidate.MeetingsDirFormat != "" {
+		if _, err := eventstore.ParseDirTemplate(candidate.MeetingsDirFormat); err != nil {
+			applyErr = fmt.Errorf("meetings_dir_format: %w", err)
+		}
+	}
+	if applyErr == nil {
+		applyErr = s.cfg.Apply(mutator)
+	}
+	if applyErr != nil {
 		schema, sErr := config.Schema()
 		if sErr != nil {
 			http.Error(w, "config schema: "+sErr.Error(), http.StatusInternalServerError)
@@ -1003,7 +1023,7 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 			Schema:     schema,
 			DataDir:    config.DataDir(),
 			ConfigPath: s.cfg.Path(),
-			Error:      err.Error(),
+			Error:      applyErr.Error(),
 		}
 		locale := localeFromRequest(r)
 		w.WriteHeader(http.StatusBadRequest)
