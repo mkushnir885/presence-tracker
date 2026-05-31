@@ -34,21 +34,19 @@ type Record struct {
 }
 
 const (
-	dirTimeFormat = "020106_1504"
+	dirTimeFormat = "020106-1504"
 	// EventsFile is the parquet event log inside every meeting directory.
-	EventsFile = "events.parquet"
-	// QuestionsFile is the JSONL question sidecar inside every meeting directory.
-	QuestionsFile = "questions.jsonl"
-	// Parquet encoding is fixed: zstd is universally read by the analytics
-	// stack and a lesson's few-thousand events fit one row group regardless.
-	defaultCompression  = "zstd"
+	EventsFile          = "events.parquet"
 	defaultRowGroupSize = 10000
+	// TmpSuffix marks an in-progress meeting dir; the GUI skips these so a
+	// crashed session never appears in listings.
+	TmpSuffix      = ".tmp"
+	activeBaseName = "active"
 )
 
-// Writer streams events into <meetingsDir>/<dirName>/events.parquet. The dir
-// is created up front under a provisional <start> name and renamed to
-// <start>-<end> on Close so the final directory mtime sits at the moment the
-// session ends; with a custom name no rename occurs.
+// Writer streams events into <meetingsDir>/<dirName>/events.parquet. The
+// active dir is named active[_NN].tmp and renamed on Close to
+// <start>_<end>[_NN] (or kept as-is for a custom name).
 type Writer struct {
 	mu         sync.Mutex
 	buf        []Record
@@ -58,7 +56,7 @@ type Writer struct {
 	customName bool
 }
 
-func NewWriter(meetingsDir, dirName string, startTime time.Time) (*Writer, error) {
+func NewWriter(meetingsDir, customDirName string, startTime time.Time) (*Writer, error) {
 	if err := os.MkdirAll(meetingsDir, 0o755); err != nil {
 		return nil, fmt.Errorf("eventstore: mkdir %s: %w", meetingsDir, err)
 	}
@@ -66,31 +64,46 @@ func NewWriter(meetingsDir, dirName string, startTime time.Time) (*Writer, error
 		parentDir: meetingsDir,
 		startTime: startTime,
 	}
-	if dirName == "" {
-		w.dirName = startTime.UTC().Format(dirTimeFormat)
-	} else {
-		clean, err := ValidateDirName(dirName)
+	if customDirName == "" {
+		unique, err := ensureUniqueDir(meetingsDir, activeBaseName, TmpSuffix)
 		if err != nil {
 			return nil, fmt.Errorf("eventstore: %w", err)
 		}
-		w.dirName = clean
+		w.dirName = unique
+	} else {
+		clean, err := ValidateDirName(customDirName)
+		if err != nil {
+			return nil, fmt.Errorf("eventstore: %w", err)
+		}
+		unique, err := ensureUniqueDir(meetingsDir, clean, "")
+		if err != nil {
+			return nil, fmt.Errorf("eventstore: %w", err)
+		}
+		w.dirName = unique
 		w.customName = true
 	}
 	full := filepath.Join(meetingsDir, w.dirName)
-	if _, err := os.Stat(full); err == nil {
-		if w.customName {
-			return nil, fmt.Errorf("eventstore: meeting dir %q already exists", w.dirName)
-		}
-		// auto-named: append a uniqueness suffix so we never clobber a sibling
-		w.dirName = w.dirName + "_" + startTime.UTC().Format("05")
-		full = filepath.Join(meetingsDir, w.dirName)
-	} else if !os.IsNotExist(err) {
-		return nil, fmt.Errorf("eventstore: stat %s: %w", full, err)
-	}
 	if err := os.MkdirAll(full, 0o755); err != nil {
 		return nil, fmt.Errorf("eventstore: mkdir %s: %w", full, err)
 	}
 	return w, nil
+}
+
+func ensureUniqueDir(parent, baseName, suffix string) (string, error) {
+	for i := 0; i <= 99; i++ {
+		candidate := baseName + suffix
+		if i > 0 {
+			candidate = fmt.Sprintf("%s_%02d%s", baseName, i, suffix)
+		}
+		_, err := os.Stat(filepath.Join(parent, candidate))
+		if os.IsNotExist(err) {
+			return candidate, nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("stat %s: %w", candidate, err)
+		}
+	}
+	return "", fmt.Errorf("too many collisions for %q", baseName+suffix)
 }
 
 func ValidateDirName(s string) (string, error) {
@@ -103,6 +116,9 @@ func ValidateDirName(s string) (string, error) {
 	}
 	if strings.ContainsAny(s, `/\`+"\x00") {
 		return "", fmt.Errorf("dir name %q contains a path separator", s)
+	}
+	if strings.HasSuffix(s, TmpSuffix) {
+		return "", fmt.Errorf("dir name %q ends with reserved suffix %q", s, TmpSuffix)
 	}
 	for _, r := range s {
 		switch {
@@ -158,9 +174,9 @@ func (w *Writer) DirName() string {
 	return w.dirName
 }
 
-// Close flushes and renames the working directory to its final
-// <start>-<end> name (unless a custom name was set). Returns the final dir
-// name, or "" when no events were ever written and the dir was removed.
+// Close flushes, renames the dir to <start>_<end>[_NN] (skipped for custom
+// names), and returns the final name — or "" when no events were written and
+// the empty dir was removed.
 func (w *Writer) Close(ctx context.Context) (string, error) {
 	if err := w.Flush(ctx); err != nil {
 		return "", err
@@ -182,9 +198,13 @@ func (w *Writer) Close(ctx context.Context) (string, error) {
 		return w.dirName, nil
 	}
 
-	endStr := time.Now().UTC().Format(dirTimeFormat)
 	startStr := w.startTime.UTC().Format(dirTimeFormat)
-	finalName := startStr + "-" + endStr
+	endStr := time.Now().UTC().Format(dirTimeFormat)
+	finalName, err := ensureUniqueDir(w.parentDir, startStr+"_"+endStr, "")
+	if err != nil {
+		slog.Warn("eventstore: could not pick final meeting dir name", "err", err)
+		return w.dirName, nil
+	}
 	finalPath := filepath.Join(w.parentDir, finalName)
 	if err := os.Rename(currentPath, finalPath); err != nil {
 		slog.Warn("eventstore: could not rename meeting dir", "from", currentPath, "to", finalPath, "err", err)
@@ -216,12 +236,9 @@ func (w *Writer) writeRowGroup(parquetPath string, rows []Record) error {
 // computed upstream), so no session-start anchor is needed here. An empty
 // records slice still yields a valid schema-only file.
 func writeRecordTo(w io.Writer, records []Record) error {
-	codec, err := parseCompression(defaultCompression)
-	if err != nil {
-		return err
-	}
+	// zstd: universally read by the analytics stack.
 	props := parquet.NewWriterProperties(
-		parquet.WithCompression(codec),
+		parquet.WithCompression(compress.Codecs.Zstd),
 		parquet.WithMaxRowGroupLength(int64(defaultRowGroupSize)),
 	)
 	pw, err := pqarrow.NewFileWriter(Schema, w, props, pqarrow.NewArrowWriterProperties())
@@ -287,17 +304,4 @@ func buildRecord(rows []Record) arrow.Record {
 		metadata.NewArray(),
 	}
 	return array.NewRecord(Schema, cols, int64(len(rows)))
-}
-
-func parseCompression(s string) (compress.Compression, error) {
-	switch s {
-	case "zstd", "":
-		return compress.Codecs.Zstd, nil
-	case "snappy":
-		return compress.Codecs.Snappy, nil
-	case "none":
-		return compress.Codecs.Uncompressed, nil
-	default:
-		return compress.Codecs.Uncompressed, fmt.Errorf("eventstore: unknown compression %q", s)
-	}
 }
