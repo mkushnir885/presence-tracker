@@ -6,11 +6,6 @@
       "default": "~/Documents/ptrack/meetings",
       "minLength": 1
     },
-    "questions_dir": {
-      "type": "string",
-      "default": "~/Documents/ptrack/questions",
-      "minLength": 1
-    },
     "reports_dir": {
       "type": "string",
       "default": "~/Documents/ptrack/reports",

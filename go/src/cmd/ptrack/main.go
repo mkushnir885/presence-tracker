@@ -51,9 +51,42 @@ func rootCmd() *cobra.Command {
 	root.AddCommand(trackCmd())
 	root.AddCommand(pollCmd())
 	root.AddCommand(reloadCmd())
+	root.AddCommand(renameCmd())
 	root.AddCommand(reportCmd())
 	root.AddCommand(serveCmd())
 	return root
+}
+
+func renameCmd() *cobra.Command {
+	var fromName, toName string
+	cmd := &cobra.Command{
+		Use:   "rename --from <old> --to <new> <meeting-dirs...>",
+		Short: "Rewrite display_name across one or more meetings",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRename(cmd.Context(), fromName, toName, args)
+		},
+	}
+	cmd.Flags().StringVar(&fromName, "from", "", "display name to replace")
+	cmd.Flags().StringVar(&toName, "to", "", "new display name")
+	_ = cmd.MarkFlagRequired("from")
+	_ = cmd.MarkFlagRequired("to")
+	return cmd
+}
+
+func runRename(ctx context.Context, fromName, toName string, inputs []string) error {
+	if fromName == toName {
+		return nil
+	}
+	dirs, err := eventstore.ResolveMeetingDirs(inputs)
+	if err != nil {
+		return err
+	}
+	args := append([]string{"rename", "--from", fromName, "--to", toName}, dirs...)
+	if _, err := ptrackpy.Run(ctx, args...); err != nil {
+		return err
+	}
+	return nil
 }
 
 func trackCmd() *cobra.Command {

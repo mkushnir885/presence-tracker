@@ -13,6 +13,7 @@ import typer
 
 from ptrack_analytics.load import LoadError
 from ptrack_analytics.schema import EVENT_SCHEMA
+from ptrack_py.rename import rename_display_name
 from ptrack_py.reports import generate_aggregate_csv, generate_csv
 from ptrack_py.stats import generate_stats
 from ptrack_py.validate import IncompleteMeetingError, ensure_session_ended
@@ -178,6 +179,31 @@ def _build_source_dir_map(
         if isinstance(mid, str) and mid:
             out[mid] = dir_
     return out
+
+
+@app.command()
+def rename(
+    inputs: list[str] = typer.Argument(
+        ...,
+        metavar="MEETING_DIRS...",
+        help=(
+            "Meeting-directory paths or glob patterns. Each directory's "
+            "events.parquet is rewritten in place via an atomic temp-and-rename."
+        ),
+    ),
+    from_name: str = typer.Option(..., "--from", help="Display name to replace."),
+    to_name: str = typer.Option(..., "--to", help="New display name."),
+) -> None:
+    """Rewrite display_name across one or more meetings."""
+    if from_name == to_name:
+        return
+    dirs = _expand_globs(inputs)
+    try:
+        for d in dirs:
+            rename_display_name(Path(d) / EVENTS_FILE, from_name, to_name)
+    except OSError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
 
 
 if __name__ == "__main__":

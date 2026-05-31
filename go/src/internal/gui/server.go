@@ -777,11 +777,10 @@ func (s *Server) handleRenameParticipant(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	for _, dir := range dirs {
-		if err := eventstore.UpdateDisplayName(dir, oldName, newName); err != nil { //nolint:contextcheck // synchronous Parquet rewrite; not cancellable mid-write
-			http.Error(w, "rename failed for "+filepath.Base(dir)+": "+err.Error(), http.StatusInternalServerError)
-			return
-		}
+	args := append([]string{"rename", "--from", oldName, "--to", newName}, dirs...)
+	if _, err := ptrackpy.Run(r.Context(), args...); err != nil {
+		http.Error(w, "rename: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
