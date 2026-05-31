@@ -220,14 +220,16 @@ as absent keys, and it is compact and append-friendly.
 | `correct_answer`| yes            | Sorted list for MCQ/short_text; number for numeric           |
 | `match_mode`    | short_text only| `exact`, `substring_ci`, or `regex`                          |
 | `tolerance`     | numeric only   | Allowed tolerance (±)                                        |
-| `issued_at`     | yes            | ISO-8601 UTC timestamp of the poll that issued this question |
+
+The poll's issue time is not stored here; the `challenge_issued` event in
+Parquet carries it as a `from_start_ms` offset.
 
 Example file:
 
 ```jsonl
-{"question_id":"3f2a...","question_type":"multiple_choice","prompt":"Which is prime?","choices":["21","23","27","51"],"correct_answer":["23"],"issued_at":"2026-04-21T10:15:00Z"}
-{"question_id":"9c1b...","question_type":"numeric","prompt":"What is 7!?","correct_answer":5040,"tolerance":0,"issued_at":"2026-04-21T10:15:00Z"}
-{"question_id":"7d4e...","question_type":"short_text","prompt":"Name a property of isosceles triangles.","correct_answer":["two equal sides","two equal angles"],"match_mode":"substring_ci","issued_at":"2026-04-21T10:32:00Z"}
+{"question_id":"3f2a...","question_type":"multiple_choice","prompt":"Which is prime?","choices":["21","23","27","51"],"correct_answer":["23"]}
+{"question_id":"9c1b...","question_type":"numeric","prompt":"What is 7!?","correct_answer":5040,"tolerance":0}
+{"question_id":"7d4e...","question_type":"short_text","prompt":"Name a property of isosceles triangles.","correct_answer":["two equal sides","two equal angles"],"match_mode":"substring_ci"}
 ```
 
 The `ptrack_analytics` library discovers the matching `.jsonl` file when

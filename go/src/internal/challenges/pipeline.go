@@ -141,14 +141,13 @@ func (p *Pipeline) RunPoll(
 	}
 
 	if questionsDir != "" && fileBaseName != "" {
-		p.saveQuestions(assignments, autoSubmitted, questionsDir, fileBaseName, issuedAt)
+		p.saveQuestions(assignments, autoSubmitted, questionsDir, fileBaseName)
 	}
 
 	return res, nil
 }
 
-func (p *Pipeline) saveQuestions(questions []Question, autoSubmitted bool, questionsDir, fileBaseName string, issuedAt time.Time) {
-	ts := issuedAt.Format(time.RFC3339)
+func (p *Pipeline) saveQuestions(questions []Question, autoSubmitted bool, questionsDir, fileBaseName string) {
 	records := make([]eventstore.QuestionRecord, 0, len(questions))
 	for _, q := range questions {
 		records = append(records, eventstore.QuestionRecord{
@@ -160,7 +159,6 @@ func (p *Pipeline) saveQuestions(questions []Question, autoSubmitted bool, quest
 			CorrectAnswer: q.Answer,
 			MatchMode:     q.MatchMode,
 			Tolerance:     q.Tolerance,
-			IssuedAt:      ts,
 		})
 	}
 	if err := eventstore.AppendQuestions(questionsDir, fileBaseName, records); err != nil {

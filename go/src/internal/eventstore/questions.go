@@ -21,7 +21,6 @@ type QuestionRecord struct {
 	CorrectAnswer any      `json:"correct_answer"`
 	MatchMode     string   `json:"match_mode,omitempty"`
 	Tolerance     float64  `json:"tolerance,omitempty"`
-	IssuedAt      string   `json:"issued_at"`
 }
 
 func AppendQuestions(questionsDir, fileBaseName string, questions []QuestionRecord) error {

@@ -47,7 +47,6 @@ def load_questions(questions_dir: str, meeting_ids: list[str]) -> pl.LazyFrame:
                 "correct_answer": pl.String,
                 "match_mode": pl.String,
                 "tolerance": pl.Float64,
-                "issued_at": pl.String,
             }
         )
 
