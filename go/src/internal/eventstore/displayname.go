@@ -1,15 +1,12 @@
 package eventstore
 
 import (
-	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
-	"path/filepath"
 )
 
 // UpdateDisplayName rewrites every row whose display_name equals oldName to
@@ -82,47 +79,4 @@ func copyFile(src, dst string) error {
 		return fmt.Errorf("eventstore: copy to %s: %w", dst, err)
 	}
 	return out.Close()
-}
-
-func ReadQuestion(questionsDir, questionID string) (*QuestionRecord, error) {
-	pattern := filepath.Join(questionsDir, "*.jsonl")
-	files, err := filepath.Glob(pattern)
-	if err != nil {
-		return nil, fmt.Errorf("eventstore: glob questions: %w", err)
-	}
-
-	for _, path := range files {
-		q, err := scanJSONL(path, questionID)
-		if err != nil {
-			return nil, err
-		}
-		if q != nil {
-			return q, nil
-		}
-	}
-	return nil, nil
-}
-
-func scanJSONL(path, questionID string) (*QuestionRecord, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("eventstore: open questions file: %w", err)
-	}
-	defer func() { _ = f.Close() }()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-		var q QuestionRecord
-		if err := json.Unmarshal(line, &q); err != nil {
-			continue
-		}
-		if q.QuestionID == questionID {
-			return &q, nil
-		}
-	}
-	return nil, scanner.Err()
 }

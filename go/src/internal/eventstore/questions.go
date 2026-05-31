@@ -50,14 +50,17 @@ func AppendQuestions(questionsDir, fileBaseName string, questions []QuestionReco
 	return nil
 }
 
-func LoadQuestions(path string) (map[string]QuestionRecord, error) {
-	out := map[string]QuestionRecord{}
+// forEachQuestion opens a questions JSONL sidecar and calls fn for each valid
+// record; blank lines, malformed lines, and records with no question_id are
+// skipped, and a missing file is treated as empty. fn returning true stops the
+// scan early.
+func forEachQuestion(path string, fn func(QuestionRecord) bool) error {
 	f, err := os.Open(path) //nolint:gosec // path comes from a validated config dir + parquet basename
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return out, nil
+			return nil
 		}
-		return nil, fmt.Errorf("eventstore: open questions file: %w", err)
+		return fmt.Errorf("eventstore: open questions file: %w", err)
 	}
 	defer func() { _ = f.Close() }()
 
@@ -77,10 +80,50 @@ func LoadQuestions(path string) (map[string]QuestionRecord, error) {
 		if q.QuestionID == "" {
 			continue
 		}
-		out[q.QuestionID] = q
+		if fn(q) {
+			break
+		}
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("eventstore: scan questions file: %w", err)
+		return fmt.Errorf("eventstore: scan questions file: %w", err)
+	}
+	return nil
+}
+
+func LoadQuestions(path string) (map[string]QuestionRecord, error) {
+	out := map[string]QuestionRecord{}
+	err := forEachQuestion(path, func(q QuestionRecord) bool {
+		out[q.QuestionID] = q
+		return false
+	})
+	if err != nil {
+		return nil, err
 	}
 	return out, nil
+}
+
+// ReadQuestion finds one question by ID across every JSONL sidecar in
+// questionsDir, returning nil when no sidecar holds it.
+func ReadQuestion(questionsDir, questionID string) (*QuestionRecord, error) {
+	files, err := filepath.Glob(filepath.Join(questionsDir, "*.jsonl"))
+	if err != nil {
+		return nil, fmt.Errorf("eventstore: glob questions: %w", err)
+	}
+	for _, path := range files {
+		var found *QuestionRecord
+		if err := forEachQuestion(path, func(q QuestionRecord) bool {
+			if q.QuestionID == questionID {
+				rec := q
+				found = &rec
+				return true
+			}
+			return false
+		}); err != nil {
+			return nil, err
+		}
+		if found != nil {
+			return found, nil
+		}
+	}
+	return nil, nil
 }
