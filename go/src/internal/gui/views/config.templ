@@ -94,13 +94,6 @@ templ ConfigEditor(data ConfigData, locale Locale) {
 				</div>
 			</details>
 			<details>
-				<summary>{ locale.T("config.event_store") }</summary>
-				<div class="card">
-					@enumField(data, locale.T("config.compression"), "eventstore.compression", data.V.EventStore.Compression, "eventstore", "compression")
-					@intField(data, locale.T("config.row_group_size"), "eventstore.row_group_size", data.V.EventStore.RowGroupSize, "eventstore", "row_group_size")
-				</div>
-			</details>
-			<details>
 				<summary>{ locale.T("config.gui") }</summary>
 				<div class="card">
 					@textField(data, "gui.bind_addr", locale.T("config.bind_addr"), data.V.GUI.BindAddr, "gui", "bind_addr")

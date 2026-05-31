@@ -248,7 +248,7 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 	internalMeetingID := uuid.Must(uuid.NewV7()).String()
 	startTime := time.Now()
 
-	store, err := eventstore.NewWriter(v.MeetingsDir, "", startTime, v.EventStore.Compression, v.EventStore.RowGroupSize)
+	store, err := eventstore.NewWriter(v.MeetingsDir, "", startTime)
 	if err != nil {
 		return fmt.Errorf("init event store: %w", err)
 	}
@@ -261,8 +261,6 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 		ProviderName:                prov.Name(),
 		AnswerWindowSecs:            v.Challenges.Defaults.AnswerWindowSeconds,
 		MinGapBetweenChallengesSecs: v.Challenges.Defaults.MinGapBetweenChallengesSecs,
-		EventStoreCompression:       v.EventStore.Compression,
-		RowGroupSize:                v.EventStore.RowGroupSize,
 	}
 
 	coord := session.New(sessCfg, prov, msgr, registry, store)

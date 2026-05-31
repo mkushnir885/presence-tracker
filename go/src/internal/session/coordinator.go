@@ -76,8 +76,6 @@ type Config struct {
 	ProviderName                string
 	AnswerWindowSecs            int
 	MinGapBetweenChallengesSecs int
-	EventStoreCompression       string
-	RowGroupSize                int
 }
 
 type Coordinator struct {

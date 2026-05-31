@@ -148,9 +148,9 @@ tick, messenger initialization at session start, etc.) via
 | `challenges.*`                     | Next poll round                                          |
 
 Session-scoped invariants (`answer_window_seconds`,
-`min_gap_between_challenges_seconds`, `eventstore.*`) are snapshotted
-into `session.Config` at session start and are not affected by
-mid-session reloads.
+`min_gap_between_challenges_seconds`) are snapshotted into
+`session.Config` at session start and are not affected by mid-session
+reloads.
 
 ## Validation
 
@@ -158,11 +158,10 @@ Validation runs against the **minimal-overrides** representation
 (default-equal fields removed). Defaults are trusted. Schema enforces:
 
 - Port numbers in TCP range.
-- `eventstore.compression` ∈ {`zstd`, `snappy`, `none`}.
 - `logging.level` ∈ {`debug`, `info`, `warn`, `error`};
   `logging.format` ∈ {`text`, `json`}.
 - Non-empty strings for path fields when set.
-- Positive minima on poll intervals, answer window, row group size.
+- Positive minima on poll intervals and answer window.
 
 Validation errors include a JSON Pointer to the offending field so the
 GUI can highlight it. `ptrack reload` surfaces the error message to

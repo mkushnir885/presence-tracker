@@ -273,26 +273,6 @@
       },
       "additionalProperties": false
     },
-    "eventstore": {
-      "type": "object",
-      "properties": {
-        "compression": {
-          "type": "string",
-          "default": "zstd",
-          "enum": [
-            "zstd",
-            "snappy",
-            "none"
-          ]
-        },
-        "row_group_size": {
-          "type": "integer",
-          "default": 10000,
-          "minimum": 1
-        }
-      },
-      "additionalProperties": false
-    },
     "gui": {
       "type": "object",
       "properties": {

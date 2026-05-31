@@ -31,7 +31,7 @@ func UpdateDisplayName(parquetPath, oldName, newName string) error {
 	// Records carry from_start_ms offsets; the rename only rewrites display_name,
 	// so they round-trip verbatim with no timestamp re-encoding.
 	var buf bytes.Buffer
-	if err := writeRecordTo(&buf, records, "zstd", defaultRowGroupSize); err != nil {
+	if err := writeRecordTo(&buf, records); err != nil {
 		return fmt.Errorf("eventstore: encode parquet: %w", err)
 	}
 
@@ -53,8 +53,6 @@ func UpdateDisplayName(parquetPath, oldName, newName string) error {
 	}
 	return nil
 }
-
-const defaultRowGroupSize = 10000
 
 func overwriteFile(path string, data []byte) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)

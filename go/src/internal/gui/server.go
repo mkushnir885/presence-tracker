@@ -220,7 +220,7 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) { //
 	internalMeetingID := uuid.Must(uuid.NewV7()).String()
 	startTime := time.Now()
 
-	store, err := eventstore.NewWriter(s.cfg.Get().MeetingsDir, fileName, startTime, s.cfg.Get().EventStore.Compression, s.cfg.Get().EventStore.RowGroupSize)
+	store, err := eventstore.NewWriter(s.cfg.Get().MeetingsDir, fileName, startTime)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if fileName != "" {
@@ -238,8 +238,6 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) { //
 		ProviderName:                prov.Name(),
 		AnswerWindowSecs:            s.cfg.Get().Challenges.Defaults.AnswerWindowSeconds,
 		MinGapBetweenChallengesSecs: s.cfg.Get().Challenges.Defaults.MinGapBetweenChallengesSecs,
-		EventStoreCompression:       s.cfg.Get().EventStore.Compression,
-		RowGroupSize:                s.cfg.Get().EventStore.RowGroupSize,
 	}
 
 	coord := session.New(sessCfg, prov, msgr, s.registry, store)
@@ -988,9 +986,6 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 		v.Challenges.AutoGeneration.LLM.APIKey = formSecret(form, "challenges.auto_generation.llm.api_key", v.Challenges.AutoGeneration.LLM.APIKey)
 		v.Challenges.AutoGeneration.LLM.Model = form.Get("challenges.auto_generation.llm.model")
 		v.Challenges.AutoGeneration.ExtraRules = formStringList(form, "challenges.auto_generation.extra_rules")
-
-		v.EventStore.Compression = form.Get("eventstore.compression")
-		v.EventStore.RowGroupSize = formInt(form, "eventstore.row_group_size", v.EventStore.RowGroupSize)
 
 		v.GUI.BindAddr = form.Get("gui.bind_addr")
 		v.GUI.Port = formInt(form, "gui.port", v.GUI.Port)

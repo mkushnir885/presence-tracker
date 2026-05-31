@@ -33,28 +33,30 @@ type Record struct {
 	Metadata    map[string]string
 }
 
-const fileTimeFormat = "020106_1504"
+const (
+	fileTimeFormat = "020106_1504"
+	// Parquet encoding is fixed: zstd is universally read by the analytics
+	// stack and a lesson's few-thousand events fit one row group regardless.
+	defaultCompression  = "zstd"
+	defaultRowGroupSize = 10000
+)
 
 type Writer struct {
-	mu           sync.Mutex
-	buf          []Record
-	dir          string
-	startTime    time.Time
-	tmpPath      string
-	customName   string
-	compression  string
-	rowGroupSize int
+	mu         sync.Mutex
+	buf        []Record
+	dir        string
+	startTime  time.Time
+	tmpPath    string
+	customName string
 }
 
-func NewWriter(meetingsDir, fileName string, startTime time.Time, compression string, rowGroupSize int) (*Writer, error) {
+func NewWriter(meetingsDir, fileName string, startTime time.Time) (*Writer, error) {
 	if err := os.MkdirAll(meetingsDir, 0o755); err != nil {
 		return nil, fmt.Errorf("eventstore: mkdir %s: %w", meetingsDir, err)
 	}
 	w := &Writer{
-		dir:          meetingsDir,
-		startTime:    startTime,
-		compression:  compression,
-		rowGroupSize: rowGroupSize,
+		dir:       meetingsDir,
+		startTime: startTime,
 	}
 	if fileName == "" {
 		w.tmpPath = filepath.Join(meetingsDir, startTime.UTC().Format(fileTimeFormat)+".parquet")
@@ -170,21 +172,21 @@ func (w *Writer) writeRowGroup(rows []Record) error {
 	}
 	defer func() { _ = f.Close() }()
 
-	return writeRecordTo(f, rows, w.compression, w.rowGroupSize)
+	return writeRecordTo(f, rows)
 }
 
 // writeRecordTo writes records as a single row group to w as one complete
 // Parquet stream. Each row's from_start_ms is written verbatim (offsets are
 // computed upstream), so no session-start anchor is needed here. An empty
 // records slice still yields a valid schema-only file.
-func writeRecordTo(w io.Writer, records []Record, compression string, rowGroupSize int) error {
-	codec, err := parseCompression(compression)
+func writeRecordTo(w io.Writer, records []Record) error {
+	codec, err := parseCompression(defaultCompression)
 	if err != nil {
 		return err
 	}
 	props := parquet.NewWriterProperties(
 		parquet.WithCompression(codec),
-		parquet.WithMaxRowGroupLength(int64(rowGroupSize)),
+		parquet.WithMaxRowGroupLength(int64(defaultRowGroupSize)),
 	)
 	pw, err := pqarrow.NewFileWriter(Schema, w, props, pqarrow.NewArrowWriterProperties())
 	if err != nil {

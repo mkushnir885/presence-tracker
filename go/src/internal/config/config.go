@@ -21,7 +21,6 @@ type Values struct {
 	Providers     ProvidersConfig  `json:"providers,omitzero"`
 	Messengers    MessengersConfig `json:"messengers,omitzero"`
 	Challenges    ChallengesConfig `json:"challenges,omitzero"`
-	EventStore    EventStoreConfig `json:"eventstore,omitzero"`
 	GUI           GUIConfig        `json:"gui,omitzero"`
 	Logging       LoggingConfig    `json:"logging,omitzero"`
 }
@@ -101,11 +100,6 @@ type AIBackendConfig struct {
 	Model   string `json:"model,omitempty"`
 }
 
-type EventStoreConfig struct {
-	Compression  string `json:"compression,omitempty"`
-	RowGroupSize int    `json:"row_group_size,omitempty"`
-}
-
 type GUIConfig struct {
 	BindAddr           string `json:"bind_addr,omitempty"`
 	Port               int    `json:"port,omitempty"`
@@ -142,9 +136,8 @@ func defaults() Values {
 				LLM:                 AIBackendConfig{BaseURL: "http://127.0.0.1:11434", Model: "qwen2.5:3b"},
 			},
 		},
-		EventStore: EventStoreConfig{Compression: "zstd", RowGroupSize: 10000},
-		GUI:        GUIConfig{BindAddr: "127.0.0.1", Port: 8080},
-		Logging:    LoggingConfig{Level: "info", Format: "text"},
+		GUI:     GUIConfig{BindAddr: "127.0.0.1", Port: 8080},
+		Logging: LoggingConfig{Level: "info", Format: "text"},
 	}
 }
 
@@ -316,9 +309,6 @@ func applyConstraints(root *jsonschema.Schema) {
 	at(root, "challenges", "auto_generation", "llm", "base_url").MinLength = new(1)
 	at(root, "challenges", "auto_generation", "llm", "api_key").WriteOnly = true
 	at(root, "challenges", "auto_generation", "llm", "model").MinLength = new(1)
-
-	at(root, "eventstore", "compression").Enum = []any{"zstd", "snappy", "none"}
-	at(root, "eventstore", "row_group_size").Minimum = new(1.0)
 
 	at(root, "gui", "bind_addr").MinLength = new(1)
 	portRange(at(root, "gui", "port"))
