@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"strings"
 	"sync"
 )
 
@@ -55,4 +56,15 @@ func (l Locale) T(key string) string {
 		return v
 	}
 	return key
+}
+
+// Subtree returns every key in the locale beginning with prefix.
+func (l Locale) Subtree(prefix string) map[string]string {
+	out := make(map[string]string)
+	for k, v := range l.table {
+		if strings.HasPrefix(k, prefix) {
+			out[k] = v
+		}
+	}
+	return out
 }

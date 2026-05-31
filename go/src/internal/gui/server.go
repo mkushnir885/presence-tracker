@@ -89,6 +89,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /status", s.handleStatus)
 	mux.HandleFunc("GET /status/stream", s.handleStatusStream)
 	mux.HandleFunc("GET /stats", s.handleStats)
+	mux.HandleFunc("GET /stats/rows", s.handleStatsRows)
 	mux.HandleFunc("GET /report", s.handleReport)
 	mux.HandleFunc("PATCH /participants/{p}/display-name", s.handleRenameParticipant)
 	mux.HandleFunc("GET /registry", s.handleRegistry)
@@ -693,6 +694,16 @@ func htmlEscape(s string) string {
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	_, names, err := s.collectMeetingDirs(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	locale := localeFromRequest(r)
+	_ = views.Stats(names, locale).Render(r.Context(), w)
+}
+
+func (s *Server) handleStatsRows(w http.ResponseWriter, r *http.Request) {
 	dirs, names, err := s.collectMeetingDirs(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -716,7 +727,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	locale := localeFromRequest(r)
-	_ = views.Stats(data, locale).Render(r.Context(), w)
+	_ = views.StatsRows(data, locale).Render(r.Context(), w)
 }
 
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {

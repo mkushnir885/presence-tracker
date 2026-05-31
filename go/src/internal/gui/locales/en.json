@@ -48,6 +48,8 @@
   "stats.tooltip.presence_pct": "Presence percentage",
   "stats.tooltip.challenge_summary": "Challenge summary",
   "stats.tooltip.duration_label": "Duration",
+  "stats.loading": "Loading…",
+  "stats.loading_many_hint": "This can take a moment for many meetings.",
   "stats.empty_meeting": "No participants in the selected meeting.",
   "stats.empty_cross": "No participants in the selected meetings.",
   "stats.filter_no_matches": "No participants match the filter.",

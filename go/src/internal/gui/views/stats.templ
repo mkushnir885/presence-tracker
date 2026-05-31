@@ -3,7 +3,9 @@ package views
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
+	"net/url"
 	"strings"
 	"time"
 
@@ -14,17 +16,42 @@ func presencePct(ratio float64) int {
 	return int(math.Round(ratio * 100))
 }
 
-templ Stats(data StatsData, locale Locale) {
+// Stats is just the shell; htmx fetches /stats/rows on load so the heavy
+// ptrack_py call runs behind a spinner.
+templ Stats(dirs []string, locale Locale) {
 	@Layout("Stats", locale, nil) {
-		<div class="stats-page" data-dirs={ data.DirsQuery() }>
-			if data.Mode == "meeting" {
-				@statsMeeting(data, locale)
-			} else {
-				@statsCrossMeeting(data, locale)
-			}
+		<div class="stats-page" data-dirs={ dirsQueryFor(dirs) }>
+			<div
+				class="stats-loader"
+				hx-get={ "/stats/rows?" + dirsQueryFor(dirs) }
+				hx-trigger="load"
+				hx-swap="outerHTML"
+			>
+				<div class="stats-spinner" aria-hidden="true"></div>
+				<p class="text-muted">{ locale.T("stats.loading") }</p>
+				if len(dirs) > 1 {
+					<p class="text-muted stats-loading-hint">{ locale.T("stats.loading_many_hint") }</p>
+				}
+			</div>
 		</div>
 		<script src="/assets/stats.js"></script>
 	}
+}
+
+templ StatsRows(data StatsData, locale Locale) {
+	<div class="stats-rows">
+		if data.Mode == "meeting" {
+			@statsMeeting(data, locale)
+		} else {
+			@statsCrossMeeting(data, locale)
+		}
+		<script type="application/json" id="ptrack-stats-questions">
+			@templ.Raw(jsonBlob(data.Questions))
+		</script>
+		<script type="application/json" id="ptrack-stats-labels">
+			@templ.Raw(jsonBlob(popoverLabels(locale)))
+		</script>
+	</div>
 }
 
 templ statsMeeting(data StatsData, locale Locale) {
@@ -259,12 +286,13 @@ templ bandEdge(xPct float64, popover string, ariaLabel string) {
 	</button>
 }
 
-templ bandMarker(mk StatMarker, q *challenges.RecordedQuestion, m StatMeeting, locale Locale) {
+templ bandMarker(mk StatMarker, _ *challenges.RecordedQuestion, _ StatMeeting, locale Locale) {
 	<button
 		type="button"
 		class={ markerButtonClass(mk) }
 		style={ fmt.Sprintf("left:%.4f%%", mk.XPct) }
-		data-popover-marker={ markerPopoverJSON(mk, q, m, locale) }
+		data-marker={ markerEventJSON(mk) }
+		data-question-id={ mk.QuestionID }
 		aria-label={ locale.T("stats.tooltip.challenge_at") }
 	>
 		<span class="band-marker-shape"></span>
@@ -408,57 +436,15 @@ func stillPresentKey(endedCause string) string {
 	}
 }
 
-// markerPopoverJSON builds the detail payload that stats.js renders when a
-// timeline challenge marker is clicked. The question payload (prompt,
-// choices, correct answer, …) comes from the lookup against the document's
-// Questions map; q is nil when the marker has no question (e.g. skipped).
-func markerPopoverJSON(mk StatMarker, q *challenges.RecordedQuestion, _ StatMeeting, locale Locale) string {
-	chipLabelKey := "stats.marker.curated"
-	chipShape := "circle"
-	if mk.AutoSubmitted {
-		chipLabelKey = "stats.marker.auto_submitted"
-		chipShape = "diamond"
-	}
-
-	state := locale.T("stats.tooltip.state." + mk.Result)
-	if state == "stats.tooltip.state."+mk.Result {
-		state = mk.Result
-	}
-	latencyHint := ""
-	if mk.LatencyMS > 0 && mk.Result != "unanswered" && mk.Result != "skipped" {
-		secs := int((float64(mk.LatencyMS) + 500) / 1000.0)
-		latencyHint = fmt.Sprintf("%s %ds",
-			locale.T("stats.tooltip.latency"),
-			secs,
-		)
-	}
-
-	prompt := ""
-	if q != nil {
-		prompt = q.Prompt
-	}
-
+func markerEventJSON(mk StatMarker) string {
 	payload := map[string]any{
-		"chip": map[string]string{
-			"shape": chipShape,
-			"label": locale.T(chipLabelKey),
-		},
-		"whenPrefix": locale.T("stats.tooltip.challenge_at_prefix"),
-		"when":       formatOffsetMS(mk.TimestampMS),
-		"state": map[string]string{
-			"label": state,
-			"color": mk.Result,
-			"hint":  latencyHint,
-		},
-		"reason": markerSkipReason(mk, locale),
-		"prompt": map[string]string{
-			"label": locale.T("stats.tooltip.question"),
-			"value": prompt,
-		},
-		"extras":    markerExtras(q, locale),
-		"answer":    markerAnswer(q, locale),
-		"submitted": markerSubmitted(mk, q, locale),
-		"missing":   markerMissingNotice(mk, q, locale),
+		"result":          mk.Result,
+		"autoSubmitted":   mk.AutoSubmitted,
+		"timestampMS":     mk.TimestampMS,
+		"latencyMS":       mk.LatencyMS,
+		"skipReason":      mk.SkipReason,
+		"submittedAnswer": mk.SubmittedAnswer,
+		"offsetText":      formatOffsetMS(mk.TimestampMS),
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {
@@ -467,124 +453,28 @@ func markerPopoverJSON(mk StatMarker, q *challenges.RecordedQuestion, _ StatMeet
 	return string(b)
 }
 
-func markerExtras(q *challenges.RecordedQuestion, locale Locale) []map[string]string {
-	if q == nil {
-		return nil
-	}
-	var extras []map[string]string
-	switch q.QuestionType {
-	case "multiple_choice":
-		if len(q.Choices) > 0 {
-			extras = append(extras, map[string]string{
-				"label": locale.T("stats.marker.choices"),
-				"value": strings.Join(q.Choices, ", "),
-			})
-		}
-	case "numeric":
-		if q.Tolerance > 0 {
-			extras = append(extras, map[string]string{
-				"label": locale.T("stats.marker.tolerance"),
-				"value": fmt.Sprintf("±%s", formatNum(q.Tolerance)),
-			})
-		}
-	case "short_text":
-		if q.MatchMode != "" {
-			matchLabel := locale.T("stats.marker.match_mode." + q.MatchMode)
-			if matchLabel == "stats.marker.match_mode."+q.MatchMode {
-				matchLabel = q.MatchMode
-			}
-			extras = append(extras, map[string]string{
-				"label": locale.T("stats.marker.match"),
-				"value": matchLabel,
-			})
-		}
-	}
-	return extras
+// popoverLabels ships the marker-popover keys with the page so the client
+// renders i18n strings without a round-trip.
+func popoverLabels(locale Locale) map[string]string {
+	out := locale.Subtree("stats.tooltip.")
+	maps.Copy(out, locale.Subtree("stats.marker."))
+	return out
 }
 
-func markerAnswer(q *challenges.RecordedQuestion, locale Locale) map[string]string {
-	if q == nil {
-		return map[string]string{}
+func dirsQueryFor(dirs []string) string {
+	q := url.Values{}
+	for _, d := range dirs {
+		q.Add("dir", d)
 	}
-	value := stringifyCorrectAnswer(q.Answer)
-	if value == "" {
-		return map[string]string{}
-	}
-	if q.QuestionType == "multiple_choice" {
-		if arr, ok := q.Answer.([]any); ok {
-			parts := make([]string, 0, len(arr))
-			for _, v := range arr {
-				parts = append(parts, fmt.Sprint(v))
-			}
-			value = strings.Join(parts, ", ")
-		}
-	}
-	return map[string]string{
-		"label": locale.T("stats.tooltip.answer"),
-		"value": value,
-	}
+	return q.Encode()
 }
 
-// markerMissingNotice flags a challenge whose question_id has no matching
-// entry in the Document's Questions map — its payload couldn't be loaded
-// from questions.jsonl.
-func markerMissingNotice(mk StatMarker, q *challenges.RecordedQuestion, locale Locale) map[string]string {
-	if mk.Result == "skipped" || mk.QuestionID == "" {
-		return map[string]string{}
+func jsonBlob(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "{}"
 	}
-	if q != nil && q.Prompt != "" {
-		return map[string]string{}
-	}
-	return map[string]string{"value": locale.T("stats.marker.missing_question")}
-}
-
-func markerSkipReason(mk StatMarker, locale Locale) map[string]string {
-	if mk.Result != "skipped" || mk.SkipReason == "" {
-		return map[string]string{}
-	}
-	reasonKey := "stats.marker.skip_reason." + mk.SkipReason
-	reasonValue := locale.T(reasonKey)
-	if reasonValue == reasonKey {
-		reasonValue = mk.SkipReason
-	}
-	return map[string]string{
-		"label": locale.T("stats.marker.skip_reason"),
-		"value": reasonValue,
-	}
-}
-
-func markerSubmitted(mk StatMarker, q *challenges.RecordedQuestion, locale Locale) map[string]string {
-	if mk.Result == "unanswered" || mk.Result == "skipped" || mk.SubmittedAnswer == "" {
-		return map[string]string{}
-	}
-	value := mk.SubmittedAnswer
-	if q != nil && q.QuestionType == "multiple_choice" {
-		var arr []string
-		if err := json.Unmarshal([]byte(mk.SubmittedAnswer), &arr); err == nil {
-			value = strings.Join(arr, ", ")
-		}
-	}
-	return map[string]string{
-		"label": locale.T("stats.marker.submitted"),
-		"value": value,
-	}
-}
-
-func stringifyCorrectAnswer(v any) string {
-	switch x := v.(type) {
-	case nil:
-		return ""
-	case string:
-		return x
-	case []any:
-		b, err := json.Marshal(x)
-		if err != nil {
-			return ""
-		}
-		return string(b)
-	default:
-		return fmt.Sprint(x)
-	}
+	return string(b)
 }
 
 func meetingDetailsJSON(m StatMeeting, locale Locale) string {

@@ -1,9 +1,10 @@
 package views
 
+
+
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -113,8 +114,7 @@ type LogEntry struct {
 	Attrs   string
 }
 
-// StatsData mirrors `ptrack_py stats` output, plus the request's Dirs for
-// URL/label helpers. Mode is "meeting" (one dir) or "cross_meeting" (several).
+// StatsData mirrors `ptrack_py stats` output. Mode is "meeting" or "cross_meeting".
 type StatsData struct {
 	Dirs         []string                               `json:"-"`
 	Mode         string                                 `json:"mode"`
@@ -152,7 +152,6 @@ type StatParticipantRow struct {
 	Markers              []StatMarker  `json:"markers"`
 }
 
-// StatSegment is one presence band as percentage offsets for the SVG timeline.
 type StatSegment struct {
 	StartPct     float64 `json:"start_pct"`
 	WidthPct     float64 `json:"width_pct"`
@@ -164,9 +163,7 @@ type StatSegment struct {
 	LeaveReason  string  `json:"leave_reason"`
 }
 
-// StatMarker is one challenge on the timeline. It carries only the event-side
-// fields; the question payload (prompt, choices, correct answer, …) lives in
-// StatsData.Questions and is looked up by QuestionID on render.
+// StatMarker carries only event-side fields; the question is in StatsData.Questions.
 type StatMarker struct {
 	XPct            float64 `json:"x_pct"`
 	AutoSubmitted   bool    `json:"auto_submitted"`
@@ -188,9 +185,6 @@ func (d StatsData) MeetingByID(id string) *StatMeeting {
 	return nil
 }
 
-// Question returns the question payload referenced by id, or nil when the
-// marker carries no question_id or the questions map doesn't include it
-// (e.g. for a skipped challenge or a stale rendering).
 func (d StatsData) Question(id string) *challenges.RecordedQuestion {
 	if id == "" {
 		return nil
@@ -224,14 +218,6 @@ func (d StatsData) DirLabelForMeeting(meetingID string) string {
 	return meetingID
 }
 
-func (d StatsData) DirsQuery() string {
-	q := url.Values{}
-	for _, dir := range d.Dirs {
-		q.Add("dir", dir)
-	}
-	return q.Encode()
-}
-
 func (d StatsData) MaxDuration() float64 {
 	var max float64
 	for _, m := range d.Meetings {
@@ -242,8 +228,7 @@ func (d StatsData) MaxDuration() float64 {
 	return max
 }
 
-// RowWidthPct scales a meeting's timeline band to the longest meeting in the
-// set, so band lengths are visually comparable across the cross-meeting view.
+// RowWidthPct scales the band so meetings of different durations are visually comparable.
 func (d StatsData) RowWidthPct(m StatMeeting) float64 {
 	if max := d.MaxDuration(); max > 0 {
 		return m.DurationSeconds / max * 100
