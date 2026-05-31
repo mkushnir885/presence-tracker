@@ -481,9 +481,8 @@ Breaking changes require updating all three and bumping `schema_version`.
 
 Internal directories (config, app data, cache) are fixed at platform
 defaults — not user-settable. Users who want them elsewhere create a
-symlink to the default location. The user-facing directories
-(`meetings_dir`, `questions_dir`, `reports_dir`) are settable from
-`config.json`.
+symlink to the default location. The user-facing `meetings_dir` is
+settable from `config.json`; reports are streamed to stdout, not stored.
 
 ### Linux
 
@@ -506,7 +505,6 @@ symlink to the default location. The user-facing directories
 │   └── 2026-04-23-algebra.jsonl
 ├── pending-banks/                      # challenges.auto_generation.review_dir (only used when auto_submit = false)
 │   └── auto-2026-04-21T10-15.yaml
-└── 2026-04-21-algebra.csv              # reports_dir (root of ~/Documents/ptrack)
 ```
 
 ### Windows

@@ -6,11 +6,6 @@
       "default": "~/Documents/ptrack/meetings",
       "minLength": 1
     },
-    "reports_dir": {
-      "type": "string",
-      "default": "~/Documents/ptrack/reports",
-      "minLength": 1
-    },
     "retention_days": {
       "type": "integer",
       "default": 180,

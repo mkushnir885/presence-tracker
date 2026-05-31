@@ -240,7 +240,6 @@ type ConfigData struct {
 	V          config.Values
 	Schema     *jsonschema.Schema
 	DataDir    string
-	CacheDir   string
 	ConfigPath string
 	Error      string
 }

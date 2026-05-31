@@ -14,15 +14,12 @@ templ ConfigEditor(data ConfigData, locale Locale) {
 			<code>{ data.ConfigPath }</code>
 			<strong>{ locale.T("config.data_dir") }</strong>
 			<code>{ data.DataDir }</code>
-			<strong>{ locale.T("config.cache_dir") }</strong>
-			<code>{ data.CacheDir }</code>
 		</div>
 		<form id="config-form" method="POST" action="/config">
 			<details>
 				<summary>{ locale.T("config.general") }</summary>
 				<div class="card">
 					@textField(data, "meetings_dir", locale.T("config.meetings_dir"), data.V.MeetingsDir)
-					@textField(data, "reports_dir", locale.T("config.reports_dir"), data.V.ReportsDir)
 					@intField(data, locale.T("config.retention_days"), "retention_days", data.V.RetentionDays, "retention_days")
 				</div>
 			</details>

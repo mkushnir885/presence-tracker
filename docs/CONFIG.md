@@ -108,11 +108,10 @@ SSD — should symlink the platform-default path. Keeping these fixed
 avoids a class of footguns (silently empty participant registry after a
 path change, half-completed cross-device moves).
 
-The settable directories — `meetings_dir`, `questions_dir`,
-`reports_dir` — are user-facing content paths. Defaults sit under
-`~/Documents/ptrack/{meetings,questions,reports}`. Paths support `~`
-and forward-slash separators on Windows; the loader normalises both
-into OS-native absolute paths.
+The settable `meetings_dir` is the user-facing content path. Default sits
+under `~/Documents/ptrack/meetings`. Paths support `~` and forward-slash
+separators on Windows; the loader normalises both into OS-native
+absolute paths.
 
 ## Save and reload
 

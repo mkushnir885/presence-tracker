@@ -27,11 +27,6 @@ func DataDir() string {
 	}
 }
 
-func CacheDir() string {
-	dir, _ := os.UserCacheDir()
-	return filepath.Join(dir, "ptrack")
-}
-
 func configDir() string {
 	dir, _ := os.UserConfigDir()
 	return filepath.Join(dir, "ptrack")

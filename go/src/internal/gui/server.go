@@ -926,7 +926,6 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		V:          s.cfg.Get(),
 		Schema:     schema,
 		DataDir:    config.DataDir(),
-		CacheDir:   config.CacheDir(),
 		ConfigPath: s.cfg.Path(),
 	}
 
@@ -942,7 +941,6 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	form := r.PostForm
 	mutator := func(v *config.Values) {
 		v.MeetingsDir = form.Get("meetings_dir")
-		v.ReportsDir = form.Get("reports_dir")
 		v.RetentionDays = formInt(form, "retention_days", v.RetentionDays)
 
 		v.Providers.BBB.Enabled = formBool(form, "providers.bbb.enabled")
@@ -1004,7 +1002,6 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 			V:          submitted,
 			Schema:     schema,
 			DataDir:    config.DataDir(),
-			CacheDir:   config.CacheDir(),
 			ConfigPath: s.cfg.Path(),
 			Error:      err.Error(),
 		}
