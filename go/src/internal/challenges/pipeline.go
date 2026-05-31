@@ -2,15 +2,16 @@ package challenges
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
-
-	"presence-tracker/src/internal/eventstore"
 )
 
 type EligibleParticipant struct {
@@ -149,22 +150,32 @@ func (p *Pipeline) RunPoll(
 	return res, nil
 }
 
+// saveQuestions appends one JSON line per delivered question to
+// <meetingDir>/questions.jsonl, creating the meeting dir if needed. The
+// stats view consumes this file directly.
 func (p *Pipeline) saveQuestions(questions []Question, autoSubmitted bool, meetingDir string) {
-	records := make([]eventstore.QuestionRecord, 0, len(questions))
-	for _, q := range questions {
-		records = append(records, eventstore.QuestionRecord{
-			QuestionID:    q.QuestionID,
-			AutoSubmitted: autoSubmitted,
-			QuestionType:  string(q.QuestionType),
-			Prompt:        q.Prompt,
-			Choices:       q.Choices,
-			CorrectAnswer: q.Answer,
-			MatchMode:     q.MatchMode,
-			Tolerance:     q.Tolerance,
-		})
+	if err := os.MkdirAll(meetingDir, 0o755); err != nil {
+		slog.Error("challenges: save questions: mkdir", "err", err)
+		return
 	}
-	if err := eventstore.AppendQuestions(meetingDir, records); err != nil {
-		slog.Error("challenges: save questions", "err", err)
+	path := filepath.Join(meetingDir, QuestionsFile)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		slog.Error("challenges: save questions: open", "err", err)
+		return
+	}
+	defer func() { _ = f.Close() }()
+
+	for _, q := range questions {
+		line, err := json.Marshal(RecordedQuestion{Question: q, AutoSubmitted: autoSubmitted})
+		if err != nil {
+			slog.Error("challenges: save questions: marshal", "err", err)
+			return
+		}
+		if _, err := fmt.Fprintf(f, "%s\n", line); err != nil {
+			slog.Error("challenges: save questions: write", "err", err)
+			return
+		}
 	}
 }
 

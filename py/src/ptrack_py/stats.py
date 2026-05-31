@@ -20,9 +20,11 @@ from ptrack_analytics.frames import (
 def generate_stats(
     events: pl.LazyFrame,
     mode: str,
+    questions: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build the stats document. mode "cross_meeting" adds absent-participant
-    placeholder rows; "meeting" omits them.
+    placeholder rows; "meeting" omits them. *questions* maps each question_id
+    to its full record (prompt, type, choices, …, meeting_id).
     """
     meetings = _collect_meetings(events)
     segments = _collect_segments(events, meetings)
@@ -47,6 +49,7 @@ def generate_stats(
         "participants": _assemble_participants(
             meetings, summary, segments, markers, include_absent=mode == "cross_meeting"
         ),
+        "questions": questions or {},
     }
 
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"presence-tracker/src/internal/stats"
+	"presence-tracker/src/internal/challenges"
 )
 
 func presencePct(ratio float64) int {
@@ -17,7 +17,7 @@ func presencePct(ratio float64) int {
 templ Stats(data StatsData, locale Locale) {
 	@Layout("Stats", locale, nil) {
 		<div class="stats-page" data-dirs={ data.DirsQuery() }>
-			if data.Mode() == "meeting" {
+			if data.Mode == "meeting" {
 				@statsMeeting(data, locale)
 			} else {
 				@statsCrossMeeting(data, locale)
@@ -40,7 +40,7 @@ templ statsMeeting(data StatsData, locale Locale) {
 					aria-label={ locale.T("stats.tooltip.meeting_details") }
 				>{ data.FirstDirLabel() }</button>
 			</h1>
-			if len(data.Doc.Participants) > 0 {
+			if len(data.Participants) > 0 {
 				<div class="stats-search-wrap stats-filter-wrap">
 					<input
 						type="search"
@@ -52,13 +52,13 @@ templ statsMeeting(data StatsData, locale Locale) {
 				</div>
 			}
 		</header>
-		if len(data.Doc.Participants) == 0 {
+		if len(data.Participants) == 0 {
 			<p class="text-muted">{ locale.T("stats.empty_meeting") }</p>
 		} else {
 			<div class="participant-list">
-				for _, p := range data.Doc.Participants {
+				for _, p := range data.Participants {
 					if row := participantRowFor(p, m.MeetingID); row != nil && !row.Absent {
-						@meetingRow(p.DisplayName, *row, *m, locale)
+						@meetingRow(data, p.DisplayName, *row, *m, locale)
 					}
 				}
 				<p id="stats-filter-empty" class="text-muted stats-filter-empty" hidden>{ locale.T("stats.filter_no_matches") }</p>
@@ -73,13 +73,13 @@ templ statsCrossMeeting(data StatsData, locale Locale) {
 	<header class="page-header stats-header stats-header-cross">
 		<h1 class="stats-title-line">
 			<span class="stats-title-prefix">{ locale.T("stats.title_prefix") }</span>
-			if len(data.Doc.Participants) == 0 {
+			if len(data.Participants) == 0 {
 				<span id="stats-current-name" class="stats-current-name stats-title-empty">{ locale.T("stats.title_nobody") }</span>
 			} else {
 				<span id="stats-current-name" class="stats-current-name">{ firstParticipantName(data) }</span>
 			}
 		</h1>
-		if len(data.Doc.Participants) > 0 {
+		if len(data.Participants) > 0 {
 			<button
 				type="button"
 				class="icon-btn icon-btn-sm"
@@ -107,11 +107,11 @@ templ statsCrossMeeting(data StatsData, locale Locale) {
 			</div>
 		}
 	</header>
-	if len(data.Doc.Participants) == 0 {
+	if len(data.Participants) == 0 {
 		<p class="text-muted">{ locale.T("stats.empty_cross") }</p>
 	} else {
 		<div id="stats-participant-pages">
-			for idx, p := range data.Doc.Participants {
+			for idx, p := range data.Participants {
 				<article class="participant-card" data-page-index={ fmt.Sprintf("%d", idx) } data-display-name={ p.DisplayName } hidden>
 					<div class="participant-meetings participant-list">
 						for _, row := range p.Rows {
@@ -126,7 +126,7 @@ templ statsCrossMeeting(data StatsData, locale Locale) {
 	}
 }
 
-templ meetingRow(displayName string, row stats.ParticipantRow, m stats.Meeting, locale Locale) {
+templ meetingRow(data StatsData, displayName string, row StatParticipantRow, m StatMeeting, locale Locale) {
 	<div class="participant-row participant-row-meeting">
 		@renameButton(displayName, locale)
 		<div class="participant-name">{ displayName }</div>
@@ -143,12 +143,12 @@ templ meetingRow(displayName string, row stats.ParticipantRow, m stats.Meeting, 
 			)
 		</div>
 		<div class="band-outer" style="width:100%">
-			@timelineBand(row, m, locale)
+			@timelineBand(data, row, m, locale)
 		</div>
 	</div>
 }
 
-templ crossMeetingRow(data StatsData, m stats.Meeting, row stats.ParticipantRow, locale Locale) {
+templ crossMeetingRow(data StatsData, m StatMeeting, row StatParticipantRow, locale Locale) {
 	<div class="participant-row participant-row-cross">
 		<button
 			type="button"
@@ -173,7 +173,7 @@ templ crossMeetingRow(data StatsData, m stats.Meeting, row stats.ParticipantRow,
 				)
 			</div>
 			<div class="band-outer" style={ fmt.Sprintf("width:%.2f%%", data.RowWidthPct(m)) }>
-				@timelineBand(row, m, locale)
+				@timelineBand(data, row, m, locale)
 			</div>
 		}
 	</div>
@@ -223,7 +223,7 @@ templ iconPencil() {
 // viewBox plus preserveAspectRatio="none" map each segment's StartPct/WidthPct
 // straight to x/width at any pixel width. An overlay layer adds absolutely
 // positioned join/leave edges and challenge markers for hover and click.
-templ timelineBand(row stats.ParticipantRow, m stats.Meeting, locale Locale) {
+templ timelineBand(data StatsData, row StatParticipantRow, m StatMeeting, locale Locale) {
 	<div class="band-wrap">
 		<svg class="band-bg" viewBox="0 0 100 1" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
 			<rect class="band-bg-rect" x="0" y="0" width="100" height="1"></rect>
@@ -242,7 +242,7 @@ templ timelineBand(row stats.ParticipantRow, m stats.Meeting, locale Locale) {
 			}
 		}
 		for _, mk := range row.Markers {
-			@bandMarker(mk, m, locale)
+			@bandMarker(mk, data.Question(mk.QuestionID), m, locale)
 		}
 	</div>
 }
@@ -259,12 +259,12 @@ templ bandEdge(xPct float64, popover string, ariaLabel string) {
 	</button>
 }
 
-templ bandMarker(mk stats.Marker, m stats.Meeting, locale Locale) {
+templ bandMarker(mk StatMarker, q *challenges.RecordedQuestion, m StatMeeting, locale Locale) {
 	<button
 		type="button"
 		class={ markerButtonClass(mk) }
 		style={ fmt.Sprintf("left:%.4f%%", mk.XPct) }
-		data-popover-marker={ markerPopoverJSON(mk, m, locale) }
+		data-popover-marker={ markerPopoverJSON(mk, q, m, locale) }
 		aria-label={ locale.T("stats.tooltip.challenge_at") }
 	>
 		<span class="band-marker-shape"></span>
@@ -272,21 +272,21 @@ templ bandMarker(mk stats.Marker, m stats.Meeting, locale Locale) {
 }
 
 
-func firstMeeting(d StatsData) *stats.Meeting {
-	if d.Doc == nil || len(d.Doc.Meetings) == 0 {
+func firstMeeting(d StatsData) *StatMeeting {
+	if len(d.Meetings) == 0 {
 		return nil
 	}
-	return &d.Doc.Meetings[0]
+	return &d.Meetings[0]
 }
 
 func firstParticipantName(d StatsData) string {
-	if d.Doc == nil || len(d.Doc.Participants) == 0 {
+	if len(d.Participants) == 0 {
 		return ""
 	}
-	return d.Doc.Participants[0].DisplayName
+	return d.Participants[0].DisplayName
 }
 
-func participantRowFor(p stats.Participant, meetingID string) *stats.ParticipantRow {
+func participantRowFor(p StatParticipant, meetingID string) *StatParticipantRow {
 	for i := range p.Rows {
 		if p.Rows[i].MeetingID == meetingID {
 			return &p.Rows[i]
@@ -313,7 +313,7 @@ func formatOffsetMS(ms int64) string {
 	return formatDuration(float64(ms) / 1000.0)
 }
 
-func markerButtonClass(m stats.Marker) string {
+func markerButtonClass(m StatMarker) string {
 	parts := []string{"band-marker"}
 	switch m.Result {
 	case "correct":
@@ -333,7 +333,7 @@ func markerButtonClass(m stats.Marker) string {
 	return strings.Join(parts, " ")
 }
 
-func presenceTooltip(row stats.ParticipantRow, m stats.Meeting, locale Locale) string {
+func presenceTooltip(row StatParticipantRow, m StatMeeting, locale Locale) string {
 	presence := row.PresenceSeconds
 	if presence == 0 {
 		presence = row.PresenceRatio * m.DurationSeconds
@@ -346,7 +346,7 @@ func presenceTooltip(row stats.ParticipantRow, m stats.Meeting, locale Locale) s
 	)
 }
 
-func challengePopoverJSON(row stats.ParticipantRow, locale Locale) string {
+func challengePopoverJSON(row StatParticipantRow, locale Locale) string {
 	if row.ChallengesIssued == 0 {
 		payload := map[string]any{
 			"rows": []map[string]any{
@@ -367,7 +367,7 @@ func challengePopoverJSON(row stats.ParticipantRow, locale Locale) string {
 	return string(b)
 }
 
-func segmentEdgeTooltip(isStart bool, seg stats.Segment, m stats.Meeting, locale Locale) string {
+func segmentEdgeTooltip(isStart bool, seg StatSegment, m StatMeeting, locale Locale) string {
 	var parts []string
 	if isStart {
 		parts = append(parts, fmt.Sprintf("%s %s",
@@ -409,8 +409,10 @@ func stillPresentKey(endedCause string) string {
 }
 
 // markerPopoverJSON builds the detail payload that stats.js renders when a
-// timeline challenge marker is clicked.
-func markerPopoverJSON(mk stats.Marker, _ stats.Meeting, locale Locale) string {
+// timeline challenge marker is clicked. The question payload (prompt,
+// choices, correct answer, …) comes from the lookup against the document's
+// Questions map; q is nil when the marker has no question (e.g. skipped).
+func markerPopoverJSON(mk StatMarker, q *challenges.RecordedQuestion, _ StatMeeting, locale Locale) string {
 	chipLabelKey := "stats.marker.curated"
 	chipShape := "circle"
 	if mk.AutoSubmitted {
@@ -431,6 +433,11 @@ func markerPopoverJSON(mk stats.Marker, _ stats.Meeting, locale Locale) string {
 		)
 	}
 
+	prompt := ""
+	if q != nil {
+		prompt = q.Prompt
+	}
+
 	payload := map[string]any{
 		"chip": map[string]string{
 			"shape": chipShape,
@@ -446,12 +453,12 @@ func markerPopoverJSON(mk stats.Marker, _ stats.Meeting, locale Locale) string {
 		"reason": markerSkipReason(mk, locale),
 		"prompt": map[string]string{
 			"label": locale.T("stats.tooltip.question"),
-			"value": mk.Prompt,
+			"value": prompt,
 		},
-		"extras":    markerExtras(mk, locale),
-		"answer":    markerAnswer(mk, locale),
-		"submitted": markerSubmitted(mk, locale),
-		"missing":   markerMissingNotice(mk, locale),
+		"extras":    markerExtras(q, locale),
+		"answer":    markerAnswer(q, locale),
+		"submitted": markerSubmitted(mk, q, locale),
+		"missing":   markerMissingNotice(mk, q, locale),
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {
@@ -460,28 +467,31 @@ func markerPopoverJSON(mk stats.Marker, _ stats.Meeting, locale Locale) string {
 	return string(b)
 }
 
-func markerExtras(mk stats.Marker, locale Locale) []map[string]string {
+func markerExtras(q *challenges.RecordedQuestion, locale Locale) []map[string]string {
+	if q == nil {
+		return nil
+	}
 	var extras []map[string]string
-	switch mk.QuestionType {
+	switch q.QuestionType {
 	case "multiple_choice":
-		if len(mk.Choices) > 0 {
+		if len(q.Choices) > 0 {
 			extras = append(extras, map[string]string{
 				"label": locale.T("stats.marker.choices"),
-				"value": strings.Join(mk.Choices, ", "),
+				"value": strings.Join(q.Choices, ", "),
 			})
 		}
 	case "numeric":
-		if mk.Tolerance > 0 {
+		if q.Tolerance > 0 {
 			extras = append(extras, map[string]string{
 				"label": locale.T("stats.marker.tolerance"),
-				"value": fmt.Sprintf("±%s", formatNum(mk.Tolerance)),
+				"value": fmt.Sprintf("±%s", formatNum(q.Tolerance)),
 			})
 		}
 	case "short_text":
-		if mk.MatchMode != "" {
-			matchLabel := locale.T("stats.marker.match_mode." + mk.MatchMode)
-			if matchLabel == "stats.marker.match_mode."+mk.MatchMode {
-				matchLabel = mk.MatchMode
+		if q.MatchMode != "" {
+			matchLabel := locale.T("stats.marker.match_mode." + q.MatchMode)
+			if matchLabel == "stats.marker.match_mode."+q.MatchMode {
+				matchLabel = q.MatchMode
 			}
 			extras = append(extras, map[string]string{
 				"label": locale.T("stats.marker.match"),
@@ -492,15 +502,21 @@ func markerExtras(mk stats.Marker, locale Locale) []map[string]string {
 	return extras
 }
 
-func markerAnswer(mk stats.Marker, locale Locale) map[string]string {
-	if mk.CorrectAnswer == "" {
+func markerAnswer(q *challenges.RecordedQuestion, locale Locale) map[string]string {
+	if q == nil {
 		return map[string]string{}
 	}
-	value := mk.CorrectAnswer
-	if mk.QuestionType == "multiple_choice" {
-		var arr []string
-		if err := json.Unmarshal([]byte(mk.CorrectAnswer), &arr); err == nil {
-			value = strings.Join(arr, ", ")
+	value := stringifyCorrectAnswer(q.Answer)
+	if value == "" {
+		return map[string]string{}
+	}
+	if q.QuestionType == "multiple_choice" {
+		if arr, ok := q.Answer.([]any); ok {
+			parts := make([]string, 0, len(arr))
+			for _, v := range arr {
+				parts = append(parts, fmt.Sprint(v))
+			}
+			value = strings.Join(parts, ", ")
 		}
 	}
 	return map[string]string{
@@ -510,15 +526,19 @@ func markerAnswer(mk stats.Marker, locale Locale) map[string]string {
 }
 
 // markerMissingNotice flags a challenge whose question_id has no matching
-// prompt — its payload couldn't be loaded from the questions JSONL sidecar.
-func markerMissingNotice(mk stats.Marker, locale Locale) map[string]string {
-	if mk.Result == "skipped" || mk.QuestionID == "" || mk.Prompt != "" {
+// entry in the Document's Questions map — its payload couldn't be loaded
+// from questions.jsonl.
+func markerMissingNotice(mk StatMarker, q *challenges.RecordedQuestion, locale Locale) map[string]string {
+	if mk.Result == "skipped" || mk.QuestionID == "" {
+		return map[string]string{}
+	}
+	if q != nil && q.Prompt != "" {
 		return map[string]string{}
 	}
 	return map[string]string{"value": locale.T("stats.marker.missing_question")}
 }
 
-func markerSkipReason(mk stats.Marker, locale Locale) map[string]string {
+func markerSkipReason(mk StatMarker, locale Locale) map[string]string {
 	if mk.Result != "skipped" || mk.SkipReason == "" {
 		return map[string]string{}
 	}
@@ -533,12 +553,12 @@ func markerSkipReason(mk stats.Marker, locale Locale) map[string]string {
 	}
 }
 
-func markerSubmitted(mk stats.Marker, locale Locale) map[string]string {
+func markerSubmitted(mk StatMarker, q *challenges.RecordedQuestion, locale Locale) map[string]string {
 	if mk.Result == "unanswered" || mk.Result == "skipped" || mk.SubmittedAnswer == "" {
 		return map[string]string{}
 	}
 	value := mk.SubmittedAnswer
-	if mk.QuestionType == "multiple_choice" {
+	if q != nil && q.QuestionType == "multiple_choice" {
 		var arr []string
 		if err := json.Unmarshal([]byte(mk.SubmittedAnswer), &arr); err == nil {
 			value = strings.Join(arr, ", ")
@@ -550,7 +570,24 @@ func markerSubmitted(mk stats.Marker, locale Locale) map[string]string {
 	}
 }
 
-func meetingDetailsJSON(m stats.Meeting, locale Locale) string {
+func stringifyCorrectAnswer(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return x
+	case []any:
+		b, err := json.Marshal(x)
+		if err != nil {
+			return ""
+		}
+		return string(b)
+	default:
+		return fmt.Sprint(x)
+	}
+}
+
+func meetingDetailsJSON(m StatMeeting, locale Locale) string {
 	var rows []map[string]string
 
 	if m.Platform != "" {

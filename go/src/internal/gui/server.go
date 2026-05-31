@@ -33,14 +33,12 @@ import (
 	zoomprovider "presence-tracker/src/internal/providers/zoom"
 	"presence-tracker/src/internal/ptrackpy"
 	"presence-tracker/src/internal/session"
-	"presence-tracker/src/internal/stats"
 )
 
 type Server struct {
 	cfg      *config.Config
 	registry participants.Registry
 	router   *messengers.Router
-	stats    *stats.Loader
 
 	mu     sync.RWMutex
 	active *activeSession
@@ -72,7 +70,6 @@ func New(cfg *config.Config, registry participants.Registry, router *messengers.
 		cfg:      cfg,
 		registry: registry,
 		router:   router,
-		stats:    stats.New(filepath.Join(config.CacheDir(), "stats")),
 		stopCh:   make(chan struct{}),
 	}
 }
@@ -97,7 +94,6 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /registry", s.handleRegistry)
 	mux.HandleFunc("POST /registry/filter", s.handleFilterRegistry)
 	mux.HandleFunc("POST /registry/delete", s.handleDeleteRegistry)
-	mux.HandleFunc("GET /questions/{id}", s.handleQuestion)
 	mux.HandleFunc("GET /config", s.handleConfig)
 	mux.HandleFunc("POST /config", s.handleSaveConfig)
 	mux.HandleFunc("GET /poll/pending/preview", s.handlePollPendingPreview)
@@ -703,7 +699,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	doc, err := s.stats.Load(r.Context(), dirs)
+	out, err := ptrackpy.Run(r.Context(), append([]string{"stats"}, dirs...)...)
 	if err != nil {
 		if errors.Is(err, ptrackpy.ErrIncompleteMeeting) {
 			http.Error(w, err.Error(), http.StatusConflict)
@@ -713,7 +709,12 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := views.StatsData{Dirs: names, Doc: doc}
+	data := views.StatsData{Dirs: names}
+	if err := json.Unmarshal(out, &data); err != nil {
+		http.Error(w, "stats: parse JSON: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	locale := localeFromRequest(r)
 	_ = views.Stats(data, locale).Render(r.Context(), w)
 }
@@ -900,23 +901,6 @@ func (s *Server) handleDeleteRegistry(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = views.RegistryResults(visible, locale).Render(r.Context(), w)
 	_ = views.RegistryInfo(len(visible), nil, locale, true).Render(r.Context(), w)
-}
-
-func (s *Server) handleQuestion(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-
-	q, err := eventstore.ReadQuestion(s.cfg.Get().MeetingsDir, id)
-	if err != nil {
-		http.Error(w, "read question failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if q == nil {
-		http.NotFound(w, r)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(q) //nolint:errchkjson // question record is JSON-safe
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {

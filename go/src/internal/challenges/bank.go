@@ -11,6 +11,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// QuestionsFile is the JSONL question sidecar inside every meeting directory.
+const QuestionsFile = "questions.jsonl"
+
 type QuestionType string
 
 const (
@@ -21,14 +24,23 @@ const (
 
 // Question is one resolved bank entry. Answer's concrete type depends on
 // QuestionType: []string for MultipleChoice/ShortText, float64 for Numeric.
+//
+// JSON tags exist so the persisted form in questions.jsonl is exactly this
+// struct; the stats view consumes the same shape over the questions map.
 type Question struct {
-	QuestionID   string
-	QuestionType QuestionType
-	Prompt       string
-	Choices      []string
-	Answer       any
-	MatchMode    string
-	Tolerance    float64
+	QuestionID   string       `json:"question_id"`
+	QuestionType QuestionType `json:"question_type"`
+	Prompt       string       `json:"prompt"`
+	Choices      []string     `json:"choices,omitempty"`
+	Answer       any          `json:"correct_answer"`
+	MatchMode    string       `json:"match_mode,omitempty"`
+	Tolerance    float64      `json:"tolerance,omitempty"`
+}
+
+// RecordedQuestion is a Question as persisted to <meetingDir>/questions.jsonl.
+type RecordedQuestion struct {
+	Question
+	AutoSubmitted bool `json:"auto_submitted"`
 }
 
 type Bank struct {

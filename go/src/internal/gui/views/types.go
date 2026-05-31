@@ -10,11 +10,11 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"presence-tracker/src/internal/challenges"
 	"presence-tracker/src/internal/config"
 	"presence-tracker/src/internal/i18n"
 	"presence-tracker/src/internal/participants"
 	"presence-tracker/src/internal/session"
-	"presence-tracker/src/internal/stats"
 )
 
 type Locale = i18n.Locale
@@ -113,28 +113,93 @@ type LogEntry struct {
 	Attrs   string
 }
 
+// StatsData mirrors `ptrack_py stats` output, plus the request's Dirs for
+// URL/label helpers. Mode is "meeting" (one dir) or "cross_meeting" (several).
 type StatsData struct {
-	Dirs []string
-	Doc  *stats.Document
+	Dirs         []string                               `json:"-"`
+	Mode         string                                 `json:"mode"`
+	Meetings     []StatMeeting                          `json:"meetings"`
+	Participants []StatParticipant                      `json:"participants"`
+	Questions    map[string]challenges.RecordedQuestion `json:"questions"`
 }
 
-func (d StatsData) Mode() string {
-	if d.Doc == nil {
-		return ""
-	}
-	return d.Doc.Mode
+type StatMeeting struct {
+	MeetingID       string  `json:"meeting_id"`
+	StartedAt       string  `json:"started_at"`
+	DurationSeconds float64 `json:"duration_seconds"`
+	Platform        string  `json:"platform"`
+	StartedCause    string  `json:"started_cause"`
+	EndedCause      string  `json:"ended_cause"`
+	MaxParticipants int     `json:"max_participants"`
+	SourceDir       string  `json:"source_dir"`
 }
 
-func (d StatsData) MeetingByID(id string) *stats.Meeting {
-	if d.Doc == nil {
-		return nil
-	}
-	for i := range d.Doc.Meetings {
-		if d.Doc.Meetings[i].MeetingID == id {
-			return &d.Doc.Meetings[i]
+type StatParticipant struct {
+	DisplayName string           `json:"display_name"`
+	Rows        []StatParticipantRow `json:"rows"`
+}
+
+type StatParticipantRow struct {
+	MeetingID            string        `json:"meeting_id"`
+	Absent               bool          `json:"absent"`
+	PresenceRatio        float64       `json:"presence_ratio"`
+	PresenceSeconds      float64       `json:"presence_seconds"`
+	ChallengesIssued     int           `json:"challenges_issued"`
+	ChallengesCorrect    int           `json:"challenges_correct"`
+	ChallengesIncorrect  int           `json:"challenges_incorrect"`
+	ChallengesUnanswered int           `json:"challenges_unanswered"`
+	Segments             []StatSegment `json:"segments"`
+	Markers              []StatMarker  `json:"markers"`
+}
+
+// StatSegment is one presence band as percentage offsets for the SVG timeline.
+type StatSegment struct {
+	StartPct     float64 `json:"start_pct"`
+	WidthPct     float64 `json:"width_pct"`
+	Present      bool    `json:"present"`
+	StartMS      int64   `json:"start_ms"`
+	EndMS        int64   `json:"end_ms"`
+	StillPresent bool    `json:"still_present"`
+	JoinMethod   string  `json:"join_method"`
+	LeaveReason  string  `json:"leave_reason"`
+}
+
+// StatMarker is one challenge on the timeline. It carries only the event-side
+// fields; the question payload (prompt, choices, correct answer, …) lives in
+// StatsData.Questions and is looked up by QuestionID on render.
+type StatMarker struct {
+	XPct            float64 `json:"x_pct"`
+	AutoSubmitted   bool    `json:"auto_submitted"`
+	Result          string  `json:"result"`
+	SkipReason      string  `json:"skip_reason"`
+	ChallengeID     string  `json:"challenge_id"`
+	QuestionID      string  `json:"question_id"`
+	TimestampMS     int64   `json:"timestamp_ms"`
+	LatencyMS       int64   `json:"latency_ms"`
+	SubmittedAnswer string  `json:"submitted_answer"`
+}
+
+func (d StatsData) MeetingByID(id string) *StatMeeting {
+	for i := range d.Meetings {
+		if d.Meetings[i].MeetingID == id {
+			return &d.Meetings[i]
 		}
 	}
 	return nil
+}
+
+// Question returns the question payload referenced by id, or nil when the
+// marker carries no question_id or the questions map doesn't include it
+// (e.g. for a skipped challenge or a stale rendering).
+func (d StatsData) Question(id string) *challenges.RecordedQuestion {
+	if id == "" {
+		return nil
+	}
+	q, ok := d.Questions[id]
+	if !ok {
+		return nil
+	}
+	return &q
 }
 
 func (d StatsData) FirstDirLabel() string {
@@ -145,11 +210,9 @@ func (d StatsData) FirstDirLabel() string {
 }
 
 func (d StatsData) DirLabelForMeeting(meetingID string) string {
-	if d.Doc != nil {
-		for i := range d.Doc.Meetings {
-			if d.Doc.Meetings[i].MeetingID == meetingID && d.Doc.Meetings[i].SourceDir != "" {
-				return filepath.Base(d.Doc.Meetings[i].SourceDir)
-			}
+	for i := range d.Meetings {
+		if d.Meetings[i].MeetingID == meetingID && d.Meetings[i].SourceDir != "" {
+			return filepath.Base(d.Meetings[i].SourceDir)
 		}
 	}
 	for _, dir := range d.Dirs {
@@ -170,11 +233,8 @@ func (d StatsData) DirsQuery() string {
 }
 
 func (d StatsData) MaxDuration() float64 {
-	if d.Doc == nil {
-		return 0
-	}
 	var max float64
-	for _, m := range d.Doc.Meetings {
+	for _, m := range d.Meetings {
 		if m.DurationSeconds > max {
 			max = m.DurationSeconds
 		}
@@ -184,7 +244,7 @@ func (d StatsData) MaxDuration() float64 {
 
 // RowWidthPct scales a meeting's timeline band to the longest meeting in the
 // set, so band lengths are visually comparable across the cross-meeting view.
-func (d StatsData) RowWidthPct(m stats.Meeting) float64 {
+func (d StatsData) RowWidthPct(m StatMeeting) float64 {
 	if max := d.MaxDuration(); max > 0 {
 		return m.DurationSeconds / max * 100
 	}

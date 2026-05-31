@@ -6,6 +6,7 @@ import glob as _glob
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 import typer
@@ -86,7 +87,8 @@ def stats(
         events = pl.concat(frames)
         mode = "meeting" if len(dirs) == 1 else "cross_meeting"
         source_dirs = _build_source_dir_map(parquet_paths, dirs)
-        payload = generate_stats(events, mode=mode)
+        questions = _load_questions(dirs)
+        payload = generate_stats(events, mode=mode, questions=questions)
         for meeting in payload["meetings"]:
             src = source_dirs.get(meeting["meeting_id"])
             if src:
@@ -136,6 +138,28 @@ def _expand_globs(patterns: list[str]) -> list[str]:
 
 def _events_paths(dirs: list[str]) -> list[str]:
     return [str(Path(d) / EVENTS_FILE) for d in dirs]
+
+
+def _load_questions(dirs: list[str]) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for d in dirs:
+        path = Path(d) / QUESTIONS_FILE
+        if not path.exists():
+            continue
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                qid = record.get("question_id")
+                if not qid:
+                    continue
+                out[qid] = record
+    return out
 
 
 def _build_source_dir_map(
