@@ -20,7 +20,7 @@ from pathlib import Path
 
 import polars as pl
 
-from .frames import challenge_results
+from .frames import challenge_results, meeting_times
 from .frames import presence as _presence_fn
 from .load import LoadError, load_events, load_questions
 
@@ -56,25 +56,7 @@ def load(
 
     data = load_events(pattern)
 
-    meeting_starts = (
-        data.filter(pl.col("event_type") == "session_started")
-        .group_by("meeting_id")
-        .agg(
-            pl.from_epoch(pl.col("timestamp").first(), time_unit="ms").alias(
-                "started_at"
-            )
-        )
-    )
-    # duration_ms is just the largest timestamp: non-start rows store ms
-    # offsets from the session start, so the max offset is the meeting length.
-    meetings = (
-        data.group_by("meeting_id")
-        .agg(pl.col("timestamp").max().alias("duration_ms"))
-        .join(meeting_starts, on="meeting_id", how="left")
-        .with_columns(
-            (pl.col("duration_ms") / 1_000.0).alias("duration_seconds"),
-        )
-    )
+    meetings = meeting_times(data)
 
     participants = (
         data.filter(pl.col("display_name").is_not_null())

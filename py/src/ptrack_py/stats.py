@@ -8,7 +8,13 @@ from typing import Any
 
 import polars as pl
 
-from ptrack_analytics.frames import challenge_results as _challenge_frame
+from ptrack_analytics.frames import (
+    challenge_results as _challenge_frame,
+)
+from ptrack_analytics.frames import (
+    meeting_times,
+    presence_bands,
+)
 
 
 def generate_stats(
@@ -45,13 +51,13 @@ def generate_stats(
 
 
 def _collect_meetings(events: pl.LazyFrame) -> list[dict[str, Any]]:
-    start = (
+    # started_at + duration come from the shared frames.meeting_times; only the
+    # GUI-specific platform/cause metadata is pulled out here.
+    times = meeting_times(events)
+    start_meta = (
         events.filter(pl.col("event_type") == "session_started")
         .group_by("meeting_id")
         .agg(
-            pl.from_epoch(pl.col("timestamp").first(), time_unit="ms").alias(
-                "started_at"
-            ),
             pl.col("metadata")
             .str.json_path_match("$.platform")
             .first()
@@ -62,39 +68,20 @@ def _collect_meetings(events: pl.LazyFrame) -> list[dict[str, Any]]:
             .alias("started_cause"),
         )
     )
-    ended = (
+    ended_meta = (
         events.filter(pl.col("event_type") == "session_ended")
         .group_by("meeting_id")
         .agg(
-            pl.col("timestamp").first().alias("ended_ms"),
             pl.col("metadata")
             .str.json_path_match("$.cause")
             .first()
             .alias("ended_cause"),
         )
     )
-    tail = (
-        events.filter(pl.col("event_type") != "session_started")
-        .group_by("meeting_id")
-        .agg(pl.col("timestamp").max().alias("tail_ms"))
-    )
-    # duration_ms: prefer the session_ended offset, else the largest event
-    # offset (both are ms from the session start).
-    duration = tail.join(ended, on="meeting_id", how="left").select(
-        pl.col("meeting_id"),
-        pl.coalesce([pl.col("ended_ms"), pl.col("tail_ms")]).alias("duration_ms"),
-    )
     df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
-        start.join(duration, on="meeting_id", how="left")
-        .join(ended, on="meeting_id", how="left")
+        times.join(start_meta, on="meeting_id", how="left")
+        .join(ended_meta, on="meeting_id", how="left")
         .with_columns(
-            pl.col("duration_ms").fill_null(0),
-        )
-        .with_columns(
-            pl.when(pl.col("duration_ms") > 0)
-            .then(pl.col("duration_ms") / 1_000.0)
-            .otherwise(pl.lit(1.0))
-            .alias("duration_seconds"),
             pl.col("started_at")
             .dt.strftime("%Y-%m-%dT%H:%M:%SZ")
             .alias("started_at_iso"),
@@ -117,42 +104,7 @@ def _collect_segments(
         }
     )
 
-    joined = (
-        events.filter(pl.col("event_type") == "participant_joined")
-        .select(
-            pl.col("display_name"),
-            pl.col("meeting_id"),
-            pl.col("timestamp").alias("joined_ms"),
-            pl.col("metadata")
-            .str.json_path_match("$.join_method")
-            .alias("join_method"),
-        )
-        .sort(["display_name", "meeting_id", "joined_ms"])
-        .with_columns(
-            pl.int_range(pl.len(), dtype=pl.UInt32)
-            .over(["display_name", "meeting_id"])
-            .alias("pair_idx"),
-        )
-    )
-    left = (
-        events.filter(pl.col("event_type") == "participant_left")
-        .select(
-            pl.col("display_name"),
-            pl.col("meeting_id"),
-            pl.col("timestamp").alias("left_ms"),
-            pl.col("metadata").str.json_path_match("$.reason").alias("leave_reason"),
-        )
-        .sort(["display_name", "meeting_id", "left_ms"])
-        .with_columns(
-            pl.int_range(pl.len(), dtype=pl.UInt32)
-            .over(["display_name", "meeting_id"])
-            .alias("pair_idx"),
-        )
-    )
-
-    paired = joined.join(
-        left, on=["display_name", "meeting_id", "pair_idx"], how="left"
-    ).drop("pair_idx")
+    paired = presence_bands(events)
 
     # Express each band as start/width percentages of the meeting for the SVG;
     # a band with no leave (or one past the end) is still-present and closes at

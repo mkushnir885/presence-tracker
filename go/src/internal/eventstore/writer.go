@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -156,17 +157,6 @@ func (w *Writer) Close(ctx context.Context) (string, error) {
 }
 
 func (w *Writer) writeRowGroup(rows []Record, startTime time.Time) error {
-	codec, err := parseCompression(w.compression)
-	if err != nil {
-		return err
-	}
-
-	props := parquet.NewWriterProperties(
-		parquet.WithCompression(codec),
-		parquet.WithMaxRowGroupLength(int64(w.rowGroupSize)),
-	)
-	arrowProps := pqarrow.NewArrowWriterProperties()
-
 	flags := os.O_CREATE | os.O_WRONLY
 	if _, err := os.Stat(w.tmpPath); err == nil {
 		flags |= os.O_APPEND
@@ -179,16 +169,36 @@ func (w *Writer) writeRowGroup(rows []Record, startTime time.Time) error {
 	}
 	defer func() { _ = f.Close() }()
 
-	pw, err := pqarrow.NewFileWriter(Schema, f, props, arrowProps)
+	return writeRecordTo(f, rows, startTime, w.compression, w.rowGroupSize)
+}
+
+// writeRecordTo writes records as a single row group to w as one complete
+// Parquet stream. startTime anchors the relative-timestamp encoding (see
+// buildRecord); the caller supplies it because the session_started row may not
+// be in this batch. An empty records slice still yields a valid schema-only
+// file.
+func writeRecordTo(w io.Writer, records []Record, startTime time.Time, compression string, rowGroupSize int) error {
+	codec, err := parseCompression(compression)
+	if err != nil {
+		return err
+	}
+	props := parquet.NewWriterProperties(
+		parquet.WithCompression(codec),
+		parquet.WithMaxRowGroupLength(int64(rowGroupSize)),
+	)
+	pw, err := pqarrow.NewFileWriter(Schema, w, props, pqarrow.NewArrowWriterProperties())
 	if err != nil {
 		return fmt.Errorf("eventstore: parquet writer: %w", err)
 	}
-	defer func() { _ = pw.Close() }()
+	if len(records) == 0 {
+		return pw.Close()
+	}
 
-	rec := buildRecord(rows, startTime)
+	rec := buildRecord(records, startTime)
 	defer rec.Release()
 
 	if err := pw.Write(rec); err != nil {
+		_ = pw.Close()
 		return fmt.Errorf("eventstore: write record: %w", err)
 	}
 	return pw.Close()

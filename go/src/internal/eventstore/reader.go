@@ -123,17 +123,28 @@ func newStrReader(col *arrow.Column) *strReader {
 	return sr
 }
 
-func (sr *strReader) locate(row int) (*array.String, int) {
-	for i, end := range sr.ends {
+// locateInChunks maps a flat row index to the chunk holding it and the offset
+// within that chunk, given the chunks' cumulative end offsets. Returns a chunk
+// index of -1 when row is out of range.
+func locateInChunks(row int, ends []int) (chunk, offset int) {
+	for i, end := range ends {
 		if row < end {
 			start := 0
 			if i > 0 {
-				start = sr.ends[i-1]
+				start = ends[i-1]
 			}
-			return sr.chunks[i], row - start
+			return i, row - start
 		}
 	}
-	return nil, 0
+	return -1, 0
+}
+
+func (sr *strReader) locate(row int) (*array.String, int) {
+	i, off := locateInChunks(row, sr.ends)
+	if i < 0 {
+		return nil, 0
+	}
+	return sr.chunks[i], off
 }
 
 func (sr *strReader) get(row int) string {
@@ -170,14 +181,9 @@ func newInt64Reader(col *arrow.Column) *int64Reader {
 }
 
 func (r *int64Reader) get(row int) int64 {
-	for i, end := range r.ends {
-		if row < end {
-			start := 0
-			if i > 0 {
-				start = r.ends[i-1]
-			}
-			return r.chunks[i].Value(row - start)
-		}
+	i, off := locateInChunks(row, r.ends)
+	if i < 0 {
+		return 0
 	}
-	return 0
+	return r.chunks[i].Value(off)
 }

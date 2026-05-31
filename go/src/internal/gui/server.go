@@ -563,30 +563,39 @@ func (s *Server) handlePollPendingPreview(w http.ResponseWriter, r *http.Request
 
 const pollFileMaxBytes = 1 << 20
 
+// writeJSONError sends {"error": msg} as JSON. Unlike http.Error it sets an
+// application/json content type and escapes msg, so error text containing
+// quotes or backslashes still produces valid JSON.
+func writeJSONError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg}) //nolint:errchkjson // map[string]string cannot fail to marshal
+}
+
 func (s *Server) handlePollFile(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	act := s.active
 	s.mu.RUnlock()
 	if act == nil {
-		http.Error(w, `{"error":"no active session"}`, http.StatusConflict)
+		writeJSONError(w, http.StatusConflict, "no active session")
 		return
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, pollFileMaxBytes)
 	if err := r.ParseMultipartForm(pollFileMaxBytes); err != nil {
-		http.Error(w, `{"error":"upload too large or malformed"}`, http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "upload too large or malformed")
 		return
 	}
 	file, header, err := r.FormFile("bank")
 	if err != nil {
-		http.Error(w, `{"error":"missing bank file"}`, http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "missing bank file")
 		return
 	}
 	defer func() { _ = file.Close() }()
 
 	tmp, err := os.CreateTemp("", "ptrack-bank-*.yaml")
 	if err != nil {
-		http.Error(w, `{"error":"temp file: `+err.Error()+`"}`, http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "temp file: "+err.Error())
 		return
 	}
 	tmpPath := tmp.Name()
@@ -594,11 +603,11 @@ func (s *Server) handlePollFile(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := io.Copy(tmp, file); err != nil {
 		_ = tmp.Close()
-		http.Error(w, `{"error":"write bank: `+err.Error()+`"}`, http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "write bank: "+err.Error())
 		return
 	}
 	if err := tmp.Close(); err != nil {
-		http.Error(w, `{"error":"close bank: `+err.Error()+`"}`, http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "close bank: "+err.Error())
 		return
 	}
 
@@ -608,9 +617,7 @@ func (s *Server) handlePollFile(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, os.ErrNotExist) {
 			status = http.StatusNotFound
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()}) //nolint:errchkjson // map[string]string cannot fail to marshal
+		writeJSONError(w, status, err.Error())
 		return
 	}
 

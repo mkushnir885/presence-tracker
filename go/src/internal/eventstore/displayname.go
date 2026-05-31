@@ -11,9 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-
-	"github.com/apache/arrow/go/v17/parquet"
-	"github.com/apache/arrow/go/v17/parquet/pqarrow"
 )
 
 // UpdateDisplayName rewrites every row whose display_name equals oldName to
@@ -32,8 +29,18 @@ func UpdateDisplayName(parquetPath, oldName, newName string) error {
 		}
 	}
 
+	// Records read back carry absolute timestamps; the session_started row's
+	// timestamp is the anchor writeRecordTo needs to re-encode the offsets.
+	var startTime time.Time
+	for _, r := range records {
+		if r.EventType == "session_started" {
+			startTime = r.Timestamp
+			break
+		}
+	}
+
 	var buf bytes.Buffer
-	if err := writeAllTo(&buf, records, "zstd", defaultRowGroupSize); err != nil {
+	if err := writeRecordTo(&buf, records, startTime, "zstd", defaultRowGroupSize); err != nil {
 		return fmt.Errorf("eventstore: encode parquet: %w", err)
 	}
 
@@ -57,45 +64,6 @@ func UpdateDisplayName(parquetPath, oldName, newName string) error {
 }
 
 const defaultRowGroupSize = 10000
-
-func writeAllTo(w io.Writer, records []Record, compression string, rowGroupSize int) error {
-	codec, err := parseCompression(compression)
-	if err != nil {
-		return err
-	}
-
-	props := parquet.NewWriterProperties(
-		parquet.WithCompression(codec),
-		parquet.WithMaxRowGroupLength(int64(rowGroupSize)),
-	)
-	arrowProps := pqarrow.NewArrowWriterProperties()
-
-	pw, err := pqarrow.NewFileWriter(Schema, w, props, arrowProps)
-	if err != nil {
-		return fmt.Errorf("eventstore: parquet writer: %w", err)
-	}
-
-	if len(records) == 0 {
-		return pw.Close()
-	}
-
-	var startTime time.Time
-	for _, r := range records {
-		if r.EventType == "session_started" {
-			startTime = r.Timestamp
-			break
-		}
-	}
-
-	rec := buildRecord(records, startTime)
-	defer rec.Release()
-
-	if err := pw.Write(rec); err != nil {
-		_ = pw.Close()
-		return fmt.Errorf("eventstore: write record: %w", err)
-	}
-	return pw.Close()
-}
 
 func overwriteFile(path string, data []byte) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
