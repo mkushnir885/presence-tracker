@@ -16,7 +16,7 @@ type Meeting struct {
 	StartedCause    string  `json:"started_cause"`
 	EndedCause      string  `json:"ended_cause"`
 	MaxParticipants int     `json:"max_participants"`
-	SourceFile      string  `json:"source_file"`
+	SourceDir       string  `json:"source_dir"`
 }
 
 type Participant struct {

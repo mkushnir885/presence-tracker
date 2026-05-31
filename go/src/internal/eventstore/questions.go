@@ -9,9 +9,8 @@ import (
 	"path/filepath"
 )
 
-// QuestionRecord is one line of a meeting's questions JSONL sidecar (paired
-// with its Parquet file by basename); challenge_issued events reference it by
-// question_id.
+// QuestionRecord is one line of a meeting's questions.jsonl sidecar;
+// challenge_issued events in events.parquet reference it by question_id.
 type QuestionRecord struct {
 	QuestionID    string   `json:"question_id"`
 	AutoSubmitted bool     `json:"auto_submitted"`
@@ -23,14 +22,16 @@ type QuestionRecord struct {
 	Tolerance     float64  `json:"tolerance,omitempty"`
 }
 
-func AppendQuestions(questionsDir, fileBaseName string, questions []QuestionRecord) error {
+// AppendQuestions writes one JSON line per record to <meetingDir>/questions.jsonl,
+// creating the meeting dir if it doesn't already exist.
+func AppendQuestions(meetingDir string, questions []QuestionRecord) error {
 	if len(questions) == 0 {
 		return nil
 	}
-	if err := os.MkdirAll(questionsDir, 0o755); err != nil {
-		return fmt.Errorf("eventstore: mkdir questions: %w", err)
+	if err := os.MkdirAll(meetingDir, 0o755); err != nil {
+		return fmt.Errorf("eventstore: mkdir meeting dir: %w", err)
 	}
-	path := filepath.Join(questionsDir, fileBaseName+".jsonl")
+	path := filepath.Join(meetingDir, QuestionsFile)
 
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -55,7 +56,7 @@ func AppendQuestions(questionsDir, fileBaseName string, questions []QuestionReco
 // skipped, and a missing file is treated as empty. fn returning true stops the
 // scan early.
 func forEachQuestion(path string, fn func(QuestionRecord) bool) error {
-	f, err := os.Open(path) //nolint:gosec // path comes from a validated config dir + parquet basename
+	f, err := os.Open(path) //nolint:gosec // path comes from a validated meeting dir
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -90,7 +91,10 @@ func forEachQuestion(path string, fn func(QuestionRecord) bool) error {
 	return nil
 }
 
-func LoadQuestions(path string) (map[string]QuestionRecord, error) {
+// LoadQuestions reads <meetingDir>/questions.jsonl into a map keyed by
+// question_id; a missing file yields an empty map.
+func LoadQuestions(meetingDir string) (map[string]QuestionRecord, error) {
+	path := filepath.Join(meetingDir, QuestionsFile)
 	out := map[string]QuestionRecord{}
 	err := forEachQuestion(path, func(q QuestionRecord) bool {
 		out[q.QuestionID] = q
@@ -102,14 +106,21 @@ func LoadQuestions(path string) (map[string]QuestionRecord, error) {
 	return out, nil
 }
 
-// ReadQuestion finds one question by ID across every JSONL sidecar in
-// questionsDir, returning nil when no sidecar holds it.
-func ReadQuestion(questionsDir, questionID string) (*QuestionRecord, error) {
-	files, err := filepath.Glob(filepath.Join(questionsDir, "*.jsonl"))
+// ReadQuestion finds one question by ID across every meeting dir under
+// meetingsDir, returning nil when no sidecar holds it.
+func ReadQuestion(meetingsDir, questionID string) (*QuestionRecord, error) {
+	entries, err := os.ReadDir(meetingsDir)
 	if err != nil {
-		return nil, fmt.Errorf("eventstore: glob questions: %w", err)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("eventstore: read meetings dir: %w", err)
 	}
-	for _, path := range files {
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		path := filepath.Join(meetingsDir, e.Name(), QuestionsFile)
 		var found *QuestionRecord
 		if err := forEachQuestion(path, func(q QuestionRecord) bool {
 			if q.QuestionID == questionID {

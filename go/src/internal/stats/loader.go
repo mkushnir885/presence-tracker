@@ -19,22 +19,25 @@ import (
 )
 
 // Loader fetches the GUI stats JSON from `ptrack_py stats`, caching it on disk
-// keyed by the input files and invalidated when any input's mtime advances.
+// keyed by the input meeting dirs and invalidated when any input's mtime
+// advances.
 type Loader struct {
-	cacheDir     string
-	questionsDir func() string
+	cacheDir string
 }
 
-func New(cacheDir string, questionsDir func() string) *Loader {
-	return &Loader{cacheDir: cacheDir, questionsDir: questionsDir}
+func New(cacheDir string) *Loader {
+	return &Loader{cacheDir: cacheDir}
 }
 
-func (l *Loader) Load(ctx context.Context, files []string) (*Document, error) {
-	if len(files) == 0 {
-		return nil, errors.New("stats: at least one file is required")
+// Load resolves the cache for the given meeting-dir paths (absolute) and
+// either returns the cached doc or invokes `ptrack_py stats` and caches its
+// output.
+func (l *Loader) Load(ctx context.Context, dirs []string) (*Document, error) {
+	if len(dirs) == 0 {
+		return nil, errors.New("stats: at least one meeting dir is required")
 	}
 
-	abs, err := absSorted(files)
+	abs, err := absSorted(dirs)
 	if err != nil {
 		return nil, err
 	}
@@ -61,26 +64,18 @@ func (l *Loader) Load(ctx context.Context, files []string) (*Document, error) {
 }
 
 // enrichMarkers fills each challenge marker's question payload (prompt,
-// choices, correct answer) from the meeting's questions JSONL — the Python
-// stats output carries only the event-side fields.
-func (l *Loader) enrichMarkers(doc *Document, inputs []string) {
-	if doc == nil || l.questionsDir == nil {
-		return
-	}
-	qDir := l.questionsDir()
-	if qDir == "" {
+// choices, correct answer) from each meeting dir's questions.jsonl — the
+// Python stats output carries only the event-side fields.
+func (l *Loader) enrichMarkers(doc *Document, dirs []string) {
+	if doc == nil {
 		return
 	}
 
 	questions := map[string]eventstore.QuestionRecord{}
-	for _, f := range inputs {
-		path := questionsPathFor(qDir, f)
-		if path == "" {
-			continue
-		}
-		records, err := eventstore.LoadQuestions(path)
+	for _, dir := range dirs {
+		records, err := eventstore.LoadQuestions(dir)
 		if err != nil {
-			slog.Warn("stats: load questions", "path", path, "err", err)
+			slog.Warn("stats: load questions", "dir", dir, "err", err)
 			continue
 		}
 		maps.Copy(questions, records)
@@ -133,13 +128,20 @@ func (l *Loader) tryReadCache(cachePath string, inputs []string) (*Document, boo
 	}
 	cacheMTime := cacheInfo.ModTime()
 
-	for _, f := range inputs {
-		info, err := os.Stat(f)
-		if err != nil {
-			return nil, false
-		}
-		if info.ModTime().After(cacheMTime) {
-			return nil, false
+	for _, dir := range inputs {
+		// Stats depends on both the events parquet and questions sidecar; if
+		// either is newer than the cache, recompute.
+		for _, name := range []string{eventstore.EventsFile, eventstore.QuestionsFile} {
+			info, err := os.Stat(filepath.Join(dir, name))
+			if err != nil {
+				if os.IsNotExist(err) && name == eventstore.QuestionsFile {
+					continue
+				}
+				return nil, false
+			}
+			if info.ModTime().After(cacheMTime) {
+				return nil, false
+			}
 		}
 	}
 
@@ -184,12 +186,12 @@ func parse(data []byte) (*Document, error) {
 	return &doc, nil
 }
 
-func absSorted(files []string) ([]string, error) {
-	out := make([]string, 0, len(files))
-	for _, f := range files {
-		a, err := filepath.Abs(f)
+func absSorted(dirs []string) ([]string, error) {
+	out := make([]string, 0, len(dirs))
+	for _, d := range dirs {
+		a, err := filepath.Abs(d)
 		if err != nil {
-			return nil, fmt.Errorf("stats: resolve %q: %w", f, err)
+			return nil, fmt.Errorf("stats: resolve %q: %w", d, err)
 		}
 		out = append(out, a)
 	}
@@ -197,21 +199,10 @@ func absSorted(files []string) ([]string, error) {
 	return out, nil
 }
 
-func questionsPathFor(questionsDir, parquetPath string) string {
-	if questionsDir == "" {
-		return ""
-	}
-	stem := strings.TrimSuffix(filepath.Base(parquetPath), filepath.Ext(parquetPath))
-	if stem == "" {
-		return ""
-	}
-	return filepath.Join(questionsDir, stem+".jsonl")
-}
-
-func cacheName(absSortedFiles []string) string {
+func cacheName(absSortedDirs []string) string {
 	h := sha1.New() //nolint:gosec // non-crypto: cache key
-	for _, f := range absSortedFiles {
-		h.Write([]byte(f))
+	for _, d := range absSortedDirs {
+		h.Write([]byte(d))
 		h.Write([]byte{0})
 	}
 	return strings.Join([]string{"stats", hex.EncodeToString(h.Sum(nil))}, "-") + ".json"

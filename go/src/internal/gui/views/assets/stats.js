@@ -118,9 +118,9 @@
 })();
 
 // Rename a participant: PATCH the display name across exactly the loaded
-// files (carried in data-files), then reload to show the result.
+// meeting dirs (carried in data-dirs), then reload to show the result.
 (function setupRename() {
-  const filesQuery = (document.querySelector('.stats-page') || {}).dataset?.files || '';
+  const dirsQuery = (document.querySelector('.stats-page') || {}).dataset?.dirs || '';
   document.querySelectorAll('button[data-action="rename"]').forEach(btn => {
     btn.addEventListener('click', () => {
       const oldName = btn.dataset.displayName;
@@ -130,7 +130,7 @@
       const trimmed = newName.trim();
       if (!trimmed || trimmed === oldName) return;
       const url = '/participants/' + encodeURIComponent(oldName) + '/display-name?'
-        + filesQuery + (filesQuery ? '&' : '') + 'new=' + encodeURIComponent(trimmed);
+        + dirsQuery + (dirsQuery ? '&' : '') + 'new=' + encodeURIComponent(trimmed);
       fetch(url, { method: 'PATCH' }).then(r => {
         if (r.ok) {
           window.location.reload();

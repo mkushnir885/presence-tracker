@@ -7,13 +7,15 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 )
 
 // UpdateDisplayName rewrites every row whose display_name equals oldName to
-// newName, in place. It reads the whole file, re-encodes, then swaps through a
-// .backup copy so a failed overwrite can be rolled back instead of corrupting
-// the meeting file.
-func UpdateDisplayName(parquetPath, oldName, newName string) error {
+// newName, in place. It reads <meetingDir>/events.parquet, re-encodes, then
+// swaps through a .backup copy so a failed overwrite can be rolled back
+// instead of corrupting the meeting file.
+func UpdateDisplayName(meetingDir, oldName, newName string) error {
+	parquetPath := filepath.Join(meetingDir, EventsFile)
 	records, err := ReadAll(context.Background(), parquetPath)
 	if err != nil {
 		return fmt.Errorf("eventstore: read for rename: %w", err)

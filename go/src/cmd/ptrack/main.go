@@ -150,15 +150,15 @@ func runReload(ctx context.Context, cfgPath, serverURL string, port int) error {
 
 func reportCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "report <paths...>",
-		Short: "Generate a CSV report from one or more meeting Parquet files",
-		Long: "Pass one or more Parquet paths or glob patterns. With a " +
-			"single matched file the output is a per-meeting CSV; with " +
+		Use:   "report <meeting-dirs...>",
+		Short: "Generate a CSV report from one or more meeting directories",
+		Long: "Pass one or more meeting-directory paths or glob patterns. With " +
+			"a single matched directory the output is a per-meeting CSV; with " +
 			"more it switches to the cross-meeting aggregate. CSV is " +
 			"written to stdout — redirect to a file when needed.",
-		Example: `  ptrack report meeting.parquet > report.csv
-  ptrack report 'meetings/*.parquet' > semester.csv
-  ptrack report jan.parquet feb.parquet > q1.csv`,
+		Example: `  ptrack report meetings/270526_1900-270526_2030 > report.csv
+  ptrack report 'meetings/*' > semester.csv
+  ptrack report meetings/jan meetings/feb > q1.csv`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runReport(cmd.Context(), args)
@@ -168,7 +168,11 @@ func reportCmd() *cobra.Command {
 }
 
 func runReport(ctx context.Context, inputs []string) error {
-	args := append([]string{"report"}, inputs...)
+	dirs, err := eventstore.ResolveMeetingDirs(inputs)
+	if err != nil {
+		return err
+	}
+	args := append([]string{"report"}, dirs...)
 	csv, err := ptrackpy.Run(ctx, args...)
 	if err != nil {
 		return err
@@ -257,7 +261,6 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 		MeetingID:                   internalMeetingID,
 		PlatformMeetingID:           meetingID,
 		MeetingsDir:                 v.MeetingsDir,
-		QuestionsDir:                v.QuestionsDir,
 		ProviderName:                prov.Name(),
 		AnswerWindowSecs:            v.Challenges.Defaults.AnswerWindowSeconds,
 		MinGapBetweenChallengesSecs: v.Challenges.Defaults.MinGapBetweenChallengesSecs,

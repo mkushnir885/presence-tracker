@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -73,7 +72,7 @@ type HomeData struct {
 }
 
 type MeetingsData struct {
-	Meetings []MeetingFile
+	Meetings []Meeting
 }
 
 type ProviderOption struct {
@@ -81,10 +80,9 @@ type ProviderOption struct {
 	Label string
 }
 
-type MeetingFile struct {
+type Meeting struct {
 	ID        string
 	CreatedAt time.Time
-	SizeKB    int64
 }
 
 type StatusData struct {
@@ -116,8 +114,8 @@ type LogEntry struct {
 }
 
 type StatsData struct {
-	Files []string
-	Doc   *stats.Document
+	Dirs []string
+	Doc  *stats.Document
 }
 
 func (d StatsData) Mode() string {
@@ -139,35 +137,34 @@ func (d StatsData) MeetingByID(id string) *stats.Meeting {
 	return nil
 }
 
-func (d StatsData) FirstFileLabel() string {
-	if len(d.Files) == 0 {
+func (d StatsData) FirstDirLabel() string {
+	if len(d.Dirs) == 0 {
 		return ""
 	}
-	return strings.TrimSuffix(filepath.Base(d.Files[0]), ".parquet")
+	return filepath.Base(d.Dirs[0])
 }
 
-func (d StatsData) FileLabelForMeeting(meetingID string) string {
+func (d StatsData) DirLabelForMeeting(meetingID string) string {
 	if d.Doc != nil {
 		for i := range d.Doc.Meetings {
-			if d.Doc.Meetings[i].MeetingID == meetingID && d.Doc.Meetings[i].SourceFile != "" {
-				return strings.TrimSuffix(filepath.Base(d.Doc.Meetings[i].SourceFile), ".parquet")
+			if d.Doc.Meetings[i].MeetingID == meetingID && d.Doc.Meetings[i].SourceDir != "" {
+				return filepath.Base(d.Doc.Meetings[i].SourceDir)
 			}
 		}
 	}
-	want := meetingID + ".parquet"
-	for _, f := range d.Files {
-		base := filepath.Base(f)
-		if base == want {
-			return strings.TrimSuffix(base, ".parquet")
+	for _, dir := range d.Dirs {
+		base := filepath.Base(dir)
+		if base == meetingID {
+			return base
 		}
 	}
 	return meetingID
 }
 
-func (d StatsData) FilesQuery() string {
+func (d StatsData) DirsQuery() string {
 	q := url.Values{}
-	for _, f := range d.Files {
-		q.Add("file", f)
+	for _, dir := range d.Dirs {
+		q.Add("dir", dir)
 	}
 	return q.Encode()
 }

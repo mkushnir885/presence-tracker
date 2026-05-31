@@ -22,7 +22,6 @@ templ ConfigEditor(data ConfigData, locale Locale) {
 				<summary>{ locale.T("config.general") }</summary>
 				<div class="card">
 					@textField(data, "meetings_dir", locale.T("config.meetings_dir"), data.V.MeetingsDir)
-					@textField(data, "questions_dir", locale.T("config.questions_dir"), data.V.QuestionsDir)
 					@textField(data, "reports_dir", locale.T("config.reports_dir"), data.V.ReportsDir)
 					@intField(data, locale.T("config.retention_days"), "retention_days", data.V.RetentionDays, "retention_days")
 				</div>

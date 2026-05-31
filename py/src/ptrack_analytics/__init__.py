@@ -5,7 +5,7 @@ Typical Jupyter usage::
 
     from ptrack_analytics import load
 
-    load("~/Documents/ptrack/meetings/spring-2026-*.parquet")
+    load("~/Documents/ptrack/meetings/spring-2026-*")
 
     from ptrack_analytics import (
         data, meetings, participants, presence, challenges, questions
@@ -16,13 +16,11 @@ See docs/QUERIES.md for the full API.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import polars as pl
 
 from .frames import challenge_results, meeting_times
 from .frames import presence as _presence_fn
-from .load import LoadError, load_events, load_questions
+from .load import LoadError, load_events, load_questions, resolve_meeting_dirs
 
 __all__ = [
     "load",
@@ -42,37 +40,22 @@ presence: pl.LazyFrame | None = None
 challenges: pl.LazyFrame | None = None
 questions: pl.LazyFrame | None = None
 
-_questions_dir: str | None = None
 
-
-def load(
-    pattern: str,
-    questions_dir: str | None = None,
-) -> None:
-    """Load Parquet files matching *pattern* and populate the module-level
-    lazy frames. *questions_dir* defaults to a sibling "questions/" dir.
+def load(pattern: str) -> None:
+    """Load meetings matching *pattern* (a meeting-directory path or glob) and
+    populate the module-level lazy frames. Each matched directory must contain
+    events.parquet; an adjacent questions.jsonl is loaded when present.
     """
-    global data, meetings, participants, presence, challenges, questions, _questions_dir
+    global data, meetings, participants, presence, challenges, questions
 
+    dirs = resolve_meeting_dirs(pattern)
     data = load_events(pattern)
-
     meetings = meeting_times(data)
-
     participants = (
         data.filter(pl.col("display_name").is_not_null())
         .group_by("display_name")
         .agg(pl.len().alias("event_count"))
     )
-
     presence = _presence_fn(data)
     challenges = challenge_results(data)
-
-    import glob as _glob
-
-    # Meetings live in <base>/meetings/*.parquet and questions in
-    # <base>/questions/*.jsonl, so default to a sibling questions/ dir.
-    first_path = sorted(_glob.glob(str(Path(pattern).expanduser())))[0]
-    _questions_dir = questions_dir or str(Path(first_path).parent.parent / "questions")
-
-    _meeting_ids = data.select("meeting_id").unique().collect()["meeting_id"].to_list()  # type: ignore  # ty: collect() return is typed as a union
-    questions = load_questions(_questions_dir, _meeting_ids)
+    questions = load_questions(dirs)

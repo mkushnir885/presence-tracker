@@ -81,9 +81,6 @@ templ Meetings(data MeetingsData, locale Locale) {
 							<th>
 								@sortHeader(locale.T("meetings.col_created"), "created")
 							</th>
-							<th>
-								@sortHeader(locale.T("meetings.col_size"), "size")
-							</th>
 							<th class="meetings-csv-cell">
 								<button
 									type="submit"
@@ -104,16 +101,14 @@ templ Meetings(data MeetingsData, locale Locale) {
 							<tr
 								data-name={ m.ID }
 								data-created={ fmt.Sprintf("%d", m.CreatedAt.Unix()) }
-								data-size={ fmt.Sprintf("%d", m.SizeKB) }
 							>
-								<td><input type="checkbox" name="file" value={ m.ID + ".parquet" } class="meetings-select" aria-label={ m.ID }/></td>
-								<td><a href={ templ.SafeURL("/stats?file=" + m.ID + ".parquet") }>{ m.ID }</a></td>
+								<td><input type="checkbox" name="dir" value={ m.ID } class="meetings-select" aria-label={ m.ID }/></td>
+								<td><a href={ templ.SafeURL("/stats?dir=" + m.ID) }>{ m.ID }</a></td>
 								<td class="text-muted">{ m.CreatedAt.Format("2006-01-02 15:04") }</td>
-								<td class="text-muted">{ fmt.Sprintf("%d KB", m.SizeKB) }</td>
 								<td>
 									<a
 										class="icon-btn icon-btn-sm"
-										href={ templ.SafeURL("/report?file=" + m.ID + ".parquet") }
+										href={ templ.SafeURL("/report?dir=" + m.ID) }
 										data-tooltip={ locale.T("meetings.export_csv") }
 										aria-label={ locale.T("meetings.export_csv") }
 									>
@@ -123,7 +118,7 @@ templ Meetings(data MeetingsData, locale Locale) {
 							</tr>
 						}
 						<tr id="meetings-filter-empty" hidden>
-							<td colspan="5" class="text-muted meetings-empty-row">{ locale.T("meetings.filter_no_matches") }</td>
+							<td colspan="4" class="text-muted meetings-empty-row">{ locale.T("meetings.filter_no_matches") }</td>
 						</tr>
 					</tbody>
 				</table>

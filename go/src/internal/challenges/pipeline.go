@@ -82,14 +82,16 @@ func NewPipeline(sink EventSink, answerWindow time.Duration) *Pipeline {
 }
 
 // RunPoll assigns each eligible participant one random question from the
-// bank, delivers it via send, and scores answers within answerWindow.
+// bank, delivers it via send, and scores answers within answerWindow. The
+// per-participant question payloads are appended to meetingDir/questions.jsonl
+// when meetingDir is non-empty.
 func (p *Pipeline) RunPoll(
 	ctx context.Context,
 	bank Bank,
 	autoSubmitted bool,
 	eligible []EligibleParticipant,
 	send SendFn,
-	questionsDir, fileBaseName string,
+	meetingDir string,
 ) (PollResult, error) {
 	if len(bank.Questions) == 0 {
 		return PollResult{}, fmt.Errorf("challenges: empty bank")
@@ -140,14 +142,14 @@ func (p *Pipeline) RunPoll(
 		}
 	}
 
-	if questionsDir != "" && fileBaseName != "" {
-		p.saveQuestions(assignments, autoSubmitted, questionsDir, fileBaseName)
+	if meetingDir != "" {
+		p.saveQuestions(assignments, autoSubmitted, meetingDir)
 	}
 
 	return res, nil
 }
 
-func (p *Pipeline) saveQuestions(questions []Question, autoSubmitted bool, questionsDir, fileBaseName string) {
+func (p *Pipeline) saveQuestions(questions []Question, autoSubmitted bool, meetingDir string) {
 	records := make([]eventstore.QuestionRecord, 0, len(questions))
 	for _, q := range questions {
 		records = append(records, eventstore.QuestionRecord{
@@ -161,7 +163,7 @@ func (p *Pipeline) saveQuestions(questions []Question, autoSubmitted bool, quest
 			Tolerance:     q.Tolerance,
 		})
 	}
-	if err := eventstore.AppendQuestions(questionsDir, fileBaseName, records); err != nil {
+	if err := eventstore.AppendQuestions(meetingDir, records); err != nil {
 		slog.Error("challenges: save questions", "err", err)
 	}
 }

@@ -15,7 +15,6 @@ import (
 
 type Values struct {
 	MeetingsDir   string           `json:"meetings_dir,omitempty"`
-	QuestionsDir  string           `json:"questions_dir,omitempty"`
 	ReportsDir    string           `json:"reports_dir,omitempty"`
 	RetentionDays int              `json:"retention_days,omitempty"`
 	Providers     ProvidersConfig  `json:"providers,omitzero"`
@@ -115,7 +114,6 @@ type LoggingConfig struct {
 func defaults() Values {
 	return Values{
 		MeetingsDir:   expandPath("~/Documents/ptrack/meetings"),
-		QuestionsDir:  expandPath("~/Documents/ptrack/questions"),
 		ReportsDir:    expandPath("~/Documents/ptrack/reports"),
 		RetentionDays: 180,
 		Providers: ProvidersConfig{
@@ -266,7 +264,6 @@ func diffToMap(v, base any) map[string]any {
 
 func normalisePaths(v *Values) {
 	v.MeetingsDir = expandPath(v.MeetingsDir)
-	v.QuestionsDir = expandPath(v.QuestionsDir)
 	v.ReportsDir = expandPath(v.ReportsDir)
 	v.Challenges.AutoGeneration.ReviewDir = expandPath(v.Challenges.AutoGeneration.ReviewDir)
 }
@@ -275,7 +272,6 @@ func normalisePaths(v *Values) {
 // infer from the struct.
 func applyConstraints(root *jsonschema.Schema) {
 	at(root, "meetings_dir").MinLength = new(1)
-	at(root, "questions_dir").MinLength = new(1)
 	at(root, "reports_dir").MinLength = new(1)
 	at(root, "retention_days").Minimum = new(0.0)
 

@@ -16,7 +16,7 @@ func presencePct(ratio float64) int {
 
 templ Stats(data StatsData, locale Locale) {
 	@Layout("Stats", locale, nil) {
-		<div class="stats-page" data-files={ data.FilesQuery() }>
+		<div class="stats-page" data-dirs={ data.DirsQuery() }>
 			if data.Mode() == "meeting" {
 				@statsMeeting(data, locale)
 			} else {
@@ -38,7 +38,7 @@ templ statsMeeting(data StatsData, locale Locale) {
 					data-popover-meeting={ meetingDetailsJSON(*m, locale) }
 					data-tooltip={ locale.T("stats.tooltip.meeting_details") }
 					aria-label={ locale.T("stats.tooltip.meeting_details") }
-				>{ data.FirstFileLabel() }</button>
+				>{ data.FirstDirLabel() }</button>
 			</h1>
 			if len(data.Doc.Participants) > 0 {
 				<div class="stats-search-wrap stats-filter-wrap">
@@ -156,7 +156,7 @@ templ crossMeetingRow(data StatsData, m stats.Meeting, row stats.ParticipantRow,
 			data-popover-meeting={ meetingDetailsJSON(m, locale) }
 			data-tooltip={ locale.T("stats.tooltip.meeting_details") }
 			aria-label={ locale.T("stats.tooltip.meeting_details") }
-		>{ data.FileLabelForMeeting(m.MeetingID) }</button>
+		>{ data.DirLabelForMeeting(m.MeetingID) }</button>
 		if row.Absent {
 			<span class="row-absent text-muted">{ locale.T("stats.absent") }</span>
 		} else {

@@ -34,59 +34,75 @@ type Record struct {
 }
 
 const (
-	fileTimeFormat = "020106_1504"
+	dirTimeFormat = "020106_1504"
+	// EventsFile is the parquet event log inside every meeting directory.
+	EventsFile = "events.parquet"
+	// QuestionsFile is the JSONL question sidecar inside every meeting directory.
+	QuestionsFile = "questions.jsonl"
 	// Parquet encoding is fixed: zstd is universally read by the analytics
 	// stack and a lesson's few-thousand events fit one row group regardless.
 	defaultCompression  = "zstd"
 	defaultRowGroupSize = 10000
 )
 
+// Writer streams events into <meetingsDir>/<dirName>/events.parquet. The dir
+// is created up front under a provisional <start> name and renamed to
+// <start>-<end> on Close so the final directory mtime sits at the moment the
+// session ends; with a custom name no rename occurs.
 type Writer struct {
 	mu         sync.Mutex
 	buf        []Record
-	dir        string
+	parentDir  string
+	dirName    string
 	startTime  time.Time
-	tmpPath    string
-	customName string
+	customName bool
 }
 
-func NewWriter(meetingsDir, fileName string, startTime time.Time) (*Writer, error) {
+func NewWriter(meetingsDir, dirName string, startTime time.Time) (*Writer, error) {
 	if err := os.MkdirAll(meetingsDir, 0o755); err != nil {
 		return nil, fmt.Errorf("eventstore: mkdir %s: %w", meetingsDir, err)
 	}
 	w := &Writer{
-		dir:       meetingsDir,
+		parentDir: meetingsDir,
 		startTime: startTime,
 	}
-	if fileName == "" {
-		w.tmpPath = filepath.Join(meetingsDir, startTime.UTC().Format(fileTimeFormat)+".parquet")
-		return w, nil
+	if dirName == "" {
+		w.dirName = startTime.UTC().Format(dirTimeFormat)
+	} else {
+		clean, err := ValidateDirName(dirName)
+		if err != nil {
+			return nil, fmt.Errorf("eventstore: %w", err)
+		}
+		w.dirName = clean
+		w.customName = true
 	}
-	clean, err := ValidateFileName(fileName)
-	if err != nil {
-		return nil, fmt.Errorf("eventstore: %w", err)
-	}
-	w.customName = clean
-	w.tmpPath = filepath.Join(meetingsDir, clean+".parquet")
-	if _, err := os.Stat(w.tmpPath); err == nil {
-		return nil, fmt.Errorf("eventstore: file %q already exists", filepath.Base(w.tmpPath))
+	full := filepath.Join(meetingsDir, w.dirName)
+	if _, err := os.Stat(full); err == nil {
+		if w.customName {
+			return nil, fmt.Errorf("eventstore: meeting dir %q already exists", w.dirName)
+		}
+		// auto-named: append a uniqueness suffix so we never clobber a sibling
+		w.dirName = w.dirName + "_" + startTime.UTC().Format("05")
+		full = filepath.Join(meetingsDir, w.dirName)
 	} else if !os.IsNotExist(err) {
-		return nil, fmt.Errorf("eventstore: stat %s: %w", w.tmpPath, err)
+		return nil, fmt.Errorf("eventstore: stat %s: %w", full, err)
+	}
+	if err := os.MkdirAll(full, 0o755); err != nil {
+		return nil, fmt.Errorf("eventstore: mkdir %s: %w", full, err)
 	}
 	return w, nil
 }
 
-func ValidateFileName(s string) (string, error) {
+func ValidateDirName(s string) (string, error) {
 	s = strings.TrimSpace(s)
-	s = strings.TrimSuffix(s, ".parquet")
 	if s == "" {
-		return "", fmt.Errorf("file name is empty")
+		return "", fmt.Errorf("dir name is empty")
 	}
 	if s == "." || s == ".." || strings.Contains(s, "..") {
-		return "", fmt.Errorf("file name %q is not allowed", s)
+		return "", fmt.Errorf("dir name %q is not allowed", s)
 	}
 	if strings.ContainsAny(s, `/\`+"\x00") {
-		return "", fmt.Errorf("file name %q contains a path separator", s)
+		return "", fmt.Errorf("dir name %q contains a path separator", s)
 	}
 	for _, r := range s {
 		switch {
@@ -95,7 +111,7 @@ func ValidateFileName(s string) (string, error) {
 			r >= '0' && r <= '9',
 			r == '_', r == '-', r == '.', r == ' ':
 		default:
-			return "", fmt.Errorf("file name contains invalid character %q", r)
+			return "", fmt.Errorf("dir name contains invalid character %q", r)
 		}
 	}
 	return s, nil
@@ -116,9 +132,10 @@ func (w *Writer) Flush(_ context.Context) error {
 	rows := make([]Record, len(w.buf))
 	copy(rows, w.buf)
 	w.buf = w.buf[:0]
+	parquetPath := filepath.Join(w.parentDir, w.dirName, EventsFile)
 	w.mu.Unlock()
 
-	return w.writeRowGroup(rows)
+	return w.writeRowGroup(parquetPath, rows)
 }
 
 func (w *Writer) SetStartTime(t time.Time) {
@@ -127,48 +144,67 @@ func (w *Writer) SetStartTime(t time.Time) {
 	w.mu.Unlock()
 }
 
-func (w *Writer) BaseName() string {
+// Dir returns the absolute path of the meeting directory currently being
+// written; callers (challenges pipeline) drop questions.jsonl alongside.
+func (w *Writer) Dir() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return strings.TrimSuffix(filepath.Base(w.tmpPath), ".parquet")
+	return filepath.Join(w.parentDir, w.dirName)
 }
 
-// Close flushes and renames the working file to its final
-// <start>-<end>.parquet name (unless a custom name was set). Returns the
-// final basename, or "" when no rows were ever written.
+func (w *Writer) DirName() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.dirName
+}
+
+// Close flushes and renames the working directory to its final
+// <start>-<end> name (unless a custom name was set). Returns the final dir
+// name, or "" when no events were ever written and the dir was removed.
 func (w *Writer) Close(ctx context.Context) (string, error) {
 	if err := w.Flush(ctx); err != nil {
 		return "", err
 	}
-	if w.customName != "" {
-		slog.Info("eventstore: closed", "path", w.tmpPath)
-		return w.customName, nil
-	}
-	if _, err := os.Stat(w.tmpPath); os.IsNotExist(err) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	currentPath := filepath.Join(w.parentDir, w.dirName)
+	parquetPath := filepath.Join(currentPath, EventsFile)
+
+	if _, err := os.Stat(parquetPath); os.IsNotExist(err) {
+		// No events were written; remove the empty dir so we leave no trace.
+		_ = os.Remove(currentPath)
 		return "", nil
 	}
-	endStr := time.Now().UTC().Format(fileTimeFormat)
-	startStr := w.startTime.UTC().Format(fileTimeFormat)
-	finalBase := startStr + "-" + endStr
-	finalPath := filepath.Join(w.dir, finalBase+".parquet")
-	if err := os.Rename(w.tmpPath, finalPath); err != nil {
-		slog.Warn("eventstore: could not rename meeting file", "from", w.tmpPath, "to", finalPath, "err", err)
-		return strings.TrimSuffix(filepath.Base(w.tmpPath), ".parquet"), nil
+
+	if w.customName {
+		slog.Info("eventstore: closed", "dir", currentPath)
+		return w.dirName, nil
 	}
-	slog.Info("eventstore: closed", "path", finalPath)
-	return finalBase, nil
+
+	endStr := time.Now().UTC().Format(dirTimeFormat)
+	startStr := w.startTime.UTC().Format(dirTimeFormat)
+	finalName := startStr + "-" + endStr
+	finalPath := filepath.Join(w.parentDir, finalName)
+	if err := os.Rename(currentPath, finalPath); err != nil {
+		slog.Warn("eventstore: could not rename meeting dir", "from", currentPath, "to", finalPath, "err", err)
+		return w.dirName, nil
+	}
+	w.dirName = finalName
+	slog.Info("eventstore: closed", "dir", finalPath)
+	return finalName, nil
 }
 
-func (w *Writer) writeRowGroup(rows []Record) error {
+func (w *Writer) writeRowGroup(parquetPath string, rows []Record) error {
 	flags := os.O_CREATE | os.O_WRONLY
-	if _, err := os.Stat(w.tmpPath); err == nil {
+	if _, err := os.Stat(parquetPath); err == nil {
 		flags |= os.O_APPEND
 	} else {
 		flags |= os.O_TRUNC
 	}
-	f, err := os.OpenFile(w.tmpPath, flags, 0o644)
+	f, err := os.OpenFile(parquetPath, flags, 0o644)
 	if err != nil {
-		return fmt.Errorf("eventstore: open %s: %w", w.tmpPath, err)
+		return fmt.Errorf("eventstore: open %s: %w", parquetPath, err)
 	}
 	defer func() { _ = f.Close() }()
 

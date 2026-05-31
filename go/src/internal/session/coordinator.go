@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -72,7 +70,6 @@ type Config struct {
 	MeetingID                   string
 	PlatformMeetingID           string
 	MeetingsDir                 string
-	QuestionsDir                string
 	ProviderName                string
 	AnswerWindowSecs            int
 	MinGapBetweenChallengesSecs int
@@ -125,13 +122,8 @@ func (c *Coordinator) Run(ctx context.Context) error {
 		c.pipeline.Drain()
 		c.cancelAllConfirmTimers()
 		c.writeSessionEnded()
-		oldBase := c.store.BaseName()
-		newBase, err := c.store.Close(context.Background())
-		if err != nil {
+		if _, err := c.store.Close(context.Background()); err != nil {
 			slog.Error("session: close eventstore", "err", err)
-		}
-		if newBase != "" && newBase != oldBase && c.cfg.QuestionsDir != "" {
-			c.renameQuestionsSidecar(oldBase, newBase)
 		}
 	}()
 
@@ -579,18 +571,7 @@ func (c *Coordinator) runPollBank(ctx context.Context, bank challenges.Bank, aut
 		}
 		return ref.Opaque, nil
 	}
-	return c.pipeline.RunPoll(ctx, bank, autoSubmitted, eligible, sendFn, c.cfg.QuestionsDir, c.store.BaseName())
-}
-
-func (c *Coordinator) renameQuestionsSidecar(oldBase, newBase string) {
-	oldPath := filepath.Join(c.cfg.QuestionsDir, oldBase+".jsonl")
-	newPath := filepath.Join(c.cfg.QuestionsDir, newBase+".jsonl")
-	if err := os.Rename(oldPath, newPath); err != nil {
-		if os.IsNotExist(err) {
-			return
-		}
-		slog.Warn("session: rename questions sidecar", "from", oldPath, "to", newPath, "err", err)
-	}
+	return c.pipeline.RunPoll(ctx, bank, autoSubmitted, eligible, sendFn, c.store.Dir())
 }
 
 func (c *Coordinator) RecordGeneratorFailed(_ context.Context, reason string) {

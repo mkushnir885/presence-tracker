@@ -72,7 +72,7 @@ func New(cfg *config.Config, registry participants.Registry, router *messengers.
 		cfg:      cfg,
 		registry: registry,
 		router:   router,
-		stats:    stats.New(filepath.Join(config.CacheDir(), "stats"), func() string { return cfg.Get().QuestionsDir }),
+		stats:    stats.New(filepath.Join(config.CacheDir(), "stats")),
 		stopCh:   make(chan struct{}),
 	}
 }
@@ -142,27 +142,29 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMeetings(w http.ResponseWriter, r *http.Request) {
-	entries, err := os.ReadDir(s.cfg.Get().MeetingsDir)
+	meetingsDir := s.cfg.Get().MeetingsDir
+	entries, err := os.ReadDir(meetingsDir)
 	if err != nil && !os.IsNotExist(err) {
 		http.Error(w, "Failed to list meetings: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	var meetings []views.MeetingFile
+	var meetings []views.Meeting
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".parquet") {
+		if !e.IsDir() {
+			continue
+		}
+		path := filepath.Join(meetingsDir, e.Name())
+		if _, err := os.Stat(filepath.Join(path, eventstore.EventsFile)); err != nil {
 			continue
 		}
 		info, err := e.Info()
 		if err != nil {
 			continue
 		}
-		id := strings.TrimSuffix(e.Name(), ".parquet")
-		path := filepath.Join(s.cfg.Get().MeetingsDir, e.Name())
-		meetings = append(meetings, views.MeetingFile{
-			ID:        id,
+		meetings = append(meetings, views.Meeting{
+			ID:        e.Name(),
 			CreatedAt: fileCreatedAt(path, info.ModTime()),
-			SizeKB:    info.Size() / 1024,
 		})
 	}
 
@@ -182,7 +184,7 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) { //
 
 	providerName := r.FormValue("provider")
 	meetingID := r.FormValue("meeting_id")
-	fileName := strings.TrimSpace(r.FormValue("file_name"))
+	dirName := strings.TrimSpace(r.FormValue("dir_name"))
 
 	if providerName == "" || meetingID == "" {
 		http.Error(w, "provider and meeting_id are required", http.StatusBadRequest)
@@ -220,10 +222,10 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) { //
 	internalMeetingID := uuid.Must(uuid.NewV7()).String()
 	startTime := time.Now()
 
-	store, err := eventstore.NewWriter(s.cfg.Get().MeetingsDir, fileName, startTime)
+	store, err := eventstore.NewWriter(s.cfg.Get().MeetingsDir, dirName, startTime)
 	if err != nil {
 		status := http.StatusInternalServerError
-		if fileName != "" {
+		if dirName != "" {
 			status = http.StatusBadRequest
 		}
 		http.Error(w, "event store error: "+err.Error(), status)
@@ -234,7 +236,6 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) { //
 		MeetingID:                   internalMeetingID,
 		PlatformMeetingID:           meetingID,
 		MeetingsDir:                 s.cfg.Get().MeetingsDir,
-		QuestionsDir:                s.cfg.Get().QuestionsDir,
 		ProviderName:                prov.Name(),
 		AnswerWindowSecs:            s.cfg.Get().Challenges.Defaults.AnswerWindowSeconds,
 		MinGapBetweenChallengesSecs: s.cfg.Get().Challenges.Defaults.MinGapBetweenChallengesSecs,
@@ -696,13 +697,13 @@ func htmlEscape(s string) string {
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
-	files, basenames, err := s.collectStatsFiles(r)
+	dirs, names, err := s.collectMeetingDirs(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	doc, err := s.stats.Load(r.Context(), files)
+	doc, err := s.stats.Load(r.Context(), dirs)
 	if err != nil {
 		if errors.Is(err, ptrackpy.ErrIncompleteMeeting) {
 			http.Error(w, err.Error(), http.StatusConflict)
@@ -712,19 +713,19 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := views.StatsData{Files: basenames, Doc: doc}
+	data := views.StatsData{Dirs: names, Doc: doc}
 	locale := localeFromRequest(r)
 	_ = views.Stats(data, locale).Render(r.Context(), w)
 }
 
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
-	files, basenames, err := s.collectStatsFiles(r)
+	dirs, names, err := s.collectMeetingDirs(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	csv, err := ptrackpy.Run(r.Context(), append([]string{"report"}, files...)...)
+	csv, err := ptrackpy.Run(r.Context(), append([]string{"report"}, dirs...)...)
 	if err != nil {
 		if errors.Is(err, ptrackpy.ErrIncompleteMeeting) {
 			http.Error(w, err.Error(), http.StatusConflict)
@@ -735,7 +736,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+reportFilename(basenames)+`"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+reportFilename(names)+`"`)
 	_, _ = w.Write(csv)
 }
 
@@ -758,15 +759,15 @@ func (s *Server) handleRenameParticipant(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	files, _, err := s.collectStatsFiles(r)
+	dirs, _, err := s.collectMeetingDirs(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	for _, path := range files {
-		if err := eventstore.UpdateDisplayName(path, oldName, newName); err != nil { //nolint:contextcheck // synchronous Parquet rewrite; not cancellable mid-write
-			http.Error(w, "rename failed for "+filepath.Base(path)+": "+err.Error(), http.StatusInternalServerError)
+	for _, dir := range dirs {
+		if err := eventstore.UpdateDisplayName(dir, oldName, newName); err != nil { //nolint:contextcheck // synchronous Parquet rewrite; not cancellable mid-write
+			http.Error(w, "rename failed for "+filepath.Base(dir)+": "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -774,33 +775,33 @@ func (s *Server) handleRenameParticipant(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) collectStatsFiles(r *http.Request) (paths, basenames []string, err error) {
-	raw := r.URL.Query()["file"]
+// collectMeetingDirs reads ?dir=… query values, verifies each exists under
+// the configured meetings dir, and returns absolute paths plus the bare
+// directory names (for display).
+func (s *Server) collectMeetingDirs(r *http.Request) (paths, names []string, err error) {
+	raw := r.URL.Query()["dir"]
 	if len(raw) == 0 {
-		return nil, nil, errors.New("at least one file= query value is required")
+		return nil, nil, errors.New("at least one dir= query value is required")
 	}
 
-	dir := s.cfg.Get().MeetingsDir
+	base := s.cfg.Get().MeetingsDir
 	for _, name := range raw {
 		if name == "" || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
-			return nil, nil, fmt.Errorf("invalid file value %q", name)
+			return nil, nil, fmt.Errorf("invalid dir value %q", name)
 		}
-		if !strings.HasSuffix(name, ".parquet") {
-			name += ".parquet"
-		}
-		full := filepath.Join(dir, name)
-		if _, statErr := os.Stat(full); statErr != nil { //nolint:gosec // name is validated against path separators and ".." just above
-			return nil, nil, fmt.Errorf("file %q not found in meetings dir", name)
+		full := filepath.Join(base, name)
+		if _, statErr := os.Stat(filepath.Join(full, eventstore.EventsFile)); statErr != nil { //nolint:gosec // name is validated against path separators and ".." just above
+			return nil, nil, fmt.Errorf("meeting dir %q not found", name)
 		}
 		paths = append(paths, full)
-		basenames = append(basenames, name)
+		names = append(names, name)
 	}
-	return paths, basenames, nil
+	return paths, names, nil
 }
 
-func reportFilename(basenames []string) string {
-	if len(basenames) == 1 {
-		return strings.TrimSuffix(basenames[0], ".parquet") + ".csv"
+func reportFilename(names []string) string {
+	if len(names) == 1 {
+		return names[0] + ".csv"
 	}
 	return "report.csv"
 }
@@ -904,7 +905,7 @@ func (s *Server) handleDeleteRegistry(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleQuestion(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	q, err := eventstore.ReadQuestion(s.cfg.Get().QuestionsDir, id)
+	q, err := eventstore.ReadQuestion(s.cfg.Get().MeetingsDir, id)
 	if err != nil {
 		http.Error(w, "read question failed: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -944,7 +945,6 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	form := r.PostForm
 	mutator := func(v *config.Values) {
 		v.MeetingsDir = form.Get("meetings_dir")
-		v.QuestionsDir = form.Get("questions_dir")
 		v.ReportsDir = form.Get("reports_dir")
 		v.RetentionDays = formInt(form, "retention_days", v.RetentionDays)
 
