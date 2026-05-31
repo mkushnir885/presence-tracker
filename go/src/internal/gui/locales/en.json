@@ -110,8 +110,8 @@
 
   "status.title.prefix": "Live status for",
   "status.title.middle": "meeting",
-  "status.tracking_started_at": "Tracking started at %s",
-  "status.meeting_started_at": "Meeting started at %s",
+  "status.tracking_started_at": "Tracking started at",
+  "status.meeting_started_at": "Meeting started at",
   "status.meeting_started_earlier_hint": "The meeting was already in progress when tracking attached.",
   "status.stop": "Stop tracking",
   "status.poll.upload": "Upload questions",

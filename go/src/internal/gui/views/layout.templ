@@ -56,6 +56,7 @@ templ Layout(title string, locale Locale, navExtras templ.Component) {
 				</div>
 			</template>
 			<script src="https://unpkg.com/htmx.org@2.0.4" crossorigin="anonymous"></script>
+			<script src="/assets/localtime.js" defer></script>
 			<script>
 				// Daemon-liveness detector: hold the /events SSE open and, if it drops
 				// after connecting (Ctrl-C, shutdown button, kill), swap the page to the

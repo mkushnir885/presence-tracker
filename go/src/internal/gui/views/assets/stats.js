@@ -350,7 +350,14 @@ function openMeeting(trigger, json) {
     const k = document.createElement('strong');
     k.textContent = (row.label || '') + ': ';
     line.appendChild(k);
-    line.appendChild(document.createTextNode(row.value || ''));
+    if (row.type === 'kv-ts' && Number.isFinite(row.valueTS)) {
+      const t = document.createElement('time');
+      t.dateTime = new Date(row.valueTS).toISOString();
+      t.dataset.fmt = 'datetime-seconds';
+      line.appendChild(t);
+    } else {
+      line.appendChild(document.createTextNode(row.value || ''));
+    }
     pop.appendChild(line);
   }
   document.body.appendChild(pop);

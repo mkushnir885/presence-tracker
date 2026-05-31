@@ -37,7 +37,7 @@ def generate_stats(
         "meetings": [
             {
                 "meeting_id": m["meeting_id"],
-                "started_at": m["started_at_iso"],
+                "started_at": int(m["started_at_ms"]),
                 "duration_seconds": m["duration_seconds"],
                 "platform": m.get("platform") or "",
                 "started_cause": m.get("started_cause") or "",
@@ -85,9 +85,7 @@ def _collect_meetings(events: pl.LazyFrame) -> list[dict[str, Any]]:
         times.join(start_meta, on="meeting_id", how="left")
         .join(ended_meta, on="meeting_id", how="left")
         .with_columns(
-            pl.col("started_at")
-            .dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-            .alias("started_at_iso"),
+            pl.col("started_at").dt.timestamp("ms").alias("started_at_ms"),
         )
         .sort("started_at")
         .collect()

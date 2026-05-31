@@ -8,6 +8,7 @@ class of bug fixed in commit f764fc3) or if the shared pairing changes shape.
 from __future__ import annotations
 
 import csv
+import datetime as dt
 import io
 
 import polars as pl
@@ -99,7 +100,12 @@ def test_report_and_stats_presence_ratios_agree() -> None:
     }
 
     payload = generate_stats(events, mode="cross_meeting")
-    started = {m["meeting_id"]: m["started_at"] for m in payload["meetings"]}
+    started = {
+        m["meeting_id"]: dt.datetime.fromtimestamp(
+            m["started_at"] / 1000, tz=dt.timezone.utc
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for m in payload["meetings"]
+    }
     stats_ratio = {
         (p["display_name"], started[row["meeting_id"]]): row["presence_ratio"]
         for p in payload["participants"]

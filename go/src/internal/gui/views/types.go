@@ -1,7 +1,5 @@
 package views
 
-
-
 import (
 	"encoding/json"
 	"fmt"
@@ -125,7 +123,7 @@ type StatsData struct {
 
 type StatMeeting struct {
 	MeetingID       string  `json:"meeting_id"`
-	StartedAt       string  `json:"started_at"`
+	StartedAt       int64   `json:"started_at"`
 	DurationSeconds float64 `json:"duration_seconds"`
 	Platform        string  `json:"platform"`
 	StartedCause    string  `json:"started_cause"`

@@ -1,9 +1,9 @@
 package views
 
 import (
-	"fmt"
 	"presence-tracker/src/internal/session"
 	"strconv"
+	"time"
 )
 
 // Status renders the live-view shell. live_status.js opens the SSE stream and
@@ -79,7 +79,11 @@ templ StatusLog(data StatusData, locale Locale) {
 	} else {
 		for _, e := range data.LogEntries {
 			<div class="log-entry">
-				<span class="log-time">{ e.Time.Format("15:04:05") }</span>
+				<time
+					class="log-time"
+					datetime={ e.Time.UTC().Format(time.RFC3339) }
+					data-fmt="time"
+				>{ e.Time.Format("15:04:05") }</time>
 				<span class={ "log-level-" + e.Level }>{ e.Level }</span>
 				<span>{ e.Message }</span>
 				if e.Attrs != "" {
@@ -102,13 +106,28 @@ templ waitingForMeetingCard(locale Locale) {
 
 templ StatusStartedRow(data StatusData, locale Locale) {
 	if data.MeetingStartedAt.IsZero() || data.MeetingInProgress {
-		<span class="status-started">{ fmt.Sprintf(locale.T("status.tracking_started_at"), data.StartedAt.Format("15:04:05")) }.</span>
+		<span class="status-started">
+			{ locale.T("status.tracking_started_at") }
+			@timeStamp(data.StartedAt, "time")
+			.
+		</span>
 		if data.MeetingInProgress {
 			<small class="text-muted">{ locale.T("status.meeting_started_earlier_hint") }</small>
 		}
 	} else {
-		<span class="status-started">{ fmt.Sprintf(locale.T("status.meeting_started_at"), data.MeetingStartedAt.Format("15:04:05")) }.</span>
+		<span class="status-started">
+			{ locale.T("status.meeting_started_at") }
+			@timeStamp(data.MeetingStartedAt, "time")
+			.
+		</span>
 	}
+}
+
+templ timeStamp(t time.Time, fmtKey string) {
+	<time
+		datetime={ t.UTC().Format(time.RFC3339) }
+		data-fmt={ fmtKey }
+	>{ t.Format("15:04:05") }</time>
 }
 
 // hx-preserve keeps this card across body swaps so the live MediaStream and

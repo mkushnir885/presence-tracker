@@ -3,6 +3,7 @@ package views
 import (
 	"fmt"
 	"net/url"
+	"time"
 
 	"presence-tracker/src/internal/participants"
 )
@@ -70,7 +71,12 @@ templ RegistryResults(entries []participants.RegistryEntry, locale Locale) {
 						<td>{ e.DisplayName }</td>
 						<td>{ e.MessengerName }</td>
 						<td>{ e.MessengerLabel }</td>
-						<td class="text-muted">{ e.RegisteredAt.Format("2006-01-02 15:04") }</td>
+						<td class="text-muted">
+							<time
+								datetime={ e.RegisteredAt.UTC().Format(time.RFC3339) }
+								data-fmt="datetime"
+							>{ e.RegisteredAt.Format("2006-01-02 15:04") }</time>
+						</td>
 						<td class="registry-action-cell">
 							<button
 								type="button"

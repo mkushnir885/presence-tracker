@@ -34,7 +34,7 @@ type Record struct {
 }
 
 const (
-	dirTimeFormat = "020106-1504"
+	dirTimeFormat = "060102-1504"
 	// EventsFile is the parquet event log inside every meeting directory.
 	EventsFile          = "events.parquet"
 	defaultRowGroupSize = 10000

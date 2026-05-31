@@ -7,7 +7,6 @@ import (
 	"math"
 	"net/url"
 	"strings"
-	"time"
 
 	"presence-tracker/src/internal/challenges"
 )
@@ -478,19 +477,19 @@ func jsonBlob(v any) string {
 }
 
 func meetingDetailsJSON(m StatMeeting, locale Locale) string {
-	var rows []map[string]string
+	var rows []map[string]any
 
 	if m.Platform != "" {
 		rows = append(rows, kvRow(locale.T("stats.duration.platform"), m.Platform))
 	}
 	rows = append(rows, kvRow(locale.T("stats.tooltip.duration_label"), formatDuration(m.DurationSeconds)))
 
-	startedAt, endedAt := meetingBoundaries(m.StartedAt, m.DurationSeconds)
-	rows = append(rows, kvRow(locale.T("stats.duration.started"), startedAt))
+	startedMS, endedMS := meetingBoundariesMS(m.StartedAt, m.DurationSeconds)
+	rows = append(rows, tsRow(locale.T("stats.duration.started"), startedMS))
 	if note := causeNote(m.StartedCause, "stats.duration.started_cause", locale); note != "" {
 		rows = append(rows, hintRow(note))
 	}
-	rows = append(rows, kvRow(locale.T("stats.duration.ended"), endedAt))
+	rows = append(rows, tsRow(locale.T("stats.duration.ended"), endedMS))
 	if note := causeNote(m.EndedCause, "stats.duration.ended_cause", locale); note != "" {
 		rows = append(rows, hintRow(note))
 	}
@@ -504,12 +503,16 @@ func meetingDetailsJSON(m StatMeeting, locale Locale) string {
 	return string(b)
 }
 
-func kvRow(label, value string) map[string]string {
-	return map[string]string{"type": "kv", "label": label, "value": value}
+func kvRow(label, value string) map[string]any {
+	return map[string]any{"type": "kv", "label": label, "value": value}
 }
 
-func hintRow(text string) map[string]string {
-	return map[string]string{"type": "hint", "value": text}
+func tsRow(label string, ms int64) map[string]any {
+	return map[string]any{"type": "kv-ts", "label": label, "valueTS": ms}
+}
+
+func hintRow(text string) map[string]any {
+	return map[string]any{"type": "hint", "value": text}
 }
 
 func causeNote(cause, prefix string, locale Locale) string {
@@ -519,13 +522,9 @@ func causeNote(cause, prefix string, locale Locale) string {
 	return locale.T(prefix + "." + cause)
 }
 
-func meetingBoundaries(startISO string, durationSeconds float64) (string, string) {
-	t, err := time.Parse(time.RFC3339, startISO)
-	if err != nil {
-		return startISO, ""
+func meetingBoundariesMS(startMS int64, durationSeconds float64) (int64, int64) {
+	if startMS == 0 {
+		return 0, 0
 	}
-	start := t.Local()
-	end := start.Add(time.Duration(durationSeconds * float64(time.Second)))
-	const layout = "2006-01-02 15:04:05 MST"
-	return start.Format(layout), end.Format(layout)
+	return startMS, startMS + int64(durationSeconds*1000)
 }

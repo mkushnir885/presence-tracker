@@ -110,8 +110,8 @@
 
   "status.title.prefix": "Поточний статус",
   "status.title.middle": "зустрічі —",
-  "status.tracking_started_at": "Відстеження розпочато о %s",
-  "status.meeting_started_at": "Зустріч розпочато о %s",
+  "status.tracking_started_at": "Відстеження розпочато о",
+  "status.meeting_started_at": "Зустріч розпочато о",
   "status.meeting_started_earlier_hint": "Зустріч уже тривала, коли почалось відстеження.",
   "status.stop": "Зупинити",
   "status.poll.upload": "Завантажити запитання",
