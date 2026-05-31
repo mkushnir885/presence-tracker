@@ -23,7 +23,7 @@ templ ConfigEditor(data ConfigData, locale Locale) {
 					@textField(data, "meetings_dir_format", locale.T("config.meetings_dir_format"), data.V.MeetingsDirFormat)
 					<div class="text-muted" style="font-size:0.85rem;margin-top:-0.4rem;margin-bottom:0.5rem;">
 						{ locale.T("config.meetings_dir_format.hint") }
-						<a href="https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes" target="_blank" rel="noopener">{ locale.T("config.meetings_dir_format.strftime_link") }</a>.
+						<a href="https://pkg.go.dev/github.com/lestrrat-go/strftime#readme-supported-conversion-specifications" target="_blank" rel="noopener">{ locale.T("config.meetings_dir_format.strftime_link") }</a>.
 					</div>
 					@intField(data, locale.T("config.retention_days"), "retention_days", data.V.RetentionDays, "retention_days")
 				</div>
@@ -35,6 +35,9 @@ templ ConfigEditor(data ConfigData, locale Locale) {
 					@textField(data, "providers.bbb.base_url", locale.T("config.bbb_base_url"), data.V.Providers.BBB.BaseURL, "providers", "bbb", "base_url")
 					@secretField(data, "providers.bbb.shared_secret", locale.T("config.bbb_shared_secret"), locale.T("config.secret_hint"), "providers", "bbb", "shared_secret")
 					@checkboxField("providers.bbb.tls_skip_verify", locale.T("config.tls_skip_verify"), data.V.Providers.BBB.TLSSkipVerify)
+					<div class="text-muted" style="font-size:0.75rem;margin-top:-0.4rem;margin-bottom:0.5rem;">
+						{ locale.T("config.tls_skip_verify.hint") }
+					</div>
 					@intField(data, locale.T("config.poll_interval_seconds"), "providers.bbb.poll_interval_seconds", data.V.Providers.BBB.PollIntervalSeconds, "providers", "bbb", "poll_interval_seconds")
 				</div>
 			</details>

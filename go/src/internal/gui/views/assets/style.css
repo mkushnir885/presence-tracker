@@ -726,6 +726,7 @@ details.menu .menu-list button.active svg { color: var(--accent); }
 }
 .config-actions {
     margin-top: 1rem;
+    margin-bottom: 1.5rem;
     display: flex;
     gap: 0.75rem;
     align-items: center;

@@ -155,7 +155,7 @@ func (w *Writer) Close(ctx context.Context) (string, error) {
 		return "", nil
 	}
 
-	rendered := w.tmpl.Render(w.startTime.UTC(), time.Now().UTC())
+	rendered := w.tmpl.Render(w.startTime.Local(), time.Now().Local())
 	finalName, err := ensureUniqueDir(w.parentDir, rendered, "")
 	if err != nil {
 		slog.Warn("eventstore: could not pick final meeting dir name", "err", err)
