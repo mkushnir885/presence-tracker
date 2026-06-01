@@ -23,7 +23,9 @@ const (
 	zoomAPIBase  = "https://api.zoom.us/v2"
 )
 
-var zoomScopes = []string{"meeting:read:meeting", "dashboard_meetings:read:admin"}
+var zoomScopes = []string{
+	"dashboard:read:list_meeting_participants:admin",
+}
 
 type Adapter struct {
 	cfg    *config.Config
@@ -100,10 +102,11 @@ func (a *Adapter) Subscribe(ctx context.Context, meetingID string) (<-chan provi
 }
 
 type zoomParticipant struct {
-	id    string
-	name  string
-	email string
+	participantUUID string
+	name            string
 }
+
+const zoomStatusInWaitingRoom = "in_waiting_room"
 
 func (a *Adapter) pollLoop(ctx context.Context, meetingID string) {
 	defer close(a.events)
@@ -158,12 +161,7 @@ func (a *Adapter) tick(ctx context.Context, meetingID string, state *pollState) 
 	if state.meetingLive {
 		current := map[string]string{}
 		for _, p := range participants {
-			// Prefer email as the stable key; the Dashboard API's participant
-			// id can be empty or differ between polls.
-			id := p.email
-			if id == "" {
-				id = p.id
-			}
+			id := p.participantUUID
 			current[id] = p.name
 
 			if _, seen := state.active[id]; !seen {
@@ -234,9 +232,10 @@ func (a *Adapter) fetchParticipants(ctx context.Context, meetingID string) ([]zo
 		var body struct {
 			NextPageToken string `json:"next_page_token"`
 			Participants  []struct {
-				ID       string `json:"id"`
-				UserName string `json:"user_name"`
-				Email    string `json:"email"`
+				ParticipantUUID string `json:"participant_uuid"`
+				UserName        string `json:"user_name"`
+				LeaveTime       string `json:"leave_time"`
+				Status          string `json:"status"`
 			} `json:"participants"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
@@ -245,8 +244,17 @@ func (a *Adapter) fetchParticipants(ctx context.Context, meetingID string) ([]zo
 		}
 		_ = resp.Body.Close()
 
+		// type=live returns every participant session during the meeting,
+		// including ones who already left or are still in the waiting room.
+		// Keep only sessions that are currently active in the meeting itself.
 		for _, p := range body.Participants {
-			all = append(all, zoomParticipant{id: p.ID, name: p.UserName, email: p.Email})
+			if p.LeaveTime != "" || p.Status == zoomStatusInWaitingRoom {
+				continue
+			}
+			all = append(all, zoomParticipant{
+				participantUUID: p.ParticipantUUID,
+				name:            p.UserName,
+			})
 		}
 
 		if body.NextPageToken == "" {
