@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"presence-tracker/src/internal/providers"
@@ -36,6 +37,10 @@ func (p *Provider) WithSpeed(s float64) *Provider { p.speed = s; return p }
 func (p *Provider) Name() string { return "mock" }
 
 func (p *Provider) Authenticate(_ context.Context) error { return nil }
+
+func (p *Provider) ParseMeetingID(input string) (string, error) {
+	return strings.TrimSpace(input), nil
+}
 
 // Subscribe replays the fixture's events.jsonl, emitting each event at its
 // recorded offset scaled by speed (WithSpeed(10) is 10× faster; speed 0 fires

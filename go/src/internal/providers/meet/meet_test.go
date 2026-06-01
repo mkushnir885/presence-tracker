@@ -24,7 +24,7 @@ func TestParseMeetingID(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := ParseMeetingID(tc.input)
+			got, err := (&Adapter{}).ParseMeetingID(tc.input)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got %q", got)

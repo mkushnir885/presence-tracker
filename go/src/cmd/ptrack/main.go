@@ -241,7 +241,7 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 	}
 
 	if fixture == "" {
-		meetingID, err = providers.ParseMeetingID(prov, meetingID)
+		meetingID, err = prov.ParseMeetingID(meetingID)
 		if err != nil {
 			return fmt.Errorf("meeting input: %w", err)
 		}

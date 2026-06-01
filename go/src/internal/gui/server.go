@@ -212,7 +212,7 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) { //
 		return
 	}
 
-	meetingID, err = providers.ParseMeetingID(prov, meetingID)
+	meetingID, err = prov.ParseMeetingID(meetingID)
 	if err != nil {
 		http.Error(w, "meeting input: "+err.Error(), http.StatusBadRequest)
 		return

@@ -40,9 +40,7 @@ func New(cfg *config.Config) *Adapter {
 
 func (a *Adapter) Name() string { return "zoom" }
 
-func (a *Adapter) ParseMeetingID(input string) (string, error) { return ParseMeetingID(input) }
-
-func ParseMeetingID(input string) (string, error) {
+func (*Adapter) ParseMeetingID(input string) (string, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return "", errors.New("zoom: empty meeting input")

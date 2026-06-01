@@ -25,29 +25,22 @@ type Adapter struct {
 }
 
 func New(cfg *config.Config) *Adapter {
+	client := &http.Client{}
+	if cfg.Get().Providers.BBB.TLSSkipVerify {
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // self-signed cert in dev; controlled by explicit config flag
+		}
+	}
 	return &Adapter{
 		cfg:    cfg,
-		client: newHTTPClient(cfg.Get().Providers.BBB.TLSSkipVerify),
+		client: client,
 		events: make(chan providers.Event, 64),
 	}
 }
 
-func newHTTPClient(insecure bool) *http.Client {
-	if insecure {
-		return &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // self-signed cert in dev; controlled by explicit config flag
-			},
-		}
-	}
-	return &http.Client{}
-}
-
 func (a *Adapter) Name() string { return "bbb" }
 
-func (a *Adapter) ParseMeetingID(input string) (string, error) { return ParseMeetingID(input) }
-
-func ParseMeetingID(input string) (string, error) {
+func (*Adapter) ParseMeetingID(input string) (string, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return "", errors.New("bbb: empty meeting input")
@@ -101,9 +94,9 @@ func (a *Adapter) Subscribe(ctx context.Context, meetingID string) (<-chan provi
 
 type bbbMeetingInfoResponse struct {
 	ReturnCode string `xml:"returncode"`
-	MessageKey string `xml:"messageKey"`
-	Running    string `xml:"running"`
-	CreateTime int64  `xml:"createTime"`
+	Running    bool   `xml:"running"`
+	StartTime  int64  `xml:"startTime"`
+	EndTime    int64  `xml:"endTime"`
 	Attendees  struct {
 		List []struct {
 			UserID   string `xml:"userID"`
@@ -173,7 +166,7 @@ func (a *Adapter) tick(ctx context.Context, state *pollState) bool {
 		return false
 	}
 
-	if info.ReturnCode == "FAILED" && info.MessageKey == "notFound" {
+	if info.ReturnCode != "SUCCESS" && !state.meetingLive {
 		resolved, rerr := a.resolveSlug(ctx, state.input)
 		if rerr != nil {
 			slog.Warn("bbb: resolve greenlight slug", "input", state.input, "err", rerr)
@@ -193,7 +186,7 @@ func (a *Adapter) tick(ctx context.Context, state *pollState) bool {
 	}
 
 	meetingID := state.actualID
-	isRunning := info.ReturnCode == "SUCCESS" && info.Running == "true"
+	isRunning := info.ReturnCode == "SUCCESS" && info.Running
 
 	if !state.meetingLive {
 		if !isRunning {
@@ -204,8 +197,8 @@ func (a *Adapter) tick(ctx context.Context, state *pollState) bool {
 			// attached after the meeting had already started.
 			midMeeting := !state.observedNotRunning
 			ts := time.Now().UTC()
-			if !midMeeting && info.CreateTime > 0 {
-				ts = time.UnixMilli(info.CreateTime).UTC()
+			if !midMeeting && info.StartTime > 0 {
+				ts = time.UnixMilli(info.StartTime).UTC()
 			}
 			a.emit(providers.Event{
 				Kind:              providers.EventKindMeetingStarted,
@@ -249,10 +242,14 @@ func (a *Adapter) tick(ctx context.Context, state *pollState) bool {
 		}
 
 		if !isRunning {
+			ts := time.Now().UTC()
+			if info.EndTime > 0 {
+				ts = time.UnixMilli(info.EndTime).UTC()
+			}
 			a.emit(providers.Event{
 				Kind:      providers.EventKindMeetingEnded,
 				MeetingID: meetingID,
-				Timestamp: time.Now().UTC(),
+				Timestamp: ts,
 			})
 			return true
 		}

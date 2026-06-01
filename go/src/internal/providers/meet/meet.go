@@ -43,9 +43,7 @@ func New(cfg *config.Config) *Adapter {
 
 func (a *Adapter) Name() string { return "meet" }
 
-func (a *Adapter) ParseMeetingID(input string) (string, error) { return ParseMeetingID(input) }
-
-func ParseMeetingID(input string) (string, error) {
+func (*Adapter) ParseMeetingID(input string) (string, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return "", errors.New("meet: empty meeting input")
@@ -180,7 +178,7 @@ func (a *Adapter) pollLoop(ctx context.Context, spaceName string) {
 			currentRecord = record
 			midMeeting := !observedNoRecord
 			if midMeeting || startTime.IsZero() {
-				startTime = time.Now()
+				startTime = time.Now().UTC()
 			}
 			slog.Info("meet: meeting started", "record", currentRecord, "start_time", startTime, "mid_meeting", midMeeting)
 			a.send(ctx, providers.Event{
@@ -220,7 +218,7 @@ func (a *Adapter) pollLoop(ctx context.Context, spaceName string) {
 					MeetingID:   spaceName,
 					PlatformID:  id,
 					DisplayName: name,
-					Timestamp:   time.Now(),
+					Timestamp:   time.Now().UTC(),
 				})
 			}
 		}
@@ -232,7 +230,7 @@ func (a *Adapter) pollLoop(ctx context.Context, spaceName string) {
 		}
 		if ended {
 			if endTime.IsZero() {
-				endTime = time.Now()
+				endTime = time.Now().UTC()
 			}
 
 			slog.Info("meet: meeting ended", "record", currentRecord, "end_time", endTime)
@@ -293,7 +291,7 @@ func (a *Adapter) findActiveRecord(ctx context.Context, spaceName string) (strin
 	}
 	rec := result.ConferenceRecords[0]
 	startTime, _ := time.Parse(time.RFC3339, rec.StartTime)
-	return rec.Name, startTime, nil
+	return rec.Name, startTime.UTC(), nil
 }
 
 func (a *Adapter) listParticipants(ctx context.Context, recordName string) ([]participantInfo, error) {
@@ -336,7 +334,7 @@ func (a *Adapter) listParticipants(ctx context.Context, recordName string) ([]pa
 		if joinTime.IsZero() {
 			joinTime = time.Now()
 		}
-		info.joinTime = joinTime
+		info.joinTime = joinTime.UTC()
 
 		if su := p.SignedInUser; su != nil {
 			info.displayName = su.DisplayName
@@ -376,7 +374,7 @@ func (a *Adapter) recordEndTime(ctx context.Context, recordName string) (time.Ti
 		return time.Time{}, false, nil
 	}
 	endTime, _ := time.Parse(time.RFC3339, record.EndTime)
-	return endTime, true, nil
+	return endTime.UTC(), true, nil
 }
 
 func encodeFilter(filter string) string {
