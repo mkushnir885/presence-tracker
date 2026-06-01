@@ -33,6 +33,9 @@ templ ConfigEditor(data ConfigData, locale Locale) {
 				<div class="card">
 					@checkboxField("providers.bbb.enabled", locale.T("config.enabled"), data.V.Providers.BBB.Enabled)
 					@textField(data, "providers.bbb.base_url", locale.T("config.bbb_base_url"), data.V.Providers.BBB.BaseURL, "providers", "bbb", "base_url")
+					<div class="text-muted" style="font-size:0.75rem;margin-top:-0.4rem;margin-bottom:0.5rem;">
+						{ locale.T("config.bbb_base_url.hint") }
+					</div>
 					@secretField(data, "providers.bbb.shared_secret", locale.T("config.bbb_shared_secret"), locale.T("config.secret_hint"), "providers", "bbb", "shared_secret")
 					@checkboxField("providers.bbb.tls_skip_verify", locale.T("config.tls_skip_verify"), data.V.Providers.BBB.TLSSkipVerify)
 					<div class="text-muted" style="font-size:0.75rem;margin-top:-0.4rem;margin-bottom:0.5rem;">

@@ -101,6 +101,7 @@ func (a *Adapter) Subscribe(ctx context.Context, meetingID string) (<-chan provi
 
 type bbbMeetingInfoResponse struct {
 	ReturnCode string `xml:"returncode"`
+	MessageKey string `xml:"messageKey"`
 	Running    string `xml:"running"`
 	CreateTime int64  `xml:"createTime"`
 	Attendees  struct {
@@ -112,6 +113,23 @@ type bbbMeetingInfoResponse struct {
 	} `xml:"attendees"`
 }
 
+type bbbMetadataItem struct {
+	XMLName xml.Name
+	Value   string `xml:",chardata"`
+}
+
+type bbbMeetingsResponse struct {
+	ReturnCode string `xml:"returncode"`
+	Meetings   struct {
+		List []struct {
+			MeetingID string `xml:"meetingID"`
+			Metadata  struct {
+				Items []bbbMetadataItem `xml:",any"`
+			} `xml:"metadata"`
+		} `xml:"meeting"`
+	} `xml:"meetings"`
+}
+
 func (a *Adapter) pollLoop(ctx context.Context, meetingID string) {
 	defer close(a.events)
 
@@ -120,7 +138,9 @@ func (a *Adapter) pollLoop(ctx context.Context, meetingID string) {
 	defer ticker.Stop()
 
 	state := pollState{
-		active: map[string]string{},
+		active:   map[string]string{},
+		input:    meetingID,
+		actualID: meetingID,
 	}
 
 	for {
@@ -128,7 +148,7 @@ func (a *Adapter) pollLoop(ctx context.Context, meetingID string) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if done := a.tick(ctx, meetingID, &state); done {
+			if done := a.tick(ctx, &state); done {
 				return
 			}
 		}
@@ -136,18 +156,43 @@ func (a *Adapter) pollLoop(ctx context.Context, meetingID string) {
 }
 
 type pollState struct {
+	// input is the original token; actualID is swapped to the resolved BBB
+	// meetingID on the first notFound that matches a Greenlight slug.
+	input    string
+	actualID string
+
 	active             map[string]string
 	meetingLive        bool
 	observedNotRunning bool
 }
 
-func (a *Adapter) tick(ctx context.Context, meetingID string, state *pollState) bool {
-	info, err := a.fetchMeetingInfo(ctx, meetingID)
+func (a *Adapter) tick(ctx context.Context, state *pollState) bool {
+	info, err := a.fetchMeetingInfo(ctx, state.actualID)
 	if err != nil {
 		slog.Warn("bbb: fetchMeetingInfo", "err", err)
 		return false
 	}
 
+	if info.ReturnCode == "FAILED" && info.MessageKey == "notFound" {
+		resolved, rerr := a.resolveSlug(ctx, state.input)
+		if rerr != nil {
+			slog.Warn("bbb: resolve greenlight slug", "input", state.input, "err", rerr)
+			return false
+		}
+		if resolved == "" || resolved == state.actualID {
+			state.observedNotRunning = true
+			return false
+		}
+		slog.Info("bbb: resolved greenlight slug", "slug", state.input, "meeting_id", resolved)
+		state.actualID = resolved
+		info, err = a.fetchMeetingInfo(ctx, state.actualID)
+		if err != nil {
+			slog.Warn("bbb: fetchMeetingInfo", "err", err)
+			return false
+		}
+	}
+
+	meetingID := state.actualID
 	isRunning := info.ReturnCode == "SUCCESS" && info.Running == "true"
 
 	if !state.meetingLive {
@@ -216,6 +261,52 @@ func (a *Adapter) tick(ctx context.Context, meetingID string, state *pollState) 
 	return false
 }
 
+// resolveSlug returns "" with no error when no live meeting matches yet.
+// The "gl-" prefix covers Greenlight v2; bbb-context-id covers v3 where
+// meetingID is a SecureRandom string unrelated to the friendly_id.
+func (a *Adapter) resolveSlug(ctx context.Context, slug string) (string, error) {
+	meetings, err := a.fetchMeetings(ctx)
+	if err != nil {
+		return "", err
+	}
+	prefixed := "gl-" + slug
+	for _, m := range meetings.Meetings.List {
+		if m.MeetingID == slug || m.MeetingID == prefixed {
+			return m.MeetingID, nil
+		}
+		for _, md := range m.Metadata.Items {
+			if md.XMLName.Local == "bbb-context-id" && strings.TrimSpace(md.Value) == slug {
+				return m.MeetingID, nil
+			}
+		}
+	}
+	return "", nil
+}
+
+func (a *Adapter) fetchMeetings(ctx context.Context) (bbbMeetingsResponse, error) {
+	bbb := a.cfg.Get().Providers.BBB
+	apiURL := bbbAPIURL(bbb.BaseURL, bbb.SharedSecret, "getMeetings", "")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return bbbMeetingsResponse{}, fmt.Errorf("build request: %w", err)
+	}
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return bbbMeetingsResponse{}, fmt.Errorf("request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var meetings bbbMeetingsResponse
+	if err := xml.NewDecoder(resp.Body).Decode(&meetings); err != nil {
+		return bbbMeetingsResponse{}, fmt.Errorf("decode XML: %w", err)
+	}
+	if meetings.ReturnCode != "SUCCESS" {
+		return bbbMeetingsResponse{}, fmt.Errorf("getMeetings returncode %q", meetings.ReturnCode)
+	}
+	return meetings, nil
+}
+
 func (a *Adapter) fetchMeetingInfo(ctx context.Context, meetingID string) (bbbMeetingInfoResponse, error) {
 	bbb := a.cfg.Get().Providers.BBB
 	params := "meetingID=" + url.QueryEscape(meetingID)
@@ -247,18 +338,16 @@ func (a *Adapter) emit(evt providers.Event) {
 }
 
 func bbbAPIURL(baseURL, sharedSecret, action, params string) string {
+	base := strings.TrimRight(baseURL, "/") + "/bigbluebutton/api/" + action
 	checksum := bbbChecksum(action, params, sharedSecret)
-	base := strings.TrimRight(baseURL, "/") + "/api/" + action
 	if params != "" {
 		return base + "?" + params + "&checksum=" + checksum
 	}
 	return base + "?checksum=" + checksum
 }
 
-// bbbChecksum is the per-call signature the BBB API requires: SHA-1 of the
-// action name, the query string, and the shared secret.
 func bbbChecksum(action, params, secret string) string {
-	h := sha1.New() //nolint:gosec
+	h := sha1.New() //nolint:gosec // BBB API uses SHA-1 by specification
 	_, _ = h.Write([]byte(action + params + secret))
 	return hex.EncodeToString(h.Sum(nil))
 }

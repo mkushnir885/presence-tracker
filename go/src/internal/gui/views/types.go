@@ -133,7 +133,7 @@ type StatMeeting struct {
 }
 
 type StatParticipant struct {
-	DisplayName string           `json:"display_name"`
+	DisplayName string               `json:"display_name"`
 	Rows        []StatParticipantRow `json:"rows"`
 }
 
