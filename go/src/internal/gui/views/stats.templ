@@ -44,12 +44,8 @@ templ StatsRows(data StatsData, locale Locale) {
 		} else {
 			@statsCrossMeeting(data, locale)
 		}
-		<script type="application/json" id="ptrack-stats-questions">
-			@templ.Raw(jsonBlob(data.Questions))
-		</script>
-		<script type="application/json" id="ptrack-stats-labels">
-			@templ.Raw(jsonBlob(popoverLabels(locale)))
-		</script>
+		@templ.JSONScript("ptrack-stats-questions", data.Questions)
+		@templ.JSONScript("ptrack-stats-labels", popoverLabels(locale))
 	</div>
 }
 
@@ -466,14 +462,6 @@ func dirsQueryFor(dirs []string) string {
 		q.Add("dir", d)
 	}
 	return q.Encode()
-}
-
-func jsonBlob(v any) string {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return "{}"
-	}
-	return string(b)
 }
 
 func meetingDetailsJSON(m StatMeeting, locale Locale) string {

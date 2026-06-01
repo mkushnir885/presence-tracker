@@ -18,7 +18,7 @@
   "dashboard.connect.meeting_id.zoom.label": "Meeting ID or join URL",
   "dashboard.connect.meeting_id.zoom.placeholder": "1234567890 or https://us02web.zoom.us/j/1234567890",
   "dashboard.connect.meeting_id.zoom.hint": "Numeric meeting ID or a join URL (/j/, /s/, /w/, /wc/join/). Personal room URLs (/my/...) are not supported.",
-  "dashboard.connect.dir_format": "Meeting folder name (optional)",
+  "dashboard.connect.dir_format": "Meeting name (optional)",
   "dashboard.connect.dir_format_placeholder": "e.g. cs101-{start:%Y-%m-%d} or cs101-lecture3",
   "dashboard.connect.dir_format_hint": "Leave blank to use the default from",
   "dashboard.connect.dir_format_hint_link": "Settings",

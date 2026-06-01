@@ -18,7 +18,7 @@
   "dashboard.connect.meeting_id.zoom.label": "ID зустрічі або URL входу",
   "dashboard.connect.meeting_id.zoom.placeholder": "1234567890 або https://us02web.zoom.us/j/1234567890",
   "dashboard.connect.meeting_id.zoom.hint": "Числовий ID зустрічі або URL входу (/j/, /s/, /w/, /wc/join/). Особисті кімнати (/my/...) не підтримуються.",
-  "dashboard.connect.dir_format": "Назва теки зустрічі (необов'язково)",
+  "dashboard.connect.dir_format": "Назва зустрічі (необов'язково)",
   "dashboard.connect.dir_format_placeholder": "напр. cs101-{start:%Y-%m-%d} або cs101-lecture3",
   "dashboard.connect.dir_format_hint": "Залиште порожнім, щоб використати типову з",
   "dashboard.connect.dir_format_hint_link": "налаштувань",

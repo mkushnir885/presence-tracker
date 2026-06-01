@@ -33,7 +33,7 @@ type Result struct {
 	Words      int    `json:"words,omitempty"`
 	Needed     int    `json:"needed,omitempty"`
 	BankPath   string `json:"bank_path,omitempty"`
-	AutoSubmit bool   `json:"auto_submit,omitempty"`
+	AutoSubmit bool   `json:"auto_submit"`
 }
 
 // Dispatcher hands a generated bank straight to the running poll pipeline

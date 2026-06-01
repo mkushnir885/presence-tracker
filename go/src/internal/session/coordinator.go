@@ -535,6 +535,7 @@ func (c *Coordinator) onRegistration(ctx context.Context, evt messengers.Event) 
 func (c *Coordinator) RunPoll(ctx context.Context, bankPath string, autoSubmitted bool) (challenges.PollResult, error) {
 	bank, err := challenges.Load(bankPath)
 	if err != nil {
+		slog.Error("poll: bank load failed", "path", bankPath, "err", err)
 		return challenges.PollResult{}, err
 	}
 	return c.runPollBank(ctx, bank, autoSubmitted)

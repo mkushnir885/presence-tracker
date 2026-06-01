@@ -395,7 +395,7 @@ func (s *Server) handleStatusStream(w http.ResponseWriter, r *http.Request) {
 			return true
 		}
 
-		if phase == "live" {
+		if phase != "waiting" {
 			roster := render(views.StatusRosters(data, locale))
 			if roster != lastRoster {
 				writeSSEEvent(w, "roster", roster)

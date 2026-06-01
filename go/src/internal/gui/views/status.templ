@@ -2,6 +2,7 @@ package views
 
 import (
 	"presence-tracker/src/internal/session"
+	"slices"
 	"strconv"
 	"time"
 )
@@ -112,7 +113,7 @@ templ waitingForMeetingCard(locale Locale) {
 templ StatusStartedRow(data StatusData, locale Locale) {
 	if data.MeetingStartedAt.IsZero() || data.MeetingInProgress {
 		<span class="status-started">
-			{ locale.T("status.tracking_started_at") }
+			{ locale.T("status.tracking_started_at") + " " }
 			@timeStamp(data.StartedAt, "time")
 			.
 		</span>
@@ -121,7 +122,7 @@ templ StatusStartedRow(data StatusData, locale Locale) {
 		}
 	} else {
 		<span class="status-started">
-			{ locale.T("status.meeting_started_at") }
+			{ locale.T("status.meeting_started_at") + " " }
 			@timeStamp(data.MeetingStartedAt, "time")
 			.
 		</span>
@@ -248,11 +249,14 @@ templ rosterCard(kind, title string, names []string, locale Locale) {
 	</div>
 }
 
+// Sort by display name so the rosters render in a stable order; the
+// coordinator's underlying maps iterate non-deterministically.
 func presenceNames(items []session.PresenceStatus) []string {
 	out := make([]string, 0, len(items))
 	for _, it := range items {
 		out = append(out, it.DisplayName)
 	}
+	slices.Sort(out)
 	return out
 }
 
@@ -261,6 +265,7 @@ func unregisteredNames(items []session.UnregisteredStatus) []string {
 	for _, it := range items {
 		out = append(out, it.DisplayName)
 	}
+	slices.Sort(out)
 	return out
 }
 

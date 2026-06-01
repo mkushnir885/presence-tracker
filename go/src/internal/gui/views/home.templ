@@ -15,7 +15,13 @@ templ Home(data HomeData, locale Locale) {
 					<a href="/config">{ locale.T("dashboard.connect.no_providers_link") }</a>.
 				</p>
 			} else {
-				<form hx-post="/session" hx-target="body" hx-push-url="/status">
+				<form
+					hx-post="/session"
+					hx-target="body"
+					hx-push-url="/status"
+					hx-on::before-request="document.getElementById('connect-error').textContent = ''"
+					hx-on::response-error="document.getElementById('connect-error').textContent = event.detail.xhr.responseText.trim()"
+				>
 					<div class="field">
 						<label for="provider">{ locale.T("dashboard.connect.provider") }</label>
 						<select id="provider" name="provider" style="width:auto">
@@ -42,7 +48,10 @@ templ Home(data HomeData, locale Locale) {
 							<a href="/config#meetings_dir_format">{ locale.T("dashboard.connect.dir_format_hint_link") }</a>.
 						</small>
 					</div>
-					<button type="submit" class="btn btn-primary">{ locale.T("dashboard.connect.btn") }</button>
+					<div class="connect-actions">
+						<button type="submit" class="btn btn-primary">{ locale.T("dashboard.connect.btn") }</button>
+						<div id="connect-error" class="connect-error" role="alert" aria-live="polite"></div>
+					</div>
 				</form>
 				@connectMeetingFieldScript()
 			}
