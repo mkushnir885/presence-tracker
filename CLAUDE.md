@@ -228,11 +228,11 @@ browser's native device picker) and streamed to the daemon over a
 WebSocket — mobile-friendly, including Android-on-Termux. The
 `internal/challenger/` package consumes frames in-process, batches them
 into short segments, and calls an **OpenAI-compatible** ASR endpoint
-(default: a local Ollama daemon; OpenAI Whisper API or any compatible
-gateway also works). The same compat shape is used for the LLM
-chat-completions call that produces the YAML. ptrack owns no model
-weights; the chosen backend handles all warm-up, GPU memory, and
-unloading.
+(e.g. a local LocalAI daemon, the OpenAI Whisper API, or any compatible
+gateway — ptrack ships no backend default and the teacher must configure
+one). The same compat shape is used for the LLM chat-completions call
+that produces the YAML. ptrack owns no model weights; the chosen
+backend handles all warm-up, GPU memory, and unloading.
 
 Polls are optional. A session with no polls at all is valid
 (tracking-only mode).
@@ -461,8 +461,9 @@ first when a design decision differs from what is documented.
 **v1 stretch:**
 
 - Auto-generated challenges via in-process `internal/challenger/`,
-  using OpenAI-compatible ASR + LLM endpoints (default: local Ollama;
-  any compatible gateway works). Both `auto_submit` modes supported.
+  using OpenAI-compatible ASR + LLM endpoints (e.g. a local LocalAI
+  daemon, OpenAI, or any compatible gateway; no backend ships as a
+  default). Both `auto_submit` modes supported.
 - Browser-side audio capture via `getUserMedia` + WebSocket to the
   daemon (prerequisite for the above)
 - Optional: screen-share OCR for cross-modal challenges

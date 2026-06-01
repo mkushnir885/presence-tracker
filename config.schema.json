@@ -202,8 +202,14 @@
             },
             "review_dir": {
               "type": "string",
-              "default": "~/Documents/ptrack/pending-banks",
+              "default": "~/Documents/ptrack",
               "minLength": 1
+            },
+            "bank_basename": {
+              "type": "string",
+              "default": "generated",
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\s][^/\\\\]*$"
             },
             "language": {
               "type": "string",
@@ -215,8 +221,7 @@
               "properties": {
                 "base_url": {
                   "type": "string",
-                  "default": "http://127.0.0.1:11434",
-                  "minLength": 1
+                  "default": "http://127.0.0.1:8080"
                 },
                 "api_key": {
                   "type": "string",
@@ -225,8 +230,7 @@
                 },
                 "model": {
                   "type": "string",
-                  "default": "whisper",
-                  "minLength": 1
+                  "default": "whisper-large-turbo-q5_O"
                 }
               },
               "additionalProperties": false
@@ -236,8 +240,7 @@
               "properties": {
                 "base_url": {
                   "type": "string",
-                  "default": "http://127.0.0.1:11434",
-                  "minLength": 1
+                  "default": "http://127.0.0.1:8080"
                 },
                 "api_key": {
                   "type": "string",
@@ -246,8 +249,7 @@
                 },
                 "model": {
                   "type": "string",
-                  "default": "qwen2.5:3b",
-                  "minLength": 1
+                  "default": "qwen3-4b"
                 }
               },
               "additionalProperties": false

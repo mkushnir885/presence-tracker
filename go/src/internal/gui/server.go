@@ -97,7 +97,6 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /registry/delete", s.handleDeleteRegistry)
 	mux.HandleFunc("GET /config", s.handleConfig)
 	mux.HandleFunc("POST /config", s.handleSaveConfig)
-	mux.HandleFunc("GET /poll/pending/preview", s.handlePollPendingPreview)
 	mux.HandleFunc("POST /poll/file", s.handlePollFile)
 	mux.HandleFunc("POST /system/shutdown", s.handleShutdown)
 	mux.HandleFunc("GET /events", s.handleEvents)
@@ -236,23 +235,14 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) { //
 	}
 
 	sessCfg := session.Config{
-		MeetingID:                   internalMeetingID,
-		PlatformMeetingID:           meetingID,
-		MeetingsDir:                 s.cfg.Get().MeetingsDir,
-		ProviderName:                prov.Name(),
-		AnswerWindowSecs:            s.cfg.Get().Challenges.Defaults.AnswerWindowSeconds,
-		MinGapBetweenChallengesSecs: s.cfg.Get().Challenges.Defaults.MinGapBetweenChallengesSecs,
+		MeetingID:         internalMeetingID,
+		PlatformMeetingID: meetingID,
+		ProviderName:      prov.Name(),
 	}
 
-	coord := session.New(sessCfg, prov, msgr, s.registry, store)
+	coord := session.New(sessCfg, s.cfg, prov, msgr, s.registry, store)
 
-	var chSvc *challenger.Service
-	if ag := s.cfg.Get().Challenges.AutoGeneration; ag.Enabled {
-		chSvc = challenger.New(ag, coord, coord)
-		if err := chSvc.SweepReviewDir(); err != nil {
-			slog.Warn("serve: sweep review_dir", "err", err)
-		}
-	}
+	chSvc := challenger.New(s.cfg, coord, coord)
 
 	sessCtx, cancel := context.WithCancel(context.Background())
 	buf := newLogBuffer(200, slog.Default().Handler())
@@ -363,20 +353,20 @@ func (s *Server) handleStatusStream(w http.ResponseWriter, r *http.Request) {
 		if data.MeetingStartedAt.IsZero() {
 			return "waiting"
 		}
+		if data.AutoGenEnabled {
+			return "live-autogen"
+		}
 		return "live"
 	}
 
 	// Seed each region with the initial render so the first tick only emits
 	// real changes (the page already holds this HTML).
-	var lastStarted, lastRoster, lastLog, lastPending, lastPhase string
+	var lastStarted, lastRoster, lastLog, lastPhase string
 	if data, ok := s.statusData(); ok {
 		lastPhase = phaseOf(data)
 		lastStarted = render(views.StatusStartedRow(data, locale))
 		lastRoster = render(views.StatusRosters(data, locale))
 		lastLog = render(views.StatusLog(data, locale))
-		if data.AutoGenEnabled {
-			lastPending = render(views.GenerateNowButton(data.PendingBank, locale))
-		}
 	}
 
 	push := func() bool {
@@ -401,9 +391,6 @@ func (s *Server) handleStatusStream(w http.ResponseWriter, r *http.Request) {
 			lastPhase = phase
 			lastRoster = render(views.StatusRosters(data, locale))
 			lastLog = render(views.StatusLog(data, locale))
-			if data.AutoGenEnabled {
-				lastPending = render(views.GenerateNowButton(data.PendingBank, locale))
-			}
 			flusher.Flush()
 			return true
 		}
@@ -413,13 +400,6 @@ func (s *Server) handleStatusStream(w http.ResponseWriter, r *http.Request) {
 			if roster != lastRoster {
 				writeSSEEvent(w, "roster", roster)
 				lastRoster = roster
-			}
-			if data.AutoGenEnabled {
-				pending := render(views.GenerateNowButton(data.PendingBank, locale))
-				if pending != lastPending {
-					writeSSEEvent(w, "pending", pending)
-					lastPending = pending
-				}
 			}
 		}
 
@@ -495,72 +475,10 @@ func (s *Server) statusData() (views.StatusData, bool) {
 		Present:           status.Present,
 		Unregistered:      status.Unregistered,
 		LogEntries:        vEntries,
-		AutoGenEnabled:    ag.Enabled && act.challenger != nil,
+		AutoGenEnabled:    ag.Enabled,
 		AutoGenAutoSubmit: ag.AutoSubmit,
 		AutoGenIntervalS:  ag.PollIntervalSeconds,
-		PendingBank:       latestPendingBank(act.challenger),
 	}, true
-}
-
-func latestPendingBank(svc *challenger.Service) *views.PendingBank {
-	if svc == nil {
-		return nil
-	}
-	dir := svc.ReviewDirPath()
-	if dir == "" {
-		return nil
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-	var newest os.FileInfo
-	var newestName string
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasPrefix(e.Name(), "auto-") || !strings.HasSuffix(e.Name(), ".yaml") {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		if newest == nil || info.ModTime().After(newest.ModTime()) {
-			newest = info
-			newestName = e.Name()
-		}
-	}
-	if newest == nil {
-		return nil
-	}
-	return &views.PendingBank{
-		Path:    filepath.Join(dir, newestName),
-		Name:    newestName,
-		ModTime: newest.ModTime(),
-	}
-}
-
-func (s *Server) handlePollPendingPreview(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	act := s.active
-	s.mu.RUnlock()
-	if act == nil {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	pending := latestPendingBank(act.challenger)
-	if pending == nil {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	body, err := os.ReadFile(pending.Path)
-	if err != nil {
-		http.Error(w, "read pending: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(`<pre style="white-space:pre-wrap;max-height:20rem;overflow:auto;">`))
-	_, _ = w.Write([]byte(htmlEscape(string(body))))
-	_, _ = w.Write([]byte(`</pre>`))
 }
 
 const pollFileMaxBytes = 1 << 20
@@ -694,10 +612,6 @@ func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func htmlEscape(s string) string {
-	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&#39;")
-	return r.Replace(s)
-}
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	_, names, err := s.collectMeetingDirs(r)
@@ -981,6 +895,8 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 		v.Challenges.AutoGeneration.MinWordsPerQuestion = formInt(form, "challenges.auto_generation.min_words_per_question", v.Challenges.AutoGeneration.MinWordsPerQuestion)
 		v.Challenges.AutoGeneration.MaxQuestionsPerPoll = formInt(form, "challenges.auto_generation.max_questions_per_poll", v.Challenges.AutoGeneration.MaxQuestionsPerPoll)
 		v.Challenges.AutoGeneration.ReviewDir = form.Get("challenges.auto_generation.review_dir")
+		v.Challenges.AutoGeneration.BankBasename = form.Get("challenges.auto_generation.bank_basename")
+		v.Challenges.AutoGeneration.Language = form.Get("challenges.auto_generation.language")
 		v.Challenges.AutoGeneration.ASR.BaseURL = form.Get("challenges.auto_generation.asr.base_url")
 		v.Challenges.AutoGeneration.ASR.APIKey = formSecret(form, "challenges.auto_generation.asr.api_key", v.Challenges.AutoGeneration.ASR.APIKey)
 		v.Challenges.AutoGeneration.ASR.Model = form.Get("challenges.auto_generation.asr.model")

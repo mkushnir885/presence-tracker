@@ -87,6 +87,7 @@ type AutoGenerationConfig struct {
 	MinWordsPerQuestion int             `json:"min_words_per_question,omitempty"`
 	MaxQuestionsPerPoll int             `json:"max_questions_per_poll,omitempty"`
 	ReviewDir           string          `json:"review_dir,omitempty"`
+	BankBasename        string          `json:"bank_basename,omitempty"`
 	Language            string          `json:"language,omitempty"`
 	ASR                 AIBackendConfig `json:"asr,omitzero"`
 	LLM                 AIBackendConfig `json:"llm,omitzero"`
@@ -128,10 +129,11 @@ func defaults() Values {
 				PollIntervalSeconds: 300,
 				MinWordsPerQuestion: 30,
 				MaxQuestionsPerPoll: 5,
-				ReviewDir:           expandPath("~/Documents/ptrack/pending-banks"),
+				ReviewDir:           expandPath("~/Documents/ptrack"),
+				BankBasename:        "generated",
 				Language:            "auto",
-				ASR:                 AIBackendConfig{BaseURL: "http://127.0.0.1:11434", Model: "whisper"},
-				LLM:                 AIBackendConfig{BaseURL: "http://127.0.0.1:11434", Model: "qwen2.5:3b"},
+				ASR:                 AIBackendConfig{BaseURL: "http://127.0.0.1:8080", Model: "whisper-large-turbo-q5_O"},
+				LLM:                 AIBackendConfig{BaseURL: "http://127.0.0.1:8080", Model: "qwen3-4b"},
 			},
 		},
 		GUI:     GUIConfig{BindAddr: "127.0.0.1", Port: 8080},
@@ -297,13 +299,11 @@ func applyConstraints(root *jsonschema.Schema) {
 	maxq.Minimum = new(1.0)
 	maxq.Maximum = new(20.0)
 	at(root, "challenges", "auto_generation", "review_dir").MinLength = new(1)
+	at(root, "challenges", "auto_generation", "bank_basename").MinLength = new(1)
+	at(root, "challenges", "auto_generation", "bank_basename").Pattern = `^[^/\\\s][^/\\]*$`
 	at(root, "challenges", "auto_generation", "language").Pattern = `^(auto|[a-zA-Z]{2,3}(-[a-zA-Z]{2,4})?)$`
-	at(root, "challenges", "auto_generation", "asr", "base_url").MinLength = new(1)
 	at(root, "challenges", "auto_generation", "asr", "api_key").WriteOnly = true
-	at(root, "challenges", "auto_generation", "asr", "model").MinLength = new(1)
-	at(root, "challenges", "auto_generation", "llm", "base_url").MinLength = new(1)
 	at(root, "challenges", "auto_generation", "llm", "api_key").WriteOnly = true
-	at(root, "challenges", "auto_generation", "llm", "model").MinLength = new(1)
 
 	at(root, "gui", "bind_addr").MinLength = new(1)
 	portRange(at(root, "gui", "port"))

@@ -26,7 +26,7 @@ it.
                                          │ OpenAI-compatible    │ ptrack poll
                                          ▼ HTTP                 │ (thin client)
                               External ASR + LLM         ┌──────────────────────┐
-                              (Ollama / OpenAI /         │ ptrack_py            │
+                              (LocalAI / OpenAI /        │ ptrack_py            │
                                Gemini / ...)             │  (one-shot: report / │
                                                          │   stats)             │
                                                          │  Polars (CSV + JSON) │
@@ -377,7 +377,7 @@ auto-discovery.
 
 There is no `/system/unload-models` endpoint: ptrack holds no model
 weights of its own, so there is nothing in-process to free. Memory used
-by the external ASR/LLM backend (e.g. Ollama) is the operator's
+by the external ASR/LLM backend (e.g. LocalAI) is the operator's
 concern.
 
 Closing the browser tab without using **Shut down** leaves the daemon
@@ -412,15 +412,19 @@ users depend on `ptrack_analytics` directly and never on `ptrack_py`.
 ### Go ↔ external inference (OpenAI-compatible HTTP)
 
 Auto-generation, when enabled, sends audio to an ASR endpoint and
-prompts to an LLM endpoint over plain OpenAI-compatible HTTP. The
-default is a local Ollama daemon; any compatible gateway works (base
-URL, API key, and model name are config-driven —
-`challenges.auto_generation.asr.*` and `challenges.auto_generation.llm.*`).
+prompts to an LLM endpoint over plain OpenAI-compatible HTTP. ptrack
+ships no backend default; the operator picks one and supplies the base
+URL, API key, and model name via config
+(`challenges.auto_generation.asr.*` and `challenges.auto_generation.llm.*`).
+A local LocalAI daemon is a convenient self-hosted choice because it
+exposes both `/v1/chat/completions` and `/v1/audio/transcriptions` from
+one process.
 
 ptrack owns no model weights, no warm-up state, and no resident memory
 for inference. Lifecycle of the chosen backend (start, stop, free) is
-the operator's responsibility — `ollama serve` for local, account
-quota for hosted. There is no `/challenges/generate` endpoint anywhere:
+the operator's responsibility — `local-ai run` (or equivalent) for
+self-hosted, account quota for hosted. There is no `/challenges/generate`
+endpoint anywhere:
 generation is autonomous inside `internal/challenger/`, which watches
 its own schedule, writes YAML, and (when `auto_submit` is on)
 dispatches in-process through the challenge pipeline.
@@ -552,8 +556,9 @@ copy is visible rather than blank.
 - The daemon's HTTP listener binds to `127.0.0.1` only. Never 0.0.0.0.
 - Audio frames and transcripts are in-memory only — Go never writes
   either to disk. ASR is performed by an external HTTP backend, which
-  receives audio over the network; choosing where to send it (local
-  Ollama vs. a hosted API) is the teacher's privacy decision.
+  receives audio over the network; choosing where to send it (a local
+  backend such as LocalAI vs. a hosted API) is the teacher's privacy
+  decision.
 - Display name collision is rejected at registration time — the bot
   returns an error if a name is already claimed by a different handle,
   so only one Telegram account can own a given `(platform, name)` pair.

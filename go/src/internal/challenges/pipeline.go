@@ -67,18 +67,16 @@ type pendingChallenge struct {
 }
 
 type Pipeline struct {
-	sink         EventSink
-	answerWindow time.Duration
+	sink EventSink
 
 	mu      sync.Mutex
 	pending map[string]*pendingChallenge
 }
 
-func NewPipeline(sink EventSink, answerWindow time.Duration) *Pipeline {
+func NewPipeline(sink EventSink) *Pipeline {
 	return &Pipeline{
-		sink:         sink,
-		answerWindow: answerWindow,
-		pending:      make(map[string]*pendingChallenge),
+		sink:    sink,
+		pending: make(map[string]*pendingChallenge),
 	}
 }
 
@@ -90,6 +88,7 @@ func (p *Pipeline) RunPoll(
 	ctx context.Context,
 	bank Bank,
 	autoSubmitted bool,
+	answerWindow time.Duration,
 	eligible []EligibleParticipant,
 	send SendFn,
 	meetingDir string,
@@ -130,7 +129,7 @@ func (p *Pipeline) RunPoll(
 		q := assignments[i]
 		cid := uuid.Must(uuid.NewV7()).String()
 		wg.Go(func() {
-			results[i].delivered = p.deliver(ctx, ep, cid, q, autoSubmitted, issuedAt, send)
+			results[i].delivered = p.deliver(ctx, ep, cid, q, autoSubmitted, issuedAt, answerWindow, send)
 		})
 	}
 	wg.Wait()
@@ -186,6 +185,7 @@ func (p *Pipeline) deliver(
 	q Question,
 	autoSubmitted bool,
 	issuedAt time.Time,
+	answerWindow time.Duration,
 	send SendFn,
 ) bool {
 	ref, err := send(ctx, ep.Handle, ep.Language, cid, q)
@@ -216,7 +216,7 @@ func (p *Pipeline) deliver(
 	}
 
 	answerCh := make(chan Answer, 1)
-	timeoutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), p.answerWindow)
+	timeoutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), answerWindow)
 
 	p.mu.Lock()
 	p.pending[cid] = &pendingChallenge{info: issued, answerCh: answerCh, cancel: cancel}

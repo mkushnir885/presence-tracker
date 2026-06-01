@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"presence-tracker/src/internal/challenges"
+	"presence-tracker/src/internal/config"
 	"presence-tracker/src/internal/eventstore"
 	"presence-tracker/src/internal/messengers"
 	"presence-tracker/src/internal/participants"
@@ -67,16 +68,14 @@ type UnregisteredStatus struct {
 }
 
 type Config struct {
-	MeetingID                   string
-	PlatformMeetingID           string
-	MeetingsDir                 string
-	ProviderName                string
-	AnswerWindowSecs            int
-	MinGapBetweenChallengesSecs int
+	MeetingID         string
+	PlatformMeetingID string
+	ProviderName      string
 }
 
 type Coordinator struct {
 	cfg       Config
+	dyn       *config.Config
 	provider  providers.Provider
 	messenger messengers.Messenger
 	registry  participants.Registry
@@ -95,9 +94,10 @@ type Coordinator struct {
 	meetingInProgress bool
 }
 
-func New(cfg Config, provider providers.Provider, messenger messengers.Messenger, registry participants.Registry, store *eventstore.Writer) *Coordinator {
+func New(cfg Config, dyn *config.Config, provider providers.Provider, messenger messengers.Messenger, registry participants.Registry, store *eventstore.Writer) *Coordinator {
 	c := &Coordinator{
 		cfg:           cfg,
+		dyn:           dyn,
 		provider:      provider,
 		messenger:     messenger,
 		registry:      registry,
@@ -107,8 +107,7 @@ func New(cfg Config, provider providers.Provider, messenger messengers.Messenger
 		pendingHandle: make(map[string]string),
 		unregistered:  make(map[string]providers.Event),
 	}
-	window := time.Duration(cfg.AnswerWindowSecs) * time.Second
-	c.pipeline = challenges.NewPipeline(c, window)
+	c.pipeline = challenges.NewPipeline(c)
 	return c
 }
 
@@ -571,7 +570,8 @@ func (c *Coordinator) runPollBank(ctx context.Context, bank challenges.Bank, aut
 		}
 		return ref.Opaque, nil
 	}
-	return c.pipeline.RunPoll(ctx, bank, autoSubmitted, eligible, sendFn, c.store.Dir())
+	answerWindow := time.Duration(c.dyn.Get().Challenges.Defaults.AnswerWindowSeconds) * time.Second
+	return c.pipeline.RunPoll(ctx, bank, autoSubmitted, answerWindow, eligible, sendFn, c.store.Dir())
 }
 
 func (c *Coordinator) RecordGeneratorFailed(_ context.Context, reason string) {
@@ -587,7 +587,7 @@ type skippedParticipant struct {
 }
 
 func (c *Coordinator) eligibleParticipants() ([]challenges.EligibleParticipant, []skippedParticipant) {
-	minGap := time.Duration(c.cfg.MinGapBetweenChallengesSecs) * time.Second
+	minGap := time.Duration(c.dyn.Get().Challenges.Defaults.MinGapBetweenChallengesSecs) * time.Second
 	now := time.Now()
 
 	c.mu.Lock()
@@ -653,7 +653,7 @@ func (c *Coordinator) RecordChallengeIssued(_ context.Context, issued challenges
 		QuestionID:  issued.Question.QuestionID,
 		Metadata: map[string]string{
 			"auto_submitted":  strconv.FormatBool(issued.AutoSubmitted),
-			"answer_window_s": strconv.Itoa(c.cfg.AnswerWindowSecs),
+			"answer_window_s": strconv.Itoa(c.dyn.Get().Challenges.Defaults.AnswerWindowSeconds),
 		},
 	})
 	return nil

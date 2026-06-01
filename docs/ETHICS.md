@@ -66,8 +66,8 @@ transmit, or export participant data.
   in the GUI. Audio is streamed in memory only; neither the browser nor
   the Go daemon writes audio bytes to disk. The ASR HTTP request body
   carries the audio to the configured backend — choosing where that
-  backend lives (local Ollama vs. a hosted API) is the teacher's
-  privacy decision.
+  backend lives (a local backend such as LocalAI vs. a hosted API) is
+  the teacher's privacy decision.
 
 ## Required teacher-facing disclosures
 

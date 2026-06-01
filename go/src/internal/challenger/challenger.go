@@ -27,11 +27,13 @@ const (
 )
 
 type Result struct {
-	Status    Status `json:"status"`
-	Reason    string `json:"reason,omitempty"`
-	Questions int    `json:"questions,omitempty"`
-	Words     int    `json:"words,omitempty"`
-	Needed    int    `json:"needed,omitempty"`
+	Status     Status `json:"status"`
+	Reason     string `json:"reason,omitempty"`
+	Questions  int    `json:"questions,omitempty"`
+	Words      int    `json:"words,omitempty"`
+	Needed     int    `json:"needed,omitempty"`
+	BankPath   string `json:"bank_path,omitempty"`
+	AutoSubmit bool   `json:"auto_submit,omitempty"`
 }
 
 // Dispatcher hands a generated bank straight to the running poll pipeline
@@ -44,36 +46,31 @@ type EventSink interface {
 	RecordGeneratorFailed(ctx context.Context, reason string)
 }
 
-// Service drives one session's auto-generation: it accumulates ASR
-// transcripts across intervals and produces a question bank once enough
-// speech has built up. Created per session.
+// Service re-reads the auto-generation config on every Generate so
+// mid-session edits take effect on the next interval without restart.
 type Service struct {
-	cfg        config.AutoGenerationConfig
-	asr        *ASRClient
-	llm        *LLMClient
-	producer   *Producer
-	review     *ReviewDir
+	cfg        *config.Config
 	dispatcher Dispatcher
 	sink       EventSink
 
 	mu          sync.Mutex
 	accumulator strings.Builder
 	words       int
+
+	asr    *ASRClient
+	llm    *LLMClient
+	prod   *Producer
+	review *ReviewPath
+	last   config.AutoGenerationConfig
+	have   bool
 }
 
-func New(cfg config.AutoGenerationConfig, dispatcher Dispatcher, sink EventSink) *Service {
-	s := &Service{
+func New(cfg *config.Config, dispatcher Dispatcher, sink EventSink) *Service {
+	return &Service{
 		cfg:        cfg,
-		asr:        NewASRClient(cfg.ASR, cfg.Language),
-		llm:        NewLLMClient(cfg.LLM),
 		dispatcher: dispatcher,
 		sink:       sink,
 	}
-	s.producer = NewProducer(s.llm, cfg.Language, cfg.ExtraRules)
-	if !cfg.AutoSubmit {
-		s.review = NewReviewDir(cfg.ReviewDir)
-	}
-	return s
 }
 
 func (s *Service) resetAccumulator() {
@@ -83,27 +80,61 @@ func (s *Service) resetAccumulator() {
 	s.words = 0
 }
 
-func (s *Service) ReviewDirPath() string {
-	if s.review == nil {
-		return ""
+func (s *Service) resolve() config.AutoGenerationConfig {
+	ag := s.cfg.Get().Challenges.AutoGeneration
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.have &&
+		s.last.ASR == ag.ASR &&
+		s.last.LLM == ag.LLM &&
+		s.last.Language == ag.Language &&
+		stringSliceEqual(s.last.ExtraRules, ag.ExtraRules) &&
+		s.last.ReviewDir == ag.ReviewDir &&
+		s.last.BankBasename == ag.BankBasename &&
+		s.last.AutoSubmit == ag.AutoSubmit {
+		return ag
 	}
-	return s.review.Dir()
+	s.asr = NewASRClient(ag.ASR, ag.Language)
+	s.llm = NewLLMClient(ag.LLM)
+	s.prod = NewProducer(s.llm, ag.Language, ag.ExtraRules)
+	if !ag.AutoSubmit {
+		s.review = NewReviewPath(ag.ReviewDir, ag.BankBasename)
+	} else {
+		s.review = nil
+	}
+	s.last = ag
+	s.have = true
+	return ag
 }
 
-func (s *Service) SweepReviewDir() error {
-	if s.review == nil {
-		return nil
+func stringSliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
 	}
-	return s.review.Sweep()
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
-// Generate runs one interval: transcribe the audio, append it to the running
-// transcript, and once enough words accumulate, ask the LLM for a bank and
-// either dispatch it (auto_submit) or write it to the review dir. Operational
-// outcomes (silence, ASR/LLM/dispatch failure) are folded into Result; a
-// non-nil error means a programming bug.
+// Generate runs one interval. Operational outcomes (silence, ASR/LLM/dispatch
+// failure, generation disabled) are folded into Result; a non-nil error means
+// a programming bug.
 func (s *Service) Generate(ctx context.Context, audio io.Reader, mime string) (Result, error) {
-	transcript, err := s.asr.Transcribe(ctx, audio, mime)
+	ag := s.resolve()
+	if !ag.Enabled {
+		// Drain so the client connection finishes cleanly.
+		_, _ = io.Copy(io.Discard, audio)
+		return Result{Status: StatusSkipped, Reason: "auto_generation_disabled"}, nil
+	}
+
+	s.mu.Lock()
+	asr, prod, review := s.asr, s.prod, s.review
+	s.mu.Unlock()
+
+	transcript, err := asr.Transcribe(ctx, audio, mime)
 	if err != nil {
 		s.failed(ctx, "asr_error", err)
 		return Result{Status: StatusFailed, Reason: "asr_error"}, nil
@@ -118,7 +149,7 @@ func (s *Service) Generate(ctx context.Context, audio io.Reader, mime string) (R
 			Status: StatusSkipped,
 			Reason: "silence_or_too_short",
 			Words:  buffered,
-			Needed: s.cfg.MinWordsPerQuestion,
+			Needed: ag.MinWordsPerQuestion,
 		}, nil
 	}
 
@@ -132,8 +163,8 @@ func (s *Service) Generate(ctx context.Context, audio io.Reader, mime string) (R
 	bufferedWords := s.words
 	s.mu.Unlock()
 
-	needed := s.cfg.MinWordsPerQuestion
-	n := min(bufferedWords/needed, s.cfg.MaxQuestionsPerPoll)
+	needed := ag.MinWordsPerQuestion
+	n := min(bufferedWords/needed, ag.MaxQuestionsPerPoll)
 	if n < 1 {
 		return Result{
 			Status: StatusSkipped,
@@ -143,7 +174,7 @@ func (s *Service) Generate(ctx context.Context, audio io.Reader, mime string) (R
 		}, nil
 	}
 
-	bank, err := s.producer.Generate(ctx, bufferedText, n)
+	bank, err := prod.Generate(ctx, bufferedText, n)
 	if err != nil {
 		s.failed(ctx, "llm_error", err)
 		return Result{Status: StatusFailed, Reason: "llm_error"}, nil
@@ -153,7 +184,8 @@ func (s *Service) Generate(ctx context.Context, audio io.Reader, mime string) (R
 		return Result{Status: StatusFailed, Reason: "llm_error"}, nil
 	}
 
-	if s.cfg.AutoSubmit {
+	result := Result{Status: StatusGenerated, Questions: len(bank.Questions), AutoSubmit: ag.AutoSubmit}
+	if ag.AutoSubmit {
 		if s.dispatcher == nil {
 			return Result{Status: StatusFailed, Reason: "dispatch_error"}, nil
 		}
@@ -162,14 +194,20 @@ func (s *Service) Generate(ctx context.Context, audio io.Reader, mime string) (R
 			return Result{Status: StatusFailed, Reason: "dispatch_error"}, nil
 		}
 	} else {
-		if _, err := s.review.Write(bank); err != nil {
+		if review == nil {
+			s.failed(ctx, "write_error", errors.New("review dir not configured"))
+			return Result{Status: StatusFailed, Reason: "write_error"}, nil
+		}
+		path, err := review.Write(bank)
+		if err != nil {
 			s.failed(ctx, "write_error", err)
 			return Result{Status: StatusFailed, Reason: "write_error"}, nil
 		}
+		result.BankPath = path
 	}
 
 	s.resetAccumulator()
-	return Result{Status: StatusGenerated, Questions: len(bank.Questions)}, nil
+	return result, nil
 }
 
 func (s *Service) failed(ctx context.Context, reason string, cause error) {

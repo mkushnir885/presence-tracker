@@ -89,6 +89,17 @@ templ ConfigEditor(data ConfigData, locale Locale) {
 					@intField(data, locale.T("config.auto_generation.min_words"), "challenges.auto_generation.min_words_per_question", data.V.Challenges.AutoGeneration.MinWordsPerQuestion, "challenges", "auto_generation", "min_words_per_question")
 					@intField(data, locale.T("config.auto_generation.max_questions"), "challenges.auto_generation.max_questions_per_poll", data.V.Challenges.AutoGeneration.MaxQuestionsPerPoll, "challenges", "auto_generation", "max_questions_per_poll")
 					@textField(data, "challenges.auto_generation.review_dir", locale.T("config.auto_generation.review_dir"), data.V.Challenges.AutoGeneration.ReviewDir, "challenges", "auto_generation", "review_dir")
+					@textField(data, "challenges.auto_generation.bank_basename", locale.T("config.auto_generation.bank_basename"), data.V.Challenges.AutoGeneration.BankBasename, "challenges", "auto_generation", "bank_basename")
+					<div class="text-muted" style="font-size:0.75rem;margin-top:-0.4rem;margin-bottom:0.25rem;">
+						{ locale.T("config.auto_generation.bank_basename.hint") }
+					</div>
+					<div class="config-warning" role="note" style="font-size:0.75rem;margin-bottom:0.5rem;">
+						{ locale.T("config.auto_generation.bank_basename.warn") }
+					</div>
+					@textField(data, "challenges.auto_generation.language", locale.T("config.auto_generation.language"), data.V.Challenges.AutoGeneration.Language, "challenges", "auto_generation", "language")
+					<div class="text-muted" style="font-size:0.75rem;margin-top:-0.4rem;margin-bottom:0.5rem;">
+						{ locale.T("config.auto_generation.language.hint") }
+					</div>
 					<h4>{ locale.T("config.auto_generation.asr") }</h4>
 					@textField(data, "challenges.auto_generation.asr.base_url", locale.T("config.auto_generation.base_url"), data.V.Challenges.AutoGeneration.ASR.BaseURL, "challenges", "auto_generation", "asr", "base_url")
 					@secretField(data, "challenges.auto_generation.asr.api_key", locale.T("config.auto_generation.api_key"), locale.T("config.secret_hint"), "challenges", "auto_generation", "asr", "api_key")

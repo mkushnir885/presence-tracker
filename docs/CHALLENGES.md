@@ -248,11 +248,12 @@ fresh batch of questions.
 
 Both inference paths — ASR and LLM — go out over **OpenAI-compatible
 HTTP**. The challenger holds no model weights itself; it speaks to a
-configured backend that does. The default backend is a local **Ollama**
-daemon (which exposes `/v1/chat/completions` and
-`/v1/audio/transcriptions`); hosted backends (OpenAI, Gemini, any
-self-hosted gateway) are interchangeable — base URL, API key, and model
-name come from config.
+configured backend that does. ptrack does not ship a default backend —
+the teacher configures base URL, API key, and model per side. A local
+**LocalAI** daemon is a convenient self-hosted choice (it exposes both
+`/v1/chat/completions` and `/v1/audio/transcriptions` from one process);
+hosted backends (OpenAI, Gemini, any self-hosted gateway) are
+interchangeable.
 
 The challenger:
 
@@ -346,24 +347,27 @@ configures a base URL, API key (optional for local), and model name
 per side; the LLM and ASR endpoints are independent and do not have to
 share a host.
 
-| Use case           | Default (local)            | Alt (hosted)                          |
-|--------------------|----------------------------|---------------------------------------|
-| Question generator | Ollama running Qwen 2.5 3B | OpenAI, Gemini, any OAI-compat gateway |
-| ASR                | Ollama running Whisper     | OpenAI Whisper API                    |
+| Use case           | Self-hosted example                 | Hosted alternatives                    |
+|--------------------|-------------------------------------|----------------------------------------|
+| Question generator | LocalAI running a small chat model  | OpenAI, Gemini, any OAI-compat gateway |
+| ASR                | LocalAI running a Whisper model     | OpenAI Whisper API                     |
 
-If the chosen backend does not expose `/v1/audio/transcriptions`, point
-`asr.base_url` at one that does (a small Whisper-server sidecar suffices).
+ptrack does not ship default base URLs or model names. The teacher
+picks the backend and fills both fields in config. If the chosen LLM
+backend does not expose `/v1/audio/transcriptions`, point `asr.base_url`
+at one that does (e.g. a separate Whisper-only sidecar).
 
 See `@docs/CONFIG.md` for configuration keys.
 
 ### Resource lifecycle
 
 There are no resident models inside `ptrack`. The chosen backend
-(Ollama, hosted API) owns model weights, GPU memory, and warm-up — the
-challenger is just an HTTP client. Practical consequences:
+(LocalAI, hosted API, ...) owns model weights, GPU memory, and warm-up
+— the challenger is just an HTTP client. Practical consequences:
 
 - **No "Free models" button.** Memory management belongs to the chosen
-  backend (e.g. `ollama stop <model>`).
+  backend (e.g. LocalAI's single-active-backend mode for swap-on-demand,
+  or the backend's own unload command).
 - **No preload step inside `ptrack`.** The first generation pays
   whatever cold-start the backend has; subsequent ones reuse whatever
   it kept warm.

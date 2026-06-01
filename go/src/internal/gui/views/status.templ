@@ -36,10 +36,15 @@ templ Status(data StatusData, locale Locale) {
 				@StatusBodyInner(data, locale)
 			</div>
 		</div>
-		if data.AutoGenEnabled {
-			<div id="audio-state" hx-preserve="true" data-poll-interval={ strconv.Itoa(data.AutoGenIntervalS) } hidden></div>
-			<script src="/assets/audio.js" defer></script>
-		}
+		<div
+			id="audio-state"
+			hx-preserve="true"
+			data-poll-interval={ strconv.Itoa(data.AutoGenIntervalS) }
+			data-notify-title={ locale.T("status.audio.notify_title") }
+			data-notify-body={ locale.T("status.audio.notify_body") }
+			hidden
+		></div>
+		<script src="/assets/challenger.js" defer></script>
 		<script src="/assets/live_status.js" defer></script>
 	}
 }
@@ -131,8 +136,11 @@ templ timeStamp(t time.Time, fmtKey string) {
 }
 
 // hx-preserve keeps this card across body swaps so the live MediaStream and
-// recorder set up by audio.js survive the waiting→live transition.
+// recorder set up by challenger.js survive the waiting→live transition.
 templ audioControl(locale Locale) {
+	<div class="audio-tab-warning" role="note">
+		{ locale.T("status.audio.tab_warning") }
+	</div>
 	<div id="audio-card" class="card audio-card" hx-preserve="true">
 		<div class="audio-row">
 			<button
@@ -157,7 +165,11 @@ templ audioControl(locale Locale) {
 				>
 					@iconChevronDown()
 				</summary>
-				<ul class="menu-list audio-device-list" id="audio-device-list">
+				<ul
+					class="menu-list audio-device-list"
+					id="audio-device-list"
+					data-empty-label={ locale.T("status.audio.no_devices") }
+				>
 					<li class="menu-empty text-muted">{ locale.T("status.audio.no_devices") }</li>
 				</ul>
 			</details>
@@ -172,23 +184,13 @@ templ autoGenDisabledCard(locale Locale) {
 	</div>
 }
 
-templ GenerateNowButton(pending *PendingBank, locale Locale) {
-	if pending == nil {
-		<button type="button" class="btn btn-primary poll-generate-btn" disabled data-tooltip={ locale.T("status.poll.auto_empty") }>
-			<span>{ locale.T("status.poll.generate_now") }</span>
-			<span class="poll-generate-suffix">{ locale.T("status.poll.generate_now_suffix") }</span>
-		</button>
-	} else {
-		<button
-			type="button"
-			class="btn btn-primary poll-generate-btn"
-			data-tooltip={ pending.Name }
-			onclick={ dispatchPendingScript(pending.Path) }
-		>
-			<span>{ locale.T("status.poll.generate_now") }</span>
-			<span class="poll-generate-suffix">{ locale.T("status.poll.generate_now_suffix") }</span>
-		</button>
-	}
+// Rendered disabled; live_status.js enables it on the `ptrack:generated`
+// event fired by challenger.js when a new pending bank is written.
+templ GenerateNowButton(locale Locale) {
+	<button type="button" class="btn btn-primary poll-generate-btn" disabled>
+		<span>{ locale.T("status.poll.generate_now") }</span>
+		<span class="poll-generate-suffix">{ locale.T("status.poll.generate_now_suffix") }</span>
+	</button>
 }
 
 templ pollCard(data StatusData, locale Locale) {
@@ -210,8 +212,8 @@ templ pollCard(data StatusData, locale Locale) {
 		</form>
 		if data.AutoGenEnabled {
 			<div class="poll-or" aria-hidden="true">{ locale.T("status.poll.or") }</div>
-			<div id="generate-now-wrap" data-sse="pending">
-				@GenerateNowButton(data.PendingBank, locale)
+			<div id="generate-now-wrap">
+				@GenerateNowButton(locale)
 			</div>
 		}
 	</div>
@@ -260,26 +262,6 @@ func unregisteredNames(items []session.UnregisteredStatus) []string {
 		out = append(out, it.DisplayName)
 	}
 	return out
-}
-
-script dispatchPendingScript(path string) {
-	const fb = document.getElementById('poll-feedback');
-	fetch('/poll', {
-		method: 'POST',
-		headers: {'Content-Type': 'application/json'},
-		body: JSON.stringify({auto_submitted: false, bank_path: path}),
-	}).then(async r => {
-		const body = await r.json().catch(() => ({}));
-		if (!fb) return;
-		if (r.ok) {
-			fb.textContent = 'scheduled ' + (body.scheduled_count ?? 0)
-				+ (body.skipped_count ? ' (skipped ' + body.skipped_count + ')' : '');
-		} else {
-			fb.textContent = 'error: ' + (body.error || r.status);
-		}
-	}).catch(err => {
-		if (fb) fb.textContent = 'error: ' + err;
-	});
 }
 
 templ iconMic() {

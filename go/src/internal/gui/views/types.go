@@ -96,13 +96,6 @@ type StatusData struct {
 	AutoGenEnabled    bool
 	AutoGenAutoSubmit bool
 	AutoGenIntervalS  int
-	PendingBank       *PendingBank
-}
-
-type PendingBank struct {
-	Path    string
-	Name    string
-	ModTime time.Time
 }
 
 type LogEntry struct {

@@ -142,6 +142,39 @@
 			ev.preventDefault();
 			submitPoll();
 		}
+		const genBtn = target.closest(".poll-generate-btn");
+		if (genBtn && !genBtn.disabled) {
+			ev.preventDefault();
+			dispatchPending(genBtn);
+		}
+	});
+
+	// Disable on click regardless of dispatch outcome; failures fall back
+	// to the manual upload card and the next generated bank re-enables.
+	async function dispatchPending(btn) {
+		const path = btn.dataset.bankPath;
+		if (!path) return;
+		btn.disabled = true;
+		delete btn.dataset.bankPath;
+		try {
+			await fetch("/poll", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ auto_submitted: false, bank_path: path }),
+			});
+		} catch (_) {
+			/* errors surface in the system log */
+		}
+	}
+
+	// challenger.js fires this when the challenger writes a new pending bank.
+	document.body.addEventListener("ptrack:generated", (ev) => {
+		const path = ev.detail && ev.detail.path;
+		if (!path) return;
+		document.querySelectorAll(".poll-generate-btn").forEach((btn) => {
+			btn.dataset.bankPath = path;
+			btn.disabled = false;
+		});
 	});
 
 	document.addEventListener("change", (ev) => {
@@ -187,7 +220,6 @@
 		es.addEventListener("started", swap("started"));
 		es.addEventListener("roster", swap("roster"));
 		es.addEventListener("log", swap("log"));
-		es.addEventListener("pending", swap("pending"));
 		// body replaces the whole status body on the waiting→live transition;
 		// re-fire htmx:afterSettle so the Audio card re-initialises.
 		es.addEventListener("body", (ev) => {

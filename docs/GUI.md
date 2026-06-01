@@ -37,8 +37,6 @@ Rendered server-side with templ; interactive bits use htmx.
 | `DELETE /registry`                                   | Clear all registry entries (pairing data only; Parquet files untouched)        |
 | `POST /poll`                                         | Trigger a poll on the active session (body: `{type, bank_path}`); 409 if none  |
 | `PATCH /poll/config`                                 | Update auto-generation poll config mid-meeting                                 |
-| `GET /poll/pending`                                  | htmx fragment: pending auto-generated YAML (file path, timestamp) or empty     |
-| `GET /poll/pending/preview`                          | Return the pending YAML's contents for inline preview / edit                   |
 | `GET /questions/{id}`                                | Return question text for a marker hover tooltip (reads from `.jsonl`)          |
 | `POST /audio/stream`                                 | WebSocket upgrade; browser pushes PCM/Opus frames captured via `getUserMedia`  |
 | `POST /system/shutdown`                              | Stop the active session, drain the in-process challenger, close all listeners  |
@@ -135,15 +133,15 @@ menu with two options:
   the chosen YAML, and on confirmation submits
   `POST /poll` with `{"auto_submitted": false, "bank_path": "<chosen>"}`.
   Equivalent to running `ptrack poll <bank>` from a shell.
-- **Auto-generated** is enabled only when `GET /poll/pending` returns a
-  non-empty file. The label shows the file's age. Clicking it submits
-  `POST /poll` with
-  `{"auto_submitted": false, "bank_path": "<pending-file>"}` (the
-  teacher reviewed the bank). A small **[view]** affordance next to
-  the option opens the YAML in a modal for inline preview/edit before
-  submission (backed by `GET /poll/pending/preview`); the edited copy
-  is saved back to the same path before the poll is dispatched. On
-  successful submission the file is removed from `review_dir`.
+- **Auto-generated** stays disabled until the in-process challenger
+  writes a fresh bank to `review_dir`. The browser-side audio capture
+  reports the generation result back to the page, which dispatches a
+  `ptrack:generated` DOM event carrying the bank path. The button is
+  enabled with that path; clicking it submits `POST /poll` with
+  `{"auto_submitted": false, "bank_path": "<pending-file>"}`. After a
+  successful submission the button returns to its disabled state until
+  the challenger produces the next bank. There is no inline preview;
+  the YAML lives on disk and can be opened in the teacher's editor.
 
 If auto-generation is configured with `auto_submit: true`, the
 in-process challenger dispatches its own polls (with
@@ -204,8 +202,8 @@ expose one button:
 
 There is no "Free models" button: ptrack holds no model weights of its
 own, so there is nothing in-process to free. The external ASR/LLM
-backend (e.g. Ollama) manages its own memory; stopping a model there
-is done outside the GUI (`ollama stop <model>`).
+backend (e.g. LocalAI) manages its own memory; stopping a model there
+is done outside the GUI through the backend's own controls.
 
 Closing the browser tab on its own does **not** shut anything down —
 the daemon keeps running and a new tab reconnects to the same session

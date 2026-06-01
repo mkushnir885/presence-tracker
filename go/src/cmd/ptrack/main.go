@@ -295,25 +295,16 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 	}
 
 	sessCfg := session.Config{
-		MeetingID:                   internalMeetingID,
-		PlatformMeetingID:           meetingID,
-		MeetingsDir:                 v.MeetingsDir,
-		ProviderName:                prov.Name(),
-		AnswerWindowSecs:            v.Challenges.Defaults.AnswerWindowSeconds,
-		MinGapBetweenChallengesSecs: v.Challenges.Defaults.MinGapBetweenChallengesSecs,
+		MeetingID:         internalMeetingID,
+		PlatformMeetingID: meetingID,
+		ProviderName:      prov.Name(),
 	}
 
-	coord := session.New(sessCfg, prov, msgr, registry, store)
+	coord := session.New(sessCfg, cfg, prov, msgr, registry, store)
 	router.SetHandler(coord)
 	defer router.SetHandler(nil)
 
-	var chSvc *challenger.Service
-	if ag := v.Challenges.AutoGeneration; ag.Enabled {
-		chSvc = challenger.New(ag, coord, coord)
-		if err := chSvc.SweepReviewDir(); err != nil {
-			slog.Warn("track: sweep review_dir", "err", err)
-		}
-	}
+	chSvc := challenger.New(cfg, coord, coord)
 
 	mux := http.NewServeMux()
 	mountPollHandler(mux, func() *session.Coordinator { return coord })
@@ -430,8 +421,6 @@ func mountReloadHandler(mux *http.ServeMux, cfg *config.Config) {
 // audioBodyLimit caps one /audio/segment upload (~30 min of Opus).
 const audioBodyLimit = 64 << 20
 
-// mountAudioHandler mounts POST /audio/segment: the browser posts one audio
-// blob per interval and the challenger runs ASR (+ optional LLM) in-process.
 func mountAudioHandler(mux *http.ServeMux, challengerFn func() *challenger.Service) {
 	mux.HandleFunc("POST /audio/segment", func(w http.ResponseWriter, r *http.Request) {
 		svc := challengerFn()
@@ -448,8 +437,19 @@ func mountAudioHandler(mux *http.ServeMux, challengerFn func() *challenger.Servi
 
 		result, err := svc.Generate(r.Context(), body, mime)
 		if err != nil {
+			slog.Warn("audio: segment processing failed", "err", err)
 			writePollError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		switch result.Status {
+		case challenger.StatusGenerated:
+			slog.Info("audio: bank generated",
+				"questions", result.Questions, "auto_submit", result.AutoSubmit)
+		case challenger.StatusSkipped:
+			slog.Info("audio: segment skipped",
+				"reason", result.Reason, "words", result.Words, "needed", result.Needed)
+		case challenger.StatusFailed:
+			slog.Warn("audio: generation failed", "reason", result.Reason)
 		}
 		writePollJSON(w, http.StatusOK, result)
 	})

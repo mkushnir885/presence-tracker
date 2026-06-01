@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +15,25 @@ import (
 	"presence-tracker/src/internal/challenges"
 	"presence-tracker/src/internal/config"
 )
+
+func autoGenCfg(t *testing.T, ag config.AutoGenerationConfig) *config.Config {
+	t.Helper()
+	body, err := json.Marshal(map[string]any{
+		"challenges": map[string]any{"auto_generation": ag},
+	})
+	if err != nil {
+		t.Fatalf("marshal seed config: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatalf("write seed config: %v", err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load seed config: %v", err)
+	}
+	return cfg
+}
 
 type fakeDispatcher struct {
 	mu            sync.Mutex
@@ -69,7 +90,7 @@ func TestGenerateDispatchesOnAutoSubmit(t *testing.T) {
 
 	disp := &fakeDispatcher{}
 	sink := &fakeSink{}
-	svc := New(config.AutoGenerationConfig{
+	svc := New(autoGenCfg(t, config.AutoGenerationConfig{
 		Enabled:             true,
 		AutoSubmit:          true,
 		PollIntervalSeconds: 30,
@@ -77,7 +98,7 @@ func TestGenerateDispatchesOnAutoSubmit(t *testing.T) {
 		MaxQuestionsPerPoll: 5,
 		ASR:                 config.AIBackendConfig{BaseURL: asrURL, Model: "whisper"},
 		LLM:                 config.AIBackendConfig{BaseURL: llmURL, Model: "qwen"},
-	}, disp, sink)
+	}), disp, sink)
 
 	res, err := svc.Generate(context.Background(), strings.NewReader("audio"), "audio/webm")
 	if err != nil {
@@ -99,14 +120,14 @@ func TestGenerateDispatchesOnAutoSubmit(t *testing.T) {
 
 func TestGenerateSilenceSkips(t *testing.T) {
 	asrURL, llmURL := newFakeBackends(t, "hi ok bye", "")
-	svc := New(config.AutoGenerationConfig{
+	svc := New(autoGenCfg(t, config.AutoGenerationConfig{
 		Enabled:             true,
 		AutoSubmit:          true,
 		MinWordsPerQuestion: 30,
 		MaxQuestionsPerPoll: 5,
 		ASR:                 config.AIBackendConfig{BaseURL: asrURL},
 		LLM:                 config.AIBackendConfig{BaseURL: llmURL},
-	}, &fakeDispatcher{}, &fakeSink{})
+	}), &fakeDispatcher{}, &fakeSink{})
 	res, err := svc.Generate(context.Background(), strings.NewReader("x"), "audio/webm")
 	if err != nil {
 		t.Fatal(err)
@@ -118,14 +139,14 @@ func TestGenerateSilenceSkips(t *testing.T) {
 
 func TestGenerateBelowThresholdHolds(t *testing.T) {
 	asrURL, llmURL := newFakeBackends(t, "five six seven eight nine ten", "")
-	svc := New(config.AutoGenerationConfig{
+	svc := New(autoGenCfg(t, config.AutoGenerationConfig{
 		Enabled:             true,
 		AutoSubmit:          true,
 		MinWordsPerQuestion: 30,
 		MaxQuestionsPerPoll: 5,
 		ASR:                 config.AIBackendConfig{BaseURL: asrURL},
 		LLM:                 config.AIBackendConfig{BaseURL: llmURL},
-	}, &fakeDispatcher{}, &fakeSink{})
+	}), &fakeDispatcher{}, &fakeSink{})
 	res, err := svc.Generate(context.Background(), strings.NewReader("x"), "audio/webm")
 	if err != nil {
 		t.Fatal(err)
@@ -152,14 +173,14 @@ func TestGenerateLLMFailureKeepsAccumulator(t *testing.T) {
 	t.Cleanup(llm.Close)
 
 	sink := &fakeSink{}
-	svc := New(config.AutoGenerationConfig{
+	svc := New(autoGenCfg(t, config.AutoGenerationConfig{
 		Enabled:             true,
 		AutoSubmit:          true,
 		MinWordsPerQuestion: 30,
 		MaxQuestionsPerPoll: 5,
 		ASR:                 config.AIBackendConfig{BaseURL: asr.URL},
 		LLM:                 config.AIBackendConfig{BaseURL: llm.URL},
-	}, &fakeDispatcher{}, sink)
+	}), &fakeDispatcher{}, sink)
 
 	res, err := svc.Generate(context.Background(), strings.NewReader("x"), "audio/webm")
 	if err != nil {
@@ -179,15 +200,16 @@ func TestGenerateLLMFailureKeepsAccumulator(t *testing.T) {
 func TestGenerateReviewDirOnNoAutoSubmit(t *testing.T) {
 	asrURL, llmURL := newFakeBackends(t, strings.Repeat("alpha beta gamma delta epsilon ", 20), validYAML)
 	dir := t.TempDir()
-	svc := New(config.AutoGenerationConfig{
+	svc := New(autoGenCfg(t, config.AutoGenerationConfig{
 		Enabled:             true,
 		AutoSubmit:          false,
 		MinWordsPerQuestion: 30,
 		MaxQuestionsPerPoll: 5,
 		ReviewDir:           dir,
+		BankBasename:        "generated",
 		ASR:                 config.AIBackendConfig{BaseURL: asrURL},
 		LLM:                 config.AIBackendConfig{BaseURL: llmURL},
-	}, &fakeDispatcher{}, &fakeSink{})
+	}), &fakeDispatcher{}, &fakeSink{})
 
 	res, err := svc.Generate(context.Background(), strings.NewReader("x"), "audio/webm")
 	if err != nil {
@@ -196,11 +218,7 @@ func TestGenerateReviewDirOnNoAutoSubmit(t *testing.T) {
 	if res.Status != StatusGenerated {
 		t.Fatalf("status=%v reason=%v", res.Status, res.Reason)
 	}
-	entries, err := svc.review.List()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 {
-		t.Errorf("expected one pending bank, got %d", len(entries))
+	if _, err := os.Stat(svc.review.FilePath()); err != nil {
+		t.Fatalf("expected pending bank on disk: %v", err)
 	}
 }
