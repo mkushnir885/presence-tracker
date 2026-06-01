@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"presence-tracker/src/internal/config"
-	providersoauth "presence-tracker/src/internal/providers/oauth"
-
 	"presence-tracker/src/internal/providers"
+	providersoauth "presence-tracker/src/internal/providers/oauth"
+	"presence-tracker/src/internal/providers/polling"
 )
 
 const (
@@ -114,7 +114,13 @@ func (a *Adapter) Subscribe(ctx context.Context, meetingID string) (<-chan provi
 	}
 	slog.Info("meet: resolved meeting space", "space", spaceName)
 
-	go a.pollLoop(ctx, spaceName)
+	loop := &polling.Loop{
+		Name:     "meet",
+		Interval: time.Duration(a.cfg.Get().Providers.Meet.PollIntervalSeconds) * time.Second,
+		Fetch:    a.newFetcher(spaceName),
+		Events:   a.events,
+	}
+	go loop.Run(ctx)
 	return a.events, nil
 }
 
@@ -147,109 +153,48 @@ func (a *Adapter) resolveSpace(ctx context.Context, meetingID string) (string, e
 	return space.Name, nil
 }
 
-func (a *Adapter) pollLoop(ctx context.Context, spaceName string) {
-	defer close(a.events)
-
-	interval := time.Duration(a.cfg.Get().Providers.Meet.PollIntervalSeconds) * time.Second
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	activeParticipants := map[string]string{}
+func (a *Adapter) newFetcher(spaceName string) polling.Fetcher {
 	var currentRecord string
-	observedNoRecord := false
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-
+	var recordStart time.Time
+	return func(ctx context.Context) (polling.Snapshot, error) {
 		if currentRecord == "" {
 			record, startTime, err := a.findActiveRecord(ctx, spaceName)
 			if err != nil {
-				slog.Warn("meet: poll: find active record", "err", err)
-				continue
+				return polling.Snapshot{}, fmt.Errorf("find active record: %w", err)
 			}
 			if record == "" {
-				observedNoRecord = true
-				continue
+				return polling.Snapshot{}, nil
 			}
 			currentRecord = record
-			midMeeting := !observedNoRecord
-			if midMeeting || startTime.IsZero() {
-				startTime = time.Now().UTC()
-			}
-			slog.Info("meet: meeting started", "record", currentRecord, "start_time", startTime, "mid_meeting", midMeeting)
-			a.send(ctx, providers.Event{
-				Kind:              providers.EventKindMeetingStarted,
-				MeetingID:         spaceName,
-				Timestamp:         startTime,
-				MeetingInProgress: midMeeting,
-			})
+			recordStart = startTime
+			slog.Info("meet: meeting started", "record", currentRecord, "start_time", startTime)
 		}
 
 		participants, err := a.listParticipants(ctx, currentRecord)
 		if err != nil {
-			slog.Warn("meet: poll: list participants", "err", err)
-			continue
+			return polling.Snapshot{}, fmt.Errorf("list participants: %w", err)
 		}
-
-		currentIDs := map[string]struct{}{}
-		for _, p := range participants {
-			currentIDs[p.name] = struct{}{}
-			if _, seen := activeParticipants[p.name]; !seen {
-				activeParticipants[p.name] = p.displayName
-				a.send(ctx, providers.Event{
-					Kind:        providers.EventKindParticipantJoined,
-					MeetingID:   spaceName,
-					PlatformID:  p.name,
-					DisplayName: p.displayName,
-					Timestamp:   p.joinTime,
-				})
-			}
-		}
-
-		for id, name := range activeParticipants {
-			if _, present := currentIDs[id]; !present {
-				delete(activeParticipants, id)
-				a.send(ctx, providers.Event{
-					Kind:        providers.EventKindParticipantLeft,
-					MeetingID:   spaceName,
-					PlatformID:  id,
-					DisplayName: name,
-					Timestamp:   time.Now().UTC(),
-				})
-			}
-		}
-
 		endTime, ended, err := a.recordEndTime(ctx, currentRecord)
 		if err != nil {
-			slog.Warn("meet: poll: check record end", "err", err)
-			continue
+			return polling.Snapshot{}, fmt.Errorf("check record end: %w", err)
+		}
+
+		snap := polling.Snapshot{
+			Live:             !ended,
+			MeetingStartedAt: recordStart,
+		}
+		for _, p := range participants {
+			snap.Participants = append(snap.Participants, polling.Participant{
+				ID:          p.name,
+				DisplayName: p.displayName,
+				JoinedAt:    p.joinTime,
+			})
 		}
 		if ended {
-			if endTime.IsZero() {
-				endTime = time.Now().UTC()
-			}
-
+			snap.MeetingEndedAt = endTime
 			slog.Info("meet: meeting ended", "record", currentRecord, "end_time", endTime)
-			a.send(ctx, providers.Event{
-				Kind:      providers.EventKindMeetingEnded,
-				MeetingID: spaceName,
-				Timestamp: endTime,
-			})
-			return
 		}
-	}
-}
-
-func (a *Adapter) send(ctx context.Context, evt providers.Event) {
-	select {
-	case a.events <- evt:
-	case <-ctx.Done():
-	default:
-		slog.Warn("meet: event channel full, dropping event", "kind", evt.Kind)
+		return snap, nil
 	}
 }
 

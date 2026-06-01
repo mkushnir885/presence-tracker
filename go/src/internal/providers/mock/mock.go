@@ -78,7 +78,6 @@ func (p *Provider) Subscribe(ctx context.Context, meetingID string) (<-chan prov
 			}
 			evt := providers.Event{
 				Kind:              providers.EventKind(fe.Kind),
-				MeetingID:         meetingID,
 				PlatformID:        fe.PlatformID,
 				DisplayName:       fe.DisplayName,
 				Timestamp:         start.Add(time.Duration(fe.OffsetMS) * time.Millisecond),

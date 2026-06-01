@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -15,6 +14,7 @@ import (
 	"presence-tracker/src/internal/config"
 	"presence-tracker/src/internal/providers"
 	providersoauth "presence-tracker/src/internal/providers/oauth"
+	"presence-tracker/src/internal/providers/polling"
 )
 
 const (
@@ -97,7 +97,13 @@ func (a *Adapter) Authenticate(ctx context.Context) error {
 }
 
 func (a *Adapter) Subscribe(ctx context.Context, meetingID string) (<-chan providers.Event, error) {
-	go a.pollLoop(ctx, meetingID)
+	loop := &polling.Loop{
+		Name:     "zoom",
+		Interval: time.Duration(a.cfg.Get().Providers.Zoom.PollIntervalSeconds) * time.Second,
+		Fetch:    a.newFetcher(meetingID),
+		Events:   a.events,
+	}
+	go loop.Run(ctx)
 	return a.events, nil
 }
 
@@ -108,97 +114,21 @@ type zoomParticipant struct {
 
 const zoomStatusInWaitingRoom = "in_waiting_room"
 
-func (a *Adapter) pollLoop(ctx context.Context, meetingID string) {
-	defer close(a.events)
-
-	interval := time.Duration(a.cfg.Get().Providers.Zoom.PollIntervalSeconds) * time.Second
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	state := pollState{
-		active: map[string]string{},
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if done := a.tick(ctx, meetingID, &state); done {
-				return
-			}
+func (a *Adapter) newFetcher(meetingID string) polling.Fetcher {
+	return func(ctx context.Context) (polling.Snapshot, error) {
+		participants, live, err := a.fetchParticipants(ctx, meetingID)
+		if err != nil {
+			return polling.Snapshot{}, err
 		}
-	}
-}
-
-type pollState struct {
-	active          map[string]string
-	meetingLive     bool
-	observedNotLive bool
-}
-
-func (a *Adapter) tick(ctx context.Context, meetingID string, state *pollState) bool {
-	participants, live, err := a.fetchParticipants(ctx, meetingID)
-	if err != nil {
-		slog.Warn("zoom: fetch participants", "err", err)
-		return false
-	}
-
-	if !state.meetingLive {
-		if !live {
-			state.observedNotLive = true
-		} else {
-			state.meetingLive = true
-			a.emit(providers.Event{
-				Kind:              providers.EventKindMeetingStarted,
-				MeetingID:         meetingID,
-				Timestamp:         time.Now().UTC(),
-				MeetingInProgress: !state.observedNotLive,
-			})
-		}
-	}
-
-	if state.meetingLive {
-		current := map[string]string{}
+		snap := polling.Snapshot{Live: live}
 		for _, p := range participants {
-			id := p.participantUUID
-			current[id] = p.name
-
-			if _, seen := state.active[id]; !seen {
-				a.emit(providers.Event{
-					Kind:        providers.EventKindParticipantJoined,
-					MeetingID:   meetingID,
-					PlatformID:  id,
-					DisplayName: p.name,
-					Timestamp:   time.Now().UTC(),
-				})
-				state.active[id] = p.name
-			}
-		}
-
-		for id := range state.active {
-			if _, ok := current[id]; !ok {
-				a.emit(providers.Event{
-					Kind:       providers.EventKindParticipantLeft,
-					MeetingID:  meetingID,
-					PlatformID: id,
-					Timestamp:  time.Now().UTC(),
-				})
-				delete(state.active, id)
-			}
-		}
-
-		if !live {
-			a.emit(providers.Event{
-				Kind:      providers.EventKindMeetingEnded,
-				MeetingID: meetingID,
-				Timestamp: time.Now().UTC(),
+			snap.Participants = append(snap.Participants, polling.Participant{
+				ID:          p.participantUUID,
+				DisplayName: p.name,
 			})
-			return true
 		}
+		return snap, nil
 	}
-
-	return false
 }
 
 func (a *Adapter) fetchParticipants(ctx context.Context, meetingID string) ([]zoomParticipant, bool, error) {
@@ -264,12 +194,4 @@ func (a *Adapter) fetchParticipants(ctx context.Context, meetingID string) ([]zo
 	}
 
 	return all, true, nil
-}
-
-func (a *Adapter) emit(evt providers.Event) {
-	select {
-	case a.events <- evt:
-	default:
-		slog.Warn("zoom: event channel full, dropping event", "kind", evt.Kind)
-	}
 }

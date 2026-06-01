@@ -16,6 +16,7 @@ import (
 
 	"presence-tracker/src/internal/config"
 	"presence-tracker/src/internal/providers"
+	"presence-tracker/src/internal/providers/polling"
 )
 
 type Adapter struct {
@@ -88,7 +89,13 @@ func (a *Adapter) Authenticate(ctx context.Context) error {
 }
 
 func (a *Adapter) Subscribe(ctx context.Context, meetingID string) (<-chan providers.Event, error) {
-	go a.pollLoop(ctx, meetingID)
+	loop := &polling.Loop{
+		Name:     "bbb",
+		Interval: time.Duration(a.cfg.Get().Providers.BBB.PollIntervalSeconds) * time.Second,
+		Fetch:    a.newFetcher(meetingID),
+		Events:   a.events,
+	}
+	go loop.Run(ctx)
 	return a.events, nil
 }
 
@@ -123,139 +130,52 @@ type bbbMeetingsResponse struct {
 	} `xml:"meetings"`
 }
 
-func (a *Adapter) pollLoop(ctx context.Context, meetingID string) {
-	defer close(a.events)
-
-	interval := time.Duration(a.cfg.Get().Providers.BBB.PollIntervalSeconds) * time.Second
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	state := pollState{
-		active:   map[string]string{},
-		input:    meetingID,
-		actualID: meetingID,
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if done := a.tick(ctx, &state); done {
-				return
-			}
-		}
-	}
-}
-
-type pollState struct {
-	// input is the original token; actualID is swapped to the resolved BBB
-	// meetingID on the first notFound that matches a Greenlight slug.
-	input    string
-	actualID string
-
-	active             map[string]string
-	meetingLive        bool
-	observedNotRunning bool
-}
-
-func (a *Adapter) tick(ctx context.Context, state *pollState) bool {
-	info, err := a.fetchMeetingInfo(ctx, state.actualID)
-	if err != nil {
-		slog.Warn("bbb: fetchMeetingInfo", "err", err)
-		return false
-	}
-
-	if info.ReturnCode != "SUCCESS" && !state.meetingLive {
-		resolved, rerr := a.resolveSlug(ctx, state.input)
-		if rerr != nil {
-			slog.Warn("bbb: resolve greenlight slug", "input", state.input, "err", rerr)
-			return false
-		}
-		if resolved == "" || resolved == state.actualID {
-			state.observedNotRunning = true
-			return false
-		}
-		slog.Info("bbb: resolved greenlight slug", "slug", state.input, "meeting_id", resolved)
-		state.actualID = resolved
-		info, err = a.fetchMeetingInfo(ctx, state.actualID)
+func (a *Adapter) newFetcher(input string) polling.Fetcher {
+	actualID := input
+	var sawLive bool
+	return func(ctx context.Context) (polling.Snapshot, error) {
+		info, err := a.fetchMeetingInfo(ctx, actualID)
 		if err != nil {
-			slog.Warn("bbb: fetchMeetingInfo", "err", err)
-			return false
+			return polling.Snapshot{}, err
 		}
-	}
 
-	meetingID := state.actualID
-	isRunning := info.ReturnCode == "SUCCESS" && info.Running
-
-	if !state.meetingLive {
-		if !isRunning {
-			state.observedNotRunning = true
-		} else {
-			state.meetingLive = true
-			// Seeing "running" without ever having seen "not running" means we
-			// attached after the meeting had already started.
-			midMeeting := !state.observedNotRunning
-			ts := time.Now().UTC()
-			if !midMeeting && info.StartTime > 0 {
-				ts = time.UnixMilli(info.StartTime).UTC()
+		if info.ReturnCode != "SUCCESS" && !sawLive {
+			resolved, rerr := a.resolveSlug(ctx, input)
+			if rerr != nil {
+				return polling.Snapshot{}, fmt.Errorf("resolve greenlight slug %q: %w", input, rerr)
 			}
-			a.emit(providers.Event{
-				Kind:              providers.EventKindMeetingStarted,
-				MeetingID:         meetingID,
-				Timestamp:         ts,
-				MeetingInProgress: midMeeting,
+			if resolved == "" || resolved == actualID {
+				return polling.Snapshot{}, nil
+			}
+			slog.Info("bbb: resolved greenlight slug", "slug", input, "meeting_id", resolved)
+			actualID = resolved
+			info, err = a.fetchMeetingInfo(ctx, actualID)
+			if err != nil {
+				return polling.Snapshot{}, err
+			}
+		}
+
+		live := info.ReturnCode == "SUCCESS" && info.Running
+		if live {
+			sawLive = true
+		}
+
+		snap := polling.Snapshot{Live: live}
+		if info.StartTime > 0 {
+			snap.MeetingStartedAt = time.UnixMilli(info.StartTime).UTC()
+		}
+		if info.EndTime > 0 {
+			snap.MeetingEndedAt = time.UnixMilli(info.EndTime).UTC()
+		}
+		for _, att := range info.Attendees.List {
+			snap.Participants = append(snap.Participants, polling.Participant{
+				ID:          att.UserID,
+				DisplayName: att.FullName,
+				Extra:       map[string]string{"role": att.Role},
 			})
 		}
+		return snap, nil
 	}
-
-	if state.meetingLive {
-		current := map[string]string{}
-		for _, att := range info.Attendees.List {
-			current[att.UserID] = att.FullName
-		}
-
-		for _, att := range info.Attendees.List {
-			if _, seen := state.active[att.UserID]; !seen {
-				a.emit(providers.Event{
-					Kind:        providers.EventKindParticipantJoined,
-					MeetingID:   meetingID,
-					PlatformID:  att.UserID,
-					DisplayName: att.FullName,
-					Timestamp:   time.Now().UTC(),
-					Extra:       map[string]string{"role": att.Role},
-				})
-				state.active[att.UserID] = att.FullName
-			}
-		}
-
-		for id := range state.active {
-			if _, ok := current[id]; !ok {
-				a.emit(providers.Event{
-					Kind:       providers.EventKindParticipantLeft,
-					MeetingID:  meetingID,
-					PlatformID: id,
-					Timestamp:  time.Now().UTC(),
-				})
-				delete(state.active, id)
-			}
-		}
-
-		if !isRunning {
-			ts := time.Now().UTC()
-			if info.EndTime > 0 {
-				ts = time.UnixMilli(info.EndTime).UTC()
-			}
-			a.emit(providers.Event{
-				Kind:      providers.EventKindMeetingEnded,
-				MeetingID: meetingID,
-				Timestamp: ts,
-			})
-			return true
-		}
-	}
-
-	return false
 }
 
 // resolveSlug returns "" with no error when no live meeting matches yet.
@@ -324,14 +244,6 @@ func (a *Adapter) fetchMeetingInfo(ctx context.Context, meetingID string) (bbbMe
 		return bbbMeetingInfoResponse{}, fmt.Errorf("decode XML: %w", err)
 	}
 	return info, nil
-}
-
-func (a *Adapter) emit(evt providers.Event) {
-	select {
-	case a.events <- evt:
-	default:
-		slog.Warn("bbb: event channel full, dropping event", "kind", evt.Kind)
-	}
 }
 
 func bbbAPIURL(baseURL, sharedSecret, action, params string) string {

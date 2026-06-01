@@ -16,7 +16,6 @@ const (
 
 type Event struct {
 	Kind        EventKind
-	MeetingID   string
 	PlatformID  string
 	DisplayName string
 	Timestamp   time.Time
