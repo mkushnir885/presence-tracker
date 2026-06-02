@@ -20,6 +20,19 @@ class LoadError(Exception):
     pass
 
 
+class IncompleteMeetingError(Exception):
+    """Raised when a meeting's events.parquet has no session_ended event yet —
+    treating the last observed timestamp as the meeting end would mislead.
+    """
+
+    def __init__(self, path: str) -> None:
+        super().__init__(
+            f"{path}: meeting is still in progress (no session_ended event); "
+            "stop the tracking session and try again."
+        )
+        self.path = path
+
+
 def scan_events(path: str | Path) -> pl.LazyFrame:
     """Lazy-scan one events.parquet with the canonical event schema applied."""
     return pl.scan_parquet(str(path), schema=pl.Schema(EVENT_SCHEMA))
@@ -70,6 +83,33 @@ def load_events(meeting_dirs: Iterable[Path | str]) -> pl.LazyFrame:
     if not frames:
         raise LoadError("no meeting directories given")
     return pl.concat(frames)
+
+
+def ensure_session_ended(path: str | Path) -> None:
+    """Raise IncompleteMeetingError if *path* has no session_ended event."""
+    df = collect_df(
+        scan_events(path)
+        .filter(pl.col("event_type") == "session_ended")
+        .select(pl.len())
+    )
+    if int(df.item()) == 0:
+        raise IncompleteMeetingError(str(path))
+
+
+def load_meetings(
+    *patterns: str,
+    validate: bool = True,
+) -> tuple[list[Path], pl.LazyFrame]:
+    """Resolve *patterns*, load their events, and (by default) reject any
+    meeting still in progress. Returns (resolved_dirs, lazy_events).
+
+    Pass validate=False to peek at a live session from a notebook.
+    """
+    dirs = resolve_meetings(*patterns)
+    if validate:
+        for d in dirs:
+            ensure_session_ended(d / EVENTS_FILE)
+    return dirs, load_events(dirs)
 
 
 def meeting_source_dirs(meeting_dirs: Iterable[Path | str]) -> dict[str, str]:
