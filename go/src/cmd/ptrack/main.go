@@ -108,8 +108,9 @@ func trackCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&cfgPath, "config", "", "path to config.json (default: search standard locations)")
 	cmd.Flags().StringVar(&providerName, "provider", "bbb", "video-conferencing provider (bbb, meet, zoom)")
-	cmd.Flags().StringVar(&meetingID, "meeting", "", "meeting ID (required when not using --fixture)")
+	cmd.Flags().StringVar(&meetingID, "meeting", "", "meeting ID")
 	cmd.Flags().StringVar(&fixture, "fixture", "", "path to a recorded fixture directory for offline replay")
+	_ = cmd.Flags().MarkHidden("fixture")
 	cmd.Flags().IntVar(&port, "port", 0, "control-plane port; overrides gui.port from config")
 
 	return cmd
@@ -174,7 +175,7 @@ func runReload(ctx context.Context, cfgPath, serverURL string, port int) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("reload rejected (HTTP %d): %s", resp.StatusCode, bytes.TrimSpace(body))
 	}
 	_, _ = fmt.Fprintln(os.Stdout, "config reloaded")
@@ -232,7 +233,7 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 			meetingID = "fixture"
 		}
 	} else if meetingID == "" {
-		return fmt.Errorf("--meeting is required (or use --fixture for offline replay)")
+		return fmt.Errorf("--meeting is required")
 	}
 
 	prov, err := buildProvider(providerName, fixture, cfg)
@@ -321,7 +322,10 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 
 	slog.Info("tracking started", "meeting_id", internalMeetingID, "platform_meeting", meetingID, "provider", prov.Name(), "control_port", bindPort)
 
-	return coord.Run(ctx)
+	if err := coord.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
+	return nil
 }
 
 // runHTTPServer serves mux until ctx is cancelled. beforeShutdown, if set,
