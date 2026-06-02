@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 
 	"presence-tracker/src/internal/challenger"
+	"presence-tracker/src/internal/challenges"
 	"presence-tracker/src/internal/config"
 	"presence-tracker/src/internal/eventstore"
 	"presence-tracker/src/internal/gui/views"
@@ -100,6 +101,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /config", s.handleSaveConfig)
 	mux.HandleFunc("POST /system/shutdown", s.handleShutdown)
 	mux.HandleFunc("GET /events", s.handleEvents)
+	mux.HandleFunc("POST /poll/pending", s.handlePendingPoll)
 }
 
 func (s *Server) Coord() *session.Coordinator {
@@ -544,6 +546,39 @@ func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handlePendingPoll(w http.ResponseWriter, r *http.Request) {
+	svc, coord := s.Challenger(), s.Coord()
+	if svc == nil || coord == nil {
+		http.Error(w, "no active session", http.StatusConflict)
+		return
+	}
+	path := svc.PendingBankPath()
+	if path == "" {
+		http.Error(w, "no pending bank", http.StatusConflict)
+		return
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		http.Error(w, "read pending bank: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	bank, err := challenges.Parse(raw)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	result, err := coord.RunPollBank(r.Context(), bank, false)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{ //nolint:errchkjson // map with string/any values cannot fail
+		"poll_id":         result.PollID,
+		"scheduled_count": result.ScheduledCount,
+		"skipped_count":   result.SkippedCount,
+	})
+}
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	_, names, err := s.collectMeetingDirs(r)

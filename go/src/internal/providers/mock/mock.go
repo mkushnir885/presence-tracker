@@ -34,12 +34,14 @@ func (p *Provider) ParseMeetingID(input string) (string, error) {
 }
 
 // Subscribe replays the provider entries from the shared fixture, emitting
-// each at its scheduled time.
+// each at its scheduled time. Poll entries are handled in a sibling goroutine
+// via ReplayPolls so they don't stall the provider event loop.
 func (p *Provider) Subscribe(ctx context.Context, meetingID string) (<-chan providers.Event, error) {
 	p.meetingID = meetingID
 	ch := make(chan providers.Event, 16)
 	go func() {
 		defer close(ch)
+		go p.fixture.ReplayPolls(ctx)
 		for _, e := range p.fixture.Entries() {
 			kind, ok := providerKind(e.Kind)
 			if !ok {

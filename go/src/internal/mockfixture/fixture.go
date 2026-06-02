@@ -2,9 +2,13 @@ package mockfixture
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
 	"os"
 	"sort"
 	"sync"
@@ -22,6 +26,9 @@ const (
 	KindRegistration     = "registration"
 	KindJoinConfirmation = "join_confirmation"
 	KindAnswerReceived   = "answer_received"
+
+	// KindPoll triggers a POST /poll to the daemon at the scheduled offset.
+	KindPoll = "poll"
 )
 
 // Entry is one fixture line. Which fields are populated depends on Kind;
@@ -41,6 +48,10 @@ type Entry struct {
 	ChallengeID string   `json:"challenge_id,omitempty"`
 	Answer      string   `json:"answer,omitempty"`
 	Selected    []string `json:"selected,omitempty"`
+
+	// poll-kind fields
+	Bank             string   `json:"bank,omitempty"`
+	DeliveryFailures []string `json:"delivery_failures,omitempty"`
 }
 
 // Fixture is a sorted set of entries plus the shared replay clock.
@@ -52,6 +63,12 @@ type Fixture struct {
 
 	armOnce sync.Once
 	start   time.Time
+
+	addrMu     sync.RWMutex
+	daemonAddr string
+
+	failMu  sync.Mutex
+	failSet map[string]bool
 }
 
 func Load(path string) (*Fixture, error) {
@@ -133,4 +150,80 @@ func (f *Fixture) EventTime(offsetMS int64) time.Time {
 		return f.start
 	}
 	return f.start.Add(time.Duration(float64(offsetMS) / f.speed * float64(time.Millisecond)))
+}
+
+func (f *Fixture) SetDaemonAddr(addr string) {
+	f.addrMu.Lock()
+	f.daemonAddr = addr
+	f.addrMu.Unlock()
+}
+
+func (f *Fixture) DaemonAddr() string {
+	f.addrMu.RLock()
+	defer f.addrMu.RUnlock()
+	return f.daemonAddr
+}
+
+// SetDeliveryFailures marks the given handles to fail on the next SendChallenge
+// call. The set is consumed handle-by-handle via TakeDeliveryFailure.
+func (f *Fixture) SetDeliveryFailures(handles []string) {
+	f.failMu.Lock()
+	f.failSet = make(map[string]bool, len(handles))
+	for _, h := range handles {
+		f.failSet[h] = true
+	}
+	f.failMu.Unlock()
+}
+
+// TakeDeliveryFailure returns true (and removes the entry) if handle was
+// registered as a delivery failure for the current poll.
+func (f *Fixture) TakeDeliveryFailure(handle string) bool {
+	f.failMu.Lock()
+	defer f.failMu.Unlock()
+	if f.failSet[handle] {
+		delete(f.failSet, handle)
+		return true
+	}
+	return false
+}
+
+// ReplayPolls sends each poll entry to the daemon at its scheduled time.
+// Intended to run as a goroutine alongside the provider event replay.
+func (f *Fixture) ReplayPolls(ctx context.Context) {
+	for _, e := range f.entries {
+		if e.Kind != KindPoll {
+			continue
+		}
+		if !f.WaitAt(ctx, e.OffsetMS) {
+			return
+		}
+		f.SetDeliveryFailures(e.DeliveryFailures)
+		addr := f.DaemonAddr()
+		if addr == "" {
+			slog.Warn("mockfixture: daemon address not set, skipping poll")
+			continue
+		}
+		if err := f.postPoll(ctx, addr, e.Bank); err != nil {
+			slog.Warn("mockfixture: poll POST failed", "err", err)
+		}
+	}
+}
+
+func (f *Fixture) postPoll(ctx context.Context, addr, bank string) error {
+	body, _ := json.Marshal(map[string]any{"auto_submitted": false, "bank": bank}) //nolint:errchkjson // map with string/bool values cannot fail
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, addr+"/poll", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, bytes.TrimSpace(b))
+	}
+	return nil
 }

@@ -95,14 +95,11 @@
 	}
 
 	function handleResult(result) {
-		if (!result || result.status !== "generated" ||
-			result.auto_submit !== false || !result.bank_path) return;
+		if (!result || result.status !== "generated" || result.auto_submit !== false) return;
 		const questions = result.questions || 0;
 		notifyDesktop(questions);
 		document.body.dispatchEvent(
-			new CustomEvent("ptrack:generated", {
-				detail: { path: result.bank_path, questions },
-			}),
+			new CustomEvent("ptrack:generated", { detail: { questions } }),
 		);
 	}
 

@@ -332,6 +332,9 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID string, port
 	if err != nil {
 		return wrapPortBindError(addr, err)
 	}
+	if usingMock {
+		loadedFixture.SetDaemonAddr("http://" + ln.Addr().String())
+	}
 	go runHTTPServer(ctx, ln, mux, nil)
 
 	slog.Info("tracking started", "meeting_id", internalMeetingID, "platform_meeting", meetingID, "provider", prov.Name(), "control_port", bindPort)
@@ -365,7 +368,7 @@ func runHTTPServer(ctx context.Context, ln net.Listener, mux *http.ServeMux, bef
 // daemon and the ptrack poll client.
 type pollRequest struct {
 	AutoSubmitted bool   `json:"auto_submitted"`
-	BankYAML      string `json:"bank_yaml"`
+	BankContent   string `json:"bank"`
 }
 
 type pollResponse struct {
@@ -388,8 +391,8 @@ func mountPollHandler(mux *http.ServeMux, coordFn func() *session.Coordinator) {
 			writePollError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 			return
 		}
-		if req.BankYAML == "" {
-			writePollError(w, http.StatusBadRequest, "bank_yaml is required")
+		if req.BankContent == "" {
+			writePollError(w, http.StatusBadRequest, "bank is required")
 			return
 		}
 
@@ -399,7 +402,7 @@ func mountPollHandler(mux *http.ServeMux, coordFn func() *session.Coordinator) {
 			return
 		}
 
-		bank, err := challenges.Parse([]byte(req.BankYAML))
+		bank, err := challenges.Parse([]byte(req.BankContent))
 		if err != nil {
 			writePollError(w, http.StatusUnprocessableEntity, err.Error())
 			return
@@ -487,7 +490,7 @@ func wrapPortBindError(addr string, err error) error {
 }
 
 func runPoll(ctx context.Context, cfgPath, serverURL string, autoSubmitted bool, port int, bankPath string) error {
-	yaml, err := os.ReadFile(bankPath)
+	content, err := os.ReadFile(bankPath)
 	if err != nil {
 		return fmt.Errorf("read bank: %w", err)
 	}
@@ -497,7 +500,7 @@ func runPoll(ctx context.Context, cfgPath, serverURL string, autoSubmitted bool,
 		return err
 	}
 
-	body, _ := json.Marshal(pollRequest{AutoSubmitted: autoSubmitted, BankYAML: string(yaml)}) //nolint:errchkjson // plain bool+string struct cannot fail to marshal
+	body, _ := json.Marshal(pollRequest{AutoSubmitted: autoSubmitted, BankContent: string(content)}) //nolint:errchkjson // plain bool+string struct cannot fail to marshal
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/poll", bytes.NewReader(body))
 	if err != nil {
 		return err

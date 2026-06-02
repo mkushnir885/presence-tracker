@@ -24,8 +24,9 @@ type Messenger struct {
 
 	events chan messengers.Event
 
-	mu     sync.Mutex
-	refIdx int
+	mu      sync.Mutex
+	refIdx  int
+	pending map[string]string // handle → most recent challengeID from SendChallenge
 
 	stop context.CancelFunc
 	done chan struct{}
@@ -36,6 +37,7 @@ func New(f *mockfixture.Fixture, registry participants.Registry) *Messenger {
 		fixture:  f,
 		registry: registry,
 		events:   make(chan messengers.Event, 64),
+		pending:  make(map[string]string),
 	}
 }
 
@@ -107,10 +109,17 @@ func (m *Messenger) buildEvent(ctx context.Context, e mockfixture.Entry) (messen
 			Timestamp: ts,
 		}, true
 	case mockfixture.KindAnswerReceived:
+		m.mu.Lock()
+		cid := m.pending[e.Handle]
+		m.mu.Unlock()
+		if cid == "" {
+			slog.Warn("mock messenger: answer_received has no pending challenge", "handle", e.Handle)
+			return messengers.Event{}, false
+		}
 		return messengers.Event{
 			Kind:        messengers.EventKindAnswerReceived,
 			Handle:      e.Handle,
-			ChallengeID: e.ChallengeID,
+			ChallengeID: cid,
 			Answer:      e.Answer,
 			Selected:    e.Selected,
 			Timestamp:   ts,
@@ -133,8 +142,15 @@ func (m *Messenger) SendJoinConfirmation(_ context.Context, _, _, _, _ string) (
 	return m.nextRef("confirm"), nil
 }
 
-func (m *Messenger) SendChallenge(_ context.Context, _, _ string, _ messengers.ChallengePrompt) (messengers.MessageRef, error) {
-	return m.nextRef("challenge"), nil
+func (m *Messenger) SendChallenge(_ context.Context, handle, _ string, prompt messengers.ChallengePrompt) (messengers.MessageRef, error) {
+	if m.fixture.TakeDeliveryFailure(handle) {
+		return messengers.MessageRef{}, fmt.Errorf("mock: delivery failure for %s", handle)
+	}
+	ref := m.nextRef("challenge")
+	m.mu.Lock()
+	m.pending[handle] = prompt.ChallengeID
+	m.mu.Unlock()
+	return ref, nil
 }
 
 func (m *Messenger) Notify(_ context.Context, _ messengers.MessageRef, _ string, _ messengers.NotifyKind, _ ...any) error {

@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"gopkg.in/yaml.v3"
+	"sigs.k8s.io/yaml"
 
 	"presence-tracker/src/internal/challenges"
 	"presence-tracker/src/internal/util"
@@ -32,7 +32,7 @@ func (r *ReviewPath) FilePath() string {
 	return filepath.Join(r.dir, r.basename+bankExt)
 }
 
-func (r *ReviewPath) Write(bank challenges.Bank) (string, error) {
+func (r *ReviewPath) Write(bank challenges.Bank) (path string, err error) {
 	final := r.FilePath()
 	if final == "" {
 		return "", errors.New("challenger: review dir or bank basename not configured")
@@ -52,39 +52,25 @@ func (r *ReviewPath) Write(bank challenges.Bank) (string, error) {
 }
 
 func marshalBank(bank challenges.Bank) ([]byte, error) {
-	type rawQuestion struct {
-		Prompt    string   `yaml:"prompt"`
-		Type      string   `yaml:"type"`
-		Choices   []string `yaml:"choices,omitempty"`
-		Match     string   `yaml:"match,omitempty"`
-		Tolerance float64  `yaml:"tolerance,omitempty"`
-		Answer    any      `yaml:"answer"`
-	}
-	type rawBank struct {
-		Questions []rawQuestion `yaml:"questions"`
-	}
-	rb := rawBank{Questions: make([]rawQuestion, 0, len(bank.Questions))}
+	questions := make([]map[string]any, 0, len(bank.Questions))
 	for _, q := range bank.Questions {
-		rq := rawQuestion{
-			Prompt: q.Prompt,
-			Type:   string(q.QuestionType),
+		m := map[string]any{
+			"prompt": q.Prompt,
+			"type":   string(q.QuestionType),
+			"answer": q.Answer,
 		}
-		switch q.QuestionType {
-		case challenges.MultipleChoice:
-			rq.Choices = q.Choices
-			rq.Answer = q.Answer
-		case challenges.Numeric:
-			rq.Answer = q.Answer
-			rq.Tolerance = q.Tolerance
-		case challenges.ShortText:
-			rq.Answer = q.Answer
-			if q.MatchMode != "" && q.MatchMode != "substring_ci" {
-				rq.Match = q.MatchMode
-			}
+		if len(q.Choices) > 0 {
+			m["choices"] = q.Choices
 		}
-		rb.Questions = append(rb.Questions, rq)
+		if q.Tolerance != 0 {
+			m["tolerance"] = q.Tolerance
+		}
+		if q.MatchMode != "" && q.MatchMode != "substring_ci" {
+			m["match"] = q.MatchMode
+		}
+		questions = append(questions, m)
 	}
-	out, err := yaml.Marshal(rb)
+	out, err := yaml.Marshal(map[string]any{"questions": questions})
 	if err != nil {
 		return nil, fmt.Errorf("challenger: marshal bank: %w", err)
 	}

@@ -7,7 +7,7 @@ import (
 	"slices"
 
 	"github.com/google/uuid"
-	"gopkg.in/yaml.v3"
+	"sigs.k8s.io/yaml"
 )
 
 // QuestionsFile is the JSONL question sidecar inside every meeting directory.
@@ -67,16 +67,12 @@ type rawQuestion struct {
 	Answer    json.RawMessage `json:"answer"`
 }
 
-// Parse decodes a YAML bank. It round-trips through JSON so the bank can be
-// checked against the shared JSON Schema, then builds typed Questions.
+// Parse decodes a YAML or JSON bank (both accepted; JSON is the YAML subset).
+// The input is validated against the bank schema before decoding.
 func Parse(raw []byte) (Bank, error) {
-	var intermediate any
-	if err := yaml.Unmarshal(raw, &intermediate); err != nil {
-		return Bank{}, fmt.Errorf("parse: %w", err)
-	}
-	jsonBytes, err := json.Marshal(intermediate)
+	jsonBytes, err := yaml.YAMLToJSON(raw)
 	if err != nil {
-		return Bank{}, fmt.Errorf("re-encode: %w", err)
+		return Bank{}, fmt.Errorf("parse: %w", err)
 	}
 
 	var validateInput any

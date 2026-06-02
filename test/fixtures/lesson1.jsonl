@@ -8,9 +8,14 @@
 {"kind":"join_confirmation","offset_ms":4000,"handle":"tg_alice","confirmed":true}
 {"kind":"join_confirmation","offset_ms":5000,"handle":"tg_bohdan","confirmed":true}
 {"kind":"join_confirmation","offset_ms":6000,"handle":"tg_dmytro","confirmed":true}
+{"kind":"poll","offset_ms":30000,"bank":"{\"questions\":[{\"prompt\":\"Capital of France?\",\"type\":\"multiple_choice\",\"choices\":[\"Paris\",\"London\",\"Berlin\",\"Rome\"],\"answer\":[\"Paris\"]}]}","delivery_failures":["tg_dmytro"]}
+{"kind":"answer_received","offset_ms":33000,"handle":"tg_alice","selected":["Paris"]}
 {"kind":"participant_left","offset_ms":60000,"platform_id":"w_bohdan","display_name":"Bohdan","extra":{"reason":"left"}}
-{"kind":"participant_joined","offset_ms":65000,"platform_id":"w_bohdan","display_name":"Bohdan","extra":{"role":"VIEWER"}}
-{"kind":"join_confirmation","offset_ms":68000,"handle":"tg_bohdan","confirmed":true}
-{"kind":"participant_left","offset_ms":164000,"platform_id":"w_bohdan","display_name":"Bohdan","extra":{"reason":"left"}}
-{"kind":"participant_left","offset_ms":258000,"platform_id":"w_alice","display_name":"Alice","extra":{"reason":"left"}}
-{"kind":"meeting_ended","offset_ms":360000}
+{"kind":"poll","offset_ms":90000,"bank":"{\"questions\":[{\"prompt\":\"Largest planet in the solar system?\",\"type\":\"multiple_choice\",\"choices\":[\"Jupiter\",\"Saturn\",\"Earth\",\"Mars\"],\"answer\":[\"Jupiter\"]}]}"}
+{"kind":"answer_received","offset_ms":93000,"handle":"tg_dmytro","selected":["Jupiter"]}
+{"kind":"participant_joined","offset_ms":180000,"platform_id":"w_bohdan","display_name":"Bohdan","extra":{"role":"VIEWER"}}
+{"kind":"join_confirmation","offset_ms":182000,"handle":"tg_bohdan","confirmed":true}
+{"kind":"poll","offset_ms":220000,"bank":"{\"questions\":[{\"prompt\":\"Boiling point of water (C)?\",\"type\":\"numeric\",\"answer\":100,\"tolerance\":1}]}"}
+{"kind":"answer_received","offset_ms":224000,"handle":"tg_bohdan","answer":"100"}
+{"kind":"answer_received","offset_ms":225000,"handle":"tg_dmytro","answer":"100"}
+{"kind":"meeting_ended","offset_ms":300000}

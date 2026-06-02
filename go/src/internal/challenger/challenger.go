@@ -32,7 +32,6 @@ type Result struct {
 	Questions  int    `json:"questions,omitempty"`
 	Words      int    `json:"words,omitempty"`
 	Needed     int    `json:"needed,omitempty"`
-	BankPath   string `json:"bank_path,omitempty"`
 	AutoSubmit bool   `json:"auto_submit"`
 }
 
@@ -198,16 +197,23 @@ func (s *Service) Generate(ctx context.Context, audio io.Reader, mime string) (R
 			s.failed(ctx, "write_error", errors.New("review dir not configured"))
 			return Result{Status: StatusFailed, Reason: "write_error"}, nil
 		}
-		path, err := review.Write(bank)
-		if err != nil {
+		if _, err := review.Write(bank); err != nil {
 			s.failed(ctx, "write_error", err)
 			return Result{Status: StatusFailed, Reason: "write_error"}, nil
 		}
-		result.BankPath = path
 	}
 
 	s.resetAccumulator()
 	return result, nil
+}
+
+func (s *Service) PendingBankPath() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.review == nil {
+		return ""
+	}
+	return s.review.FilePath()
 }
 
 func (s *Service) failed(ctx context.Context, reason string, cause error) {

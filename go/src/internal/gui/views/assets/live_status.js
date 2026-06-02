@@ -152,27 +152,19 @@
 	// Disable on click regardless of dispatch outcome; failures fall back
 	// to the manual upload card and the next generated bank re-enables.
 	async function dispatchPending(btn) {
-		const path = btn.dataset.bankPath;
-		if (!path) return;
+		if (btn.disabled) return;
 		btn.disabled = true;
-		delete btn.dataset.bankPath;
 		try {
-			await fetch("/poll", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ auto_submitted: false, bank_path: path }),
-			});
+			await fetch("/poll/pending", { method: "POST" });
 		} catch (_) {
 			/* errors surface in the system log */
 		}
 	}
 
-	// challenger.js fires this when the challenger writes a new pending bank.
+	// challenger.js fires this when the server writes a new pending bank.
 	document.body.addEventListener("ptrack:generated", (ev) => {
-		const path = ev.detail && ev.detail.path;
-		if (!path) return;
+		if (!ev.detail) return;
 		document.querySelectorAll(".poll-generate-btn").forEach((btn) => {
-			btn.dataset.bankPath = path;
 			btn.disabled = false;
 		});
 	});
@@ -191,9 +183,12 @@
 		if (picker) picker.value = "";
 		if (slot) renderUploadButton(slot, startBtn);
 		try {
-			const form = new FormData();
-			form.append("bank", file, file.name);
-			await fetch("/poll/file", { method: "POST", body: form });
+			const text = await file.text();
+			await fetch("/poll", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ auto_submitted: false, bank: text }),
+			});
 		} catch (_) {
 			/* upload errors are surfaced in the system log */
 		}
