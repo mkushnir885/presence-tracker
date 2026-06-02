@@ -20,7 +20,7 @@ import polars as pl
 
 from .frames import challenge_results, meeting_times
 from .frames import presence as _presence_fn
-from .load import LoadError, load_events, load_questions, resolve_meeting_dirs
+from .load import LoadError, load_events, load_questions, resolve_meetings
 
 __all__ = [
     "load",
@@ -41,15 +41,15 @@ challenges: pl.LazyFrame | None = None
 questions: pl.LazyFrame | None = None
 
 
-def load(pattern: str) -> None:
-    """Load meetings matching *pattern* (a meeting-directory path or glob) and
-    populate the module-level lazy frames. Each matched directory must contain
+def load(*patterns: str) -> None:
+    """Load meetings matching *patterns* (paths or globs) and populate the
+    module-level lazy frames. Each matched directory must contain
     events.parquet; an adjacent questions.jsonl is loaded when present.
     """
     global data, meetings, participants, presence, challenges, questions
 
-    dirs = resolve_meeting_dirs(pattern)
-    data = load_events(pattern)
+    dirs = resolve_meetings(*patterns)
+    data = load_events(dirs)
     meetings = meeting_times(data)
     participants = (
         data.filter(pl.col("display_name").is_not_null())

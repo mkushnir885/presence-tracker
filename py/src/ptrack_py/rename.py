@@ -6,7 +6,7 @@ from pathlib import Path
 
 import polars as pl
 
-from ptrack_analytics.schema import EVENT_SCHEMA
+from ptrack_analytics.load import scan_events
 
 
 def rename_display_name(parquet_path: Path, old: str, new: str) -> None:
@@ -19,9 +19,8 @@ def rename_display_name(parquet_path: Path, old: str, new: str) -> None:
         return
 
     tmp = parquet_path.with_suffix(parquet_path.suffix + ".tmp")
-    schema = pl.Schema(EVENT_SCHEMA)
     (
-        pl.scan_parquet(str(parquet_path), schema=schema)
+        scan_events(parquet_path)
         .with_columns(
             pl.when(pl.col("display_name") == old)
             .then(pl.lit(new))

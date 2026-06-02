@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import polars as pl
 
-from ptrack_analytics.schema import EVENT_SCHEMA
+from ptrack_analytics.load import scan_events
 
 
 class IncompleteMeetingError(Exception):
@@ -21,7 +21,7 @@ class IncompleteMeetingError(Exception):
 def ensure_session_ended(path: str) -> None:
     """Raise IncompleteMeetingError if *path* has no session_ended event."""
     df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
-        pl.scan_parquet(path, schema=pl.Schema(EVENT_SCHEMA))
+        scan_events(path)
         .filter(pl.col("event_type") == "session_ended")
         .select(pl.len())
         .collect()
