@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import glob as _glob
-import json
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
 
 import polars as pl
 
@@ -112,68 +110,36 @@ def load_meetings(
     return dirs, load_events(dirs)
 
 
-def meeting_source_dirs(meeting_dirs: Iterable[Path | str]) -> dict[str, str]:
-    """Map each directory's meeting_id to its source-directory path.
-
-    Scans the first row of each events.parquet for the meeting_id. Used by the
-    GUI stats loader to thread source paths back into the rendered payload.
-    """
-    out: dict[str, str] = {}
-    for d in meeting_dirs:
-        dir_path = Path(d)
-        df = collect_df(
-            scan_events(dir_path / EVENTS_FILE).select(
-                pl.col("meeting_id").first().alias("meeting_id")
-            )
-        )
-        if df.height == 0:
-            continue
-        mid = df.row(0)[0]
-        if isinstance(mid, str) and mid:
-            out[mid] = str(dir_path)
-    return out
-
-
-def load_questions_index(
-    meeting_dirs: Iterable[Path | str],
-) -> dict[str, dict[str, Any]]:
-    """Map question_id -> full question record across the given meetings.
-
-    Missing files and malformed lines are skipped silently; this mirrors the
-    GUI stats consumer, which treats absent records as "no question payload".
-    """
-    out: dict[str, dict[str, Any]] = {}
-    for d in meeting_dirs:
-        path = Path(d) / QUESTIONS_FILE
-        if not path.exists():
-            continue
-        with path.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    record = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                qid = record.get("question_id")
-                if not qid:
-                    continue
-                out[qid] = record
-    return out
-
-
 def load_questions(meeting_dirs: Iterable[Path | str]) -> pl.LazyFrame:
-    """Load questions.jsonl from each meeting directory; missing files skipped."""
+    """Load every meeting's questions.jsonl, deduplicated by question_id and
+    reshaped into (question_id, question) where `question` is a struct of the
+    remaining record fields. Missing files are skipped.
+
+    The struct shape keeps challenges → questions joins to one extra column
+    instead of seven, and lets question text live in a single place even when
+    it is referenced from many rows.
+    """
+    inner_schema = {k: v for k, v in QUESTIONS_SCHEMA.items() if k != "question_id"}
+    empty = pl.LazyFrame(
+        schema={
+            "question_id": pl.String,
+            "question": pl.Struct(inner_schema),
+        }
+    )
+
     frames: list[pl.LazyFrame] = []
     for d in meeting_dirs:
         path = Path(d) / QUESTIONS_FILE
         if path.exists():
             frames.append(pl.scan_ndjson(str(path)))
-
-    # No question files (e.g. a tracking-only session): return a typed empty
-    # frame so the `questions` schema stays stable for downstream joins.
     if not frames:
-        return pl.LazyFrame(schema=QUESTIONS_SCHEMA)
+        return empty
 
-    return pl.concat(frames)
+    return (
+        pl.concat(frames)
+        .unique(subset=["question_id"])
+        .select(
+            pl.col("question_id"),
+            pl.struct(pl.exclude("question_id")).alias("question"),
+        )
+    )

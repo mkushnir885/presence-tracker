@@ -14,10 +14,9 @@ from ptrack_analytics.load import (
     IncompleteMeetingError,
     LoadError,
     load_meetings,
-    load_questions_index,
-    meeting_source_dirs,
     resolve_meetings,
 )
+from ptrack_py._load import load_questions_index, meeting_source_dirs
 from ptrack_py.rename import rename_display_name
 from ptrack_py.reports import generate_csv
 from ptrack_py.stats import generate_stats

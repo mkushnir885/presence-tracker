@@ -50,7 +50,9 @@ The Python codebase is for data analysis. There is no long-running
 Python service. The two packages under `py/src/` are:
 
 - `ptrack_analytics/` — Jupyter-facing library: `load()` and the
-  derived Polars lazy frames (`presence`, `challenges`, `questions`).
+  derived Polars lazy frames (`meetings`, `presence`, `challenges`,
+  `questions`), all in notebook-friendly types (Datetime / Duration /
+  struct columns).
 - `ptrack_py/` — binary-only one-shot CLI invoked by Go for CSV reports
   (`report` — per-meeting with one `--in`, aggregate with more) and the
   GUI stats JSON (`stats`).

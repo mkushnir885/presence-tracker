@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import polars as pl
 
-from ptrack_analytics.frames import (
-    challenge_stats,
-    meeting_times,
-    presence_totals,
-)
+from ptrack_analytics.frames import meeting_times
 from ptrack_analytics.load import collect_df
+from ptrack_py._frames import challenge_stats, presence_totals
 
 
 def generate_csv(events: pl.LazyFrame, cross_meeting: bool = False) -> str:
@@ -47,9 +44,7 @@ def generate_csv(events: pl.LazyFrame, cross_meeting: bool = False) -> str:
     if cross_meeting:
         df = collect_df(
             base.with_columns(
-                pl.col("started_at")
-                .dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-                .alias("meeting"),
+                pl.col("started_at").dt.strftime("%Y-%m-%dT%H:%M:%SZ").alias("meeting"),
             )
             .sort([pl.col("display_name").str.to_lowercase(), pl.col("started_at")])
             .select(

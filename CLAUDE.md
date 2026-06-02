@@ -59,7 +59,7 @@ presence-tracker/
 │           ├── config/             # JSON loading, schema validation, live reload
 │           └── gui/                # templ templates + net/http handlers
 ├── py/src/
-│   ├── ptrack_analytics/           # Jupyter library: load + Polars frames (presence, challenges, questions)
+│   ├── ptrack_analytics/           # Jupyter library: load + Polars frames (meetings, presence, challenges, questions)
 │   └── ptrack_py/                  # binary-only: CLI entry, CSV reports, GUI stats JSON
 ├── test/fixtures/                  # recorded event streams for replay
 └── docs/                           # reference docs, loaded on demand via @docs/...
@@ -302,16 +302,19 @@ See `@docs/GUI.md` for chart spec, marker encoding, and route map.
 ## Ad-hoc queries
 
 The `ptrack_analytics` library (in `py/src/ptrack_analytics/`) is the
-Jupyter-facing surface. It exposes file loading and the pre-derived
-Polars lazy frames (`presence`, `challenges`, `questions`) — and nothing
-else; CSV reports and the GUI stats JSON live in `ptrack_py/` and are
-not part of the library's public API.
+Jupyter-facing surface. It exposes `load()` and the pre-derived Polars
+lazy frames (`meetings`, `presence`, `challenges`, `questions`) — and
+nothing else; CSV reports and the GUI stats JSON live in `ptrack_py/`
+and are not part of the library's public API. All frames use
+notebook-friendly types (`Datetime`, `Duration`, struct columns) — the
+raw event log is intentionally not exposed.
 
 ```python
 from ptrack_analytics import load, presence, challenges
+import polars as pl
 
-load("~/Documents/ptrack/meetings/spring-2026-*.parquet")
-presence.group_by("display_name").agg(pl.col("presence_seconds").mean())
+load("~/Documents/ptrack/meetings/spring-2026-*")
+presence.group_by("display_name").agg(pl.col("duration").sum())
 ```
 
 Typical workflow: load the desired Parquet files, import the library, ask

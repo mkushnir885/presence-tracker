@@ -10,13 +10,15 @@ import polars as pl
 
 from ptrack_analytics.frames import (
     challenge_results,
-    challenge_stats,
-    concurrent_participants,
     meeting_times,
     presence_closed,
-    presence_totals,
 )
 from ptrack_analytics.load import collect_df
+from ptrack_py._frames import (
+    challenge_stats,
+    concurrent_participants,
+    presence_totals,
+)
 
 
 def generate_stats(

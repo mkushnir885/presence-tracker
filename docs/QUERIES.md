@@ -2,77 +2,135 @@
 
 `ptrack_analytics` (`py/src/ptrack_analytics/`) is the Jupyter-facing
 analytics library. It loads meeting Parquet (and the matching question
-JSONL) and exposes a small set of pre-derived Polars lazy frames; from
-there everything is a Polars expression.
+JSONL) and exposes a small set of pre-derived Polars lazy frames with
+notebook-friendly types — `Datetime` for instants, `Duration` for
+elapsed time, struct columns for per-event details. The raw event log
+is intentionally not part of the public surface; everything users need
+is shaped into these frames.
 
 CSV reports and the GUI stats JSON are *not* part of this library —
 they live in the binary-only `ptrack_py/` package (`reports.py`,
-`stats.py`) so the library surface stays small and notebook-relevant.
-Both consumers build on top of the same lazy frames documented below.
+`stats.py`) and build on the same internal frame helpers.
 
 ## Using in Jupyter
 
 ```python
-from ptrack_analytics import load, presence, challenges, questions
+from ptrack_analytics import load
 import polars as pl
 
-# Load meeting Parquet files. For each meeting found, the matching
-# .jsonl file from questions_dir is also loaded automatically.
-load("~/Documents/ptrack/meetings/spring-2026-*.parquet")
+# Load one or more meeting directories. Each must contain
+# events.parquet; the adjacent questions.jsonl is loaded automatically
+# when present. Meetings still in progress (no session_ended event) are
+# rejected — pass validate=False to peek at a live session.
+load("~/Documents/ptrack/meetings/spring-2026-*")
 
-# Top-level frames (all lazy)
-from ptrack_analytics import data, meetings, participants
-
-data: pl.LazyFrame         # all events from loaded files, concatenated
-meetings: pl.LazyFrame     # one row per meeting (id, start, end, duration)
-participants: pl.LazyFrame # one row per display_name seen across the loaded files
-
-# Derived frames (also lazy; shared code path with CSV reports)
-from ptrack_analytics import presence, challenges, questions
-
-presence: pl.LazyFrame     # (display_name, meeting_id, presence_seconds, ...)
-challenges: pl.LazyFrame   # (display_name, meeting_id, challenge_id, auto_submitted, state, latency_ms)
-questions: pl.LazyFrame    # loaded from .jsonl files: (question_id, prompt, question_type, choices, ...)
+from ptrack_analytics import meetings, presence, challenges, questions
 ```
 
-`questions` is loaded from the `.jsonl` files in `questions_dir` that
-correspond to the loaded meetings. Polars reads them with `read_ndjson`;
-absent fields for irrelevant question types become nulls. Join with the
-`challenges` frame on `question_id` to access question text alongside
-challenge results.
+All four are `pl.LazyFrame`. Their schemas:
 
-`auto_submitted` on the `challenges` frame is a boolean recording
-whether the poll was dispatched without teacher review — set only when
-the in-process challenger fires the bank itself (see
-`@docs/CHALLENGES.md` and `@docs/EVENT_SCHEMA.md`). Filter by it to
-separate unreviewed questions from teacher-driven ones.
+### `meetings` — one row per meeting
+
+| Column       | Type                  | Notes                                   |
+| ------------ | --------------------- | --------------------------------------- |
+| `meeting_id` | `Utf8`                |                                         |
+| `platform`   | `Utf8`                | `bbb`, `meet`, `zoom`, `mock`           |
+| `started_at` | `Datetime("ms","UTC")`|                                         |
+| `ended_at`   | `Datetime("ms","UTC")`| always set (validated on load)          |
+| `duration`   | `Duration("ms")`      | `ended_at - started_at`                 |
+| `start`      | `Struct{cause}`       | from session_started metadata           |
+| `end`        | `Struct{cause}`       | from session_ended metadata             |
+
+### `presence` — one row per join (rejoins produce additional rows)
+
+| Column          | Type                    | Notes                                          |
+| --------------- | ----------------------- | ---------------------------------------------- |
+| `display_name`  | `Utf8`                  |                                                |
+| `meeting_id`    | `Utf8`                  | join with `meetings` for absolute times        |
+| `joined_at`     | `Datetime("ms","UTC")`  |                                                |
+| `left_at`       | `Datetime("ms","UTC")`  | open bands clipped to `meetings.ended_at`      |
+| `duration`      | `Duration("ms")`        | `left_at - joined_at`                          |
+| `still_present` | `Boolean`               | `True` for bands that were clipped at end      |
+| `join`          | `Struct{method}`        |                                                |
+| `leave`         | `Struct{reason}`        | `reason` is null when `still_present`          |
+
+`(display_name, meeting_id)` is **not** unique — a rejoin produces a
+second row. Sort by `joined_at` if you need band order.
+
+### `challenges` — one row per `challenge_issued`
+
+| Column             | Type                                    | Notes                                  |
+| ------------------ | --------------------------------------- | -------------------------------------- |
+| `display_name`     | `Utf8`                                  |                                        |
+| `meeting_id`       | `Utf8`                                  |                                        |
+| `challenge_id`     | `Utf8`                                  |                                        |
+| `question_id`      | `Utf8`                                  | join key to `questions`                |
+| `issued_at`        | `Datetime("ms","UTC")`                  |                                        |
+| `answered_at`      | `Datetime("ms","UTC")`                  | null when `state == "unanswered"`      |
+| `latency`          | `Duration("ms")`                        | null when `state == "unanswered"`      |
+| `state`            | `Enum{correct,incorrect,unanswered}`    |                                        |
+| `submitted_answer` | `Utf8`                                  | null when `state == "unanswered"`      |
+| `auto_submitted`   | `Boolean`                               | poll dispatched without teacher review |
+
+Question text is not duplicated onto every challenge row — `challenges`
+carries only `question_id`. Join with `questions` to bring in the
+prompt, choices, correct answer, etc.
+
+### `questions` — one row per unique `question_id`
+
+| Column        | Type             | Notes                                |
+| ------------- | ---------------- | ------------------------------------ |
+| `question_id` | `Utf8`           | join key from `challenges`           |
+| `question`    | `Struct{...}`    | full record packed into one column   |
+
+The struct's fields are `auto_submitted`, `question_type`, `prompt`,
+`choices`, `correct_answer`, `match_mode`, `tolerance` — see
+`py/src/ptrack_analytics/schema.py`. Records are deduped by
+`question_id` across loaded meetings, so a question referenced by many
+challenges still appears exactly once.
+
+To pull a specific field, use struct access:
+
+```python
+challenges.join(questions, on="question_id").select(
+    "display_name", "state", pl.col("question").struct.field("prompt")
+)
+```
 
 ### Example session
 
 ```python
-from ptrack_analytics import load, presence, challenges, questions
+from ptrack_analytics import load, meetings, presence, challenges, questions
 import polars as pl
 
-load("meetings/spring-2026-*.parquet")
+load("meetings/spring-2026-*")
 
-# Who attends the least?
-presence.group_by("display_name") \
-    .agg(pl.col("presence_seconds").mean().alias("avg_s")) \
-    .sort("avg_s") \
+# Average attended time per student, in minutes
+(
+    presence
+    .group_by("display_name")
+    .agg(pl.col("duration").sum())
+    .with_columns((pl.col("duration").dt.total_seconds() / 60).alias("minutes"))
+    .sort("minutes")
     .collect()
+)
 
 # Challenge accuracy per meeting
-challenges.group_by("meeting_id") \
-    .agg((pl.col("state").eq("correct").sum() / pl.len()).alias("accuracy")) \
-    .sort("meeting_id") \
-    .collect()
-
-# Which questions are hardest? (join challenges + questions)
 (
     challenges
-    .join(questions.select(["question_id", "prompt"]), on="question_id")
+    .group_by("meeting_id")
+    .agg((pl.col("state") == "correct").mean().alias("accuracy"))
+    .sort("meeting_id")
+    .collect()
+)
+
+# Which questions are hardest?
+(
+    challenges
+    .join(questions, on="question_id")
+    .with_columns(pl.col("question").struct.field("prompt"))
     .group_by("question_id", "prompt")
-    .agg((pl.col("state").eq("correct").sum() / pl.len()).alias("accuracy"))
+    .agg((pl.col("state") == "correct").mean().alias("accuracy"))
     .sort("accuracy")
     .collect()
 )
@@ -85,33 +143,22 @@ There is no notebook helper for CSV generation; for ad-hoc tables call
 want the exact CSV the GUI offers, shell out to the binary instead:
 
 ```bash
-ptrack_py report meetings/2026-04-21.parquet > reports/2026-04-21.csv
-ptrack_py report meetings/spring-2026-*.parquet > reports/semester.csv
+ptrack_py report meetings/2026-04-21 > reports/2026-04-21.csv
+ptrack_py report meetings/spring-2026-* > reports/semester.csv
 ```
 
-(One matched Parquet produces a per-meeting CSV; more than one
+(One matched directory produces a per-meeting CSV; more than one
 switches to the cross-meeting aggregate. CSV is always written to
 stdout.)
-
-(`ptrack_py` lives in the sibling `ptrack_py/` package; see
-"Relationship to the GUI" below.)
 
 ## Relationship to the GUI
 
 The GUI's single stats view (`GET /stats?file=<a>&file=<b>…` — see
 `@docs/GUI.md`) is backed by the `ptrack_py stats` subcommand
-(implemented in `py/src/ptrack_py/stats.py`). That code builds on top
-of this library's `presence` / `challenges` / `questions` lazy frames,
-collects them into a JSON document for the requested files, and prints
-it to stdout. With one input the JSON describes a per-meeting timeband
-list; with more than one it describes the cross-meeting dataset for
-every participant in those files.
-
-Go caches the JSON on disk between requests and invalidates an entry
-when any of the input files' mtime advances. The expected callers of
-`ptrack_py stats` are therefore the GUI server and CLI / scripts;
-notebooks have no reason to invoke it, since they can call the lazy
-frames directly with full Polars expressiveness.
+(implemented in `py/src/ptrack_py/stats.py`). That code builds on the
+same internal frame helpers under `ptrack_analytics.frames` and emits
+a JSON document; Go caches the JSON on disk between requests and
+invalidates an entry when any of the input files' mtime advances.
 
 There is no "Statistics" panel and no `POST /analysis/...` endpoint —
 the GUI's stats surface is fixed. Anything beyond the per-meeting and
@@ -124,8 +171,9 @@ the cross-language contract in `@CLAUDE.md` describes.
 
 When you add a new derived frame:
 
-1. Add its construction to `py/src/ptrack_analytics/frames.py` as a
-   pure function `derive_<n>(data: pl.LazyFrame) -> pl.LazyFrame`.
+1. Add a builder to `py/src/ptrack_analytics/frames.py` shaped like
+   the existing `*_view` functions: `def foo_view(events: pl.LazyFrame)
+   -> pl.LazyFrame`.
 2. Wire it up in `py/src/ptrack_analytics/__init__.py` so `load()`
    populates it and add it to `__all__`.
-3. Document it in the "Using in Jupyter" section above.
+3. Document its schema in the "Using in Jupyter" section above.
