@@ -55,14 +55,15 @@ func (s *Server) OnShutdown(fn func()) { s.shutdownFn = fn }
 
 // activeSession is the currently running tracking session; nil when idle.
 type activeSession struct {
-	meetingID    string
-	providerName string
-	coord        *session.Coordinator
-	challenger   *challenger.Service
-	cancel       context.CancelFunc
-	startedAt    time.Time
-	done         chan struct{}
-	buf          *logBuffer // captures slog output for the live status log
+	meetingID       string
+	providerName    string
+	providerDisplay string
+	coord           *session.Coordinator
+	challenger      *challenger.Service
+	cancel          context.CancelFunc
+	startedAt       time.Time
+	done            chan struct{}
+	buf             *logBuffer // captures slog output for the live status log
 }
 
 func New(cfg *config.Config, registry participants.Registry, router *messengers.Router) *Server {
@@ -253,14 +254,15 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) { //
 	done := make(chan struct{})
 
 	act := &activeSession{
-		meetingID:    meetingID,
-		providerName: providerName,
-		coord:        coord,
-		challenger:   chSvc,
-		cancel:       cancel,
-		startedAt:    time.Now(),
-		done:         done,
-		buf:          buf,
+		meetingID:       meetingID,
+		providerName:    providerName,
+		providerDisplay: prov.DisplayName(),
+		coord:           coord,
+		challenger:      chSvc,
+		cancel:          cancel,
+		startedAt:       time.Now(),
+		done:            done,
+		buf:             buf,
 	}
 
 	s.mu.Lock()
@@ -468,7 +470,7 @@ func (s *Server) statusData() (views.StatusData, bool) {
 	ag := s.cfg.Get().Challenges.AutoGeneration
 	return views.StatusData{
 		MeetingID:         act.meetingID,
-		ProviderName:      act.providerName,
+		ProviderName:      act.providerDisplay,
 		StartedAt:         act.startedAt,
 		MeetingStartedAt:  status.MeetingStartedAt,
 		MeetingInProgress: status.MeetingInProgress,
@@ -644,6 +646,9 @@ func (s *Server) handleStatsRows(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(out, &data); err != nil {
 		http.Error(w, "stats: parse JSON: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+	for i := range data.Meetings {
+		data.Meetings[i].Platform = providers.DisplayName(data.Meetings[i].Platform)
 	}
 
 	locale := localeFromRequest(r)
@@ -1006,13 +1011,13 @@ func buildServeProvider(name string, cfg *config.Config) (providers.Provider, er
 func enabledProviderOptions(p config.ProvidersConfig) []views.ProviderOption {
 	var out []views.ProviderOption
 	if p.BBB.Enabled {
-		out = append(out, views.ProviderOption{Name: "bbb", Label: "BigBlueButton"})
+		out = append(out, views.ProviderOption{Name: bbbprovider.Name, Label: bbbprovider.DisplayName})
 	}
 	if p.Meet.Enabled {
-		out = append(out, views.ProviderOption{Name: "meet", Label: "Google Meet"})
+		out = append(out, views.ProviderOption{Name: meetprovider.Name, Label: meetprovider.DisplayName})
 	}
 	if p.Zoom.Enabled {
-		out = append(out, views.ProviderOption{Name: "zoom", Label: "Zoom"})
+		out = append(out, views.ProviderOption{Name: zoomprovider.Name, Label: zoomprovider.DisplayName})
 	}
 	return out
 }

@@ -13,6 +13,13 @@ import (
 	"presence-tracker/src/internal/providers"
 )
 
+const (
+	Name        = "mock"
+	DisplayName = "Mock"
+)
+
+func init() { providers.Register(Name, DisplayName) }
+
 type fixtureEvent struct {
 	Kind              string            `json:"kind"`
 	PlatformID        string            `json:"platform_id"`
@@ -34,7 +41,8 @@ func New(fixturePath string) *Provider {
 
 func (p *Provider) WithSpeed(s float64) *Provider { p.speed = s; return p }
 
-func (p *Provider) Name() string { return "mock" }
+func (p *Provider) Name() string        { return Name }
+func (p *Provider) DisplayName() string { return DisplayName }
 
 func (p *Provider) Authenticate(_ context.Context) error { return nil }
 

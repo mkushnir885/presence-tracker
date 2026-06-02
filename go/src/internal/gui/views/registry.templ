@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"time"
 
+	"presence-tracker/src/internal/messengers"
 	"presence-tracker/src/internal/participants"
 )
 
@@ -69,7 +70,7 @@ templ RegistryResults(entries []participants.RegistryEntry, locale Locale) {
 							/>
 						</td>
 						<td>{ e.DisplayName }</td>
-						<td>{ e.MessengerName }</td>
+						<td>{ messengers.DisplayName(e.MessengerName) }</td>
 						<td>{ e.MessengerLabel }</td>
 						<td class="text-muted">
 							<time
@@ -152,9 +153,9 @@ templ registryFilters(data RegistryData, count int, locale Locale) {
 					<option value="">{ locale.T("registry.filter.messenger_all") }</option>
 					for _, m := range data.Messengers {
 						if m == data.Filter.Messenger {
-							<option value={ m } selected>{ m }</option>
+							<option value={ m } selected>{ messengers.DisplayName(m) }</option>
 						} else {
-							<option value={ m }>{ m }</option>
+							<option value={ m }>{ messengers.DisplayName(m) }</option>
 						}
 					}
 				</select>

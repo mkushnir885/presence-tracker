@@ -279,7 +279,7 @@ func (c *Coordinator) onJoin(ctx context.Context, evt providers.Event) {
 	c.pendingHandle[handle] = key
 	c.mu.Unlock()
 
-	ref, err := c.messenger.SendJoinConfirmation(ctx, handle, entry.Language, c.cfg.PlatformMeetingID, c.provider.Name())
+	ref, err := c.messenger.SendJoinConfirmation(ctx, handle, entry.Language, c.cfg.PlatformMeetingID, c.provider.DisplayName())
 	if err != nil {
 		slog.Warn("session: send join confirmation", "err", err)
 		c.mu.Lock()

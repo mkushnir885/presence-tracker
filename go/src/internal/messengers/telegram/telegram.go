@@ -24,10 +24,13 @@ const registerPromptTTL = 60 * time.Second
 
 const languagePromptTTL = 60 * time.Second
 
-const Name = "telegram"
+const (
+	Name        = "telegram"
+	DisplayName = "Telegram"
+)
 
 func init() {
-	messengers.Register(Name)
+	messengers.Register(Name, DisplayName)
 }
 
 type pendingKey struct {
@@ -109,7 +112,8 @@ func (a *Adapter) localeFor(lang string) i18n.Locale {
 	return a.catalog.Locale(lang)
 }
 
-func (a *Adapter) Name() string { return Name }
+func (a *Adapter) Name() string        { return Name }
+func (a *Adapter) DisplayName() string { return DisplayName }
 
 func (a *Adapter) Start(ctx context.Context) (<-chan messengers.Event, error) {
 	a.publishCommands()

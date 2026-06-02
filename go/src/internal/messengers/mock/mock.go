@@ -17,7 +17,10 @@ type SentChallenge struct {
 	Deleted bool
 }
 
-const Name = "mock"
+const (
+	Name        = "mock"
+	DisplayName = "Mock"
+)
 
 // Messenger is an in-memory test double: it records what was sent (challenges,
 // confirmations) and lets tests inject incoming events via the Inject* methods.
@@ -40,7 +43,8 @@ func New() *Messenger {
 	return &Messenger{events: make(chan messengers.Event, 64)}
 }
 
-func (m *Messenger) Name() string { return Name }
+func (m *Messenger) Name() string        { return Name }
+func (m *Messenger) DisplayName() string { return DisplayName }
 
 func (m *Messenger) Start(_ context.Context) (<-chan messengers.Event, error) {
 	return m.events, nil

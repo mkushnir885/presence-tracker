@@ -23,6 +23,13 @@ const (
 	zoomAPIBase  = "https://api.zoom.us/v2"
 )
 
+const (
+	Name        = "zoom"
+	DisplayName = "Zoom"
+)
+
+func init() { providers.Register(Name, DisplayName) }
+
 var zoomScopes = []string{
 	"dashboard:read:list_meeting_participants:admin",
 }
@@ -40,7 +47,8 @@ func New(cfg *config.Config) *Adapter {
 	}
 }
 
-func (a *Adapter) Name() string { return "zoom" }
+func (a *Adapter) Name() string        { return Name }
+func (a *Adapter) DisplayName() string { return DisplayName }
 
 func (*Adapter) ParseMeetingID(input string) (string, error) {
 	input = strings.TrimSpace(input)

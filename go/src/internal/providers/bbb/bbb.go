@@ -19,6 +19,13 @@ import (
 	"presence-tracker/src/internal/providers/polling"
 )
 
+const (
+	Name        = "bbb"
+	DisplayName = "BigBlueButton"
+)
+
+func init() { providers.Register(Name, DisplayName) }
+
 type Adapter struct {
 	cfg    *config.Config
 	client *http.Client
@@ -39,7 +46,8 @@ func New(cfg *config.Config) *Adapter {
 	}
 }
 
-func (a *Adapter) Name() string { return "bbb" }
+func (a *Adapter) Name() string        { return Name }
+func (a *Adapter) DisplayName() string { return DisplayName }
 
 func (*Adapter) ParseMeetingID(input string) (string, error) {
 	input = strings.TrimSpace(input)

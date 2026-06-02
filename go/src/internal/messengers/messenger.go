@@ -6,18 +6,27 @@ import (
 	"time"
 )
 
-// registeredNames is the catalog of adapter names, appended to from each
-// adapter's init via Register so adding an adapter is a one-package change.
-var registeredNames []string
+var registered = map[string]string{}
 
-func Register(name string) {
-	registeredNames = append(registeredNames, name)
-	slices.Sort(registeredNames)
+func Register(name, displayName string) {
+	registered[name] = displayName
 }
 
-// Names returns the messenger adapters compiled into this build, sorted.
 func Names() []string {
-	return slices.Clone(registeredNames)
+	out := make([]string, 0, len(registered))
+	for n := range registered {
+		out = append(out, n)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// Unknown short names pass through verbatim so legacy entries stay readable.
+func DisplayName(short string) string {
+	if d, ok := registered[short]; ok {
+		return d
+	}
+	return short
 }
 
 type EventKind string
@@ -76,7 +85,8 @@ const (
 // In every method lang is the recipient's catalog language (supplied by
 // the caller, empty means the adapter default).
 type Messenger interface {
-	Name() string
+	Name() string        // stable short identifier (e.g. "telegram"); registry key
+	DisplayName() string // human-facing brand name
 	Start(ctx context.Context) (<-chan Event, error)
 	Stop(ctx context.Context) error
 

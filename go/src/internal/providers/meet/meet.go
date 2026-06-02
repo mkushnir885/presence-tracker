@@ -24,6 +24,13 @@ const (
 	tokenURL    = "https://oauth2.googleapis.com/token" //nolint:gosec // G101: OAuth token endpoint URL, not a credential
 )
 
+const (
+	Name        = "meet"
+	DisplayName = "Google Meet"
+)
+
+func init() { providers.Register(Name, DisplayName) }
+
 var meetScopes = []string{
 	"https://www.googleapis.com/auth/meetings.space.readonly",
 }
@@ -41,7 +48,8 @@ func New(cfg *config.Config) *Adapter {
 	}
 }
 
-func (a *Adapter) Name() string { return "meet" }
+func (a *Adapter) Name() string        { return Name }
+func (a *Adapter) DisplayName() string { return DisplayName }
 
 func (*Adapter) ParseMeetingID(input string) (string, error) {
 	input = strings.TrimSpace(input)
