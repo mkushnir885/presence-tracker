@@ -1,11 +1,3 @@
-"""Internal raw-offset lazy frames over the event log.
-
-These helpers (``presence_bands``, ``meeting_times``, ``challenge_results``)
-carry raw ms offsets and feed both the notebook-facing views in
-:mod:`ptrack_analytics.views` and the GUI/CSV aggregations in
-:mod:`ptrack_py._frames`.
-"""
-
 from __future__ import annotations
 
 from typing import cast
@@ -14,23 +6,14 @@ import polars as pl
 
 
 def collect_df(lf: pl.LazyFrame) -> pl.DataFrame:
-    """Eager-collect *lf* into a DataFrame. Centralizes the cast around
-    polars' DataFrame | InProcessQuery union so call sites stay clean.
-    """
     return cast(pl.DataFrame, lf.collect())
 
 
 def presence_bands(events: pl.LazyFrame) -> pl.LazyFrame:
-    """Presence intervals, one row per join, with every band closed at the
-    meeting's duration.
-
-    The n-th join is paired with the n-th leave within each
-    (display_name, meeting_id); a rejoin is its own band. left_ms is null for a
-    band with no matching leave (still present at session end). An open band
-    or one whose leave landed past duration_ms is closed at duration_ms;
-    present_till_end flags those rows. The closed end_ms is what both the CSV
-    report and the GUI timeline use to compute presence seconds — clipping
-    here keeps the two surfaces in sync.
+    """One row per join, paired with the n-th matching leave. Open or
+    overflowing bands are clipped to the meeting duration and flagged
+    via ``present_till_end`` — the shared ``end_ms`` keeps presence
+    seconds consistent between CSV and GUI.
     """
     joined = (
         events.filter(pl.col("event_type") == "participant_joined")
@@ -85,13 +68,10 @@ def presence_bands(events: pl.LazyFrame) -> pl.LazyFrame:
 
 
 def meeting_times(events: pl.LazyFrame) -> pl.LazyFrame:
-    """Per-meeting start time and duration.
-
-    started_at is the absolute meeting start, read from the session_started
-    metadata "timestamp_ms" anchor (the from_start_ms column is 0 there).
-    duration_ms prefers the session_ended offset, else the largest non-start
-    event offset (both are ms from the session start). duration_seconds floors
-    at 1.0 so presence ratios stay finite.
+    """Per-meeting start instant and duration. ``duration_ms`` prefers
+    the ``session_ended`` offset and falls back to the largest non-start
+    event offset; ``duration_seconds`` floors at 1.0 so ratios stay
+    finite for empty meetings.
     """
     start = (
         events.filter(pl.col("event_type") == "session_started")
@@ -129,9 +109,9 @@ def meeting_times(events: pl.LazyFrame) -> pl.LazyFrame:
 
 
 def challenge_results(events: pl.LazyFrame) -> pl.LazyFrame:
-    """One row per challenge_issued, annotated with its final state."""
-    # Per-challenge fields (auto_submitted, latency, submitted_answer) live in
-    # the JSON metadata column; pull them out with json_path_match.
+    """One row per ``challenge_issued``, joined to its final state.
+    ``state`` is null when no outcome event was recorded.
+    """
     issued = events.filter(pl.col("event_type") == "challenge_issued").select(
         pl.col("display_name"),
         pl.col("meeting_id"),
@@ -165,8 +145,6 @@ def challenge_results(events: pl.LazyFrame) -> pl.LazyFrame:
         .alias("submitted_answer"),
     )
 
-    # Collapse the result event_type into a short state. The left join leaves
-    # state null only for an issued challenge with no recorded outcome.
     result_events = result_events.with_columns(
         pl.col("state")
         .str.replace("challenge_answered_correct", "correct")

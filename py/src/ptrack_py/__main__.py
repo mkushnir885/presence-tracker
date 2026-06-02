@@ -1,5 +1,3 @@
-"""CLI entry point for the ptrack_py binary (PyInstaller target)."""
-
 from __future__ import annotations
 
 import json
@@ -71,8 +69,8 @@ def stats(
         events = load_events(dirs)
         mode = "meeting" if len(dirs) == 1 else "cross_meeting"
         source_dirs = _meeting_source_dirs(dirs)
-        # Splice question_id back into each value so the inner record matches
-        # the on-disk JSONL shape that the Go stats template re-marshals.
+        # Splice question_id back inside each value so the dict shape
+        # matches the on-disk JSONL record verbatim.
         questions = {
             qid: {"question_id": qid, **rec}
             for qid, rec in collect_df(load_questions(dirs)).iter_rows()
@@ -103,18 +101,15 @@ def rename(
     if from_name == to_name:
         return
     with _cli_errors():
-        # Rename intentionally skips the session-ended check: a teacher may
-        # need to correct a name mid-meeting.
+        # Skip the session-ended check — a teacher may need to rename
+        # someone mid-meeting.
         dirs = resolve_meetings(*inputs)
         for d in dirs:
             rename_display_name(d / EVENTS_FILE, from_name, to_name)
 
 
 def _meeting_source_dirs(dirs: list[Path]) -> dict[str, str]:
-    """Map each directory's meeting_id to its path. The stats payload uses
-    this to thread the source directory back into each meeting entry so the
-    GUI can display it.
-    """
+    """Map each ``meeting_id`` to the directory it was loaded from."""
     schema = pl.Schema(EVENT_SCHEMA)
     out: dict[str, str] = {}
     for d in dirs:
@@ -133,11 +128,8 @@ def _meeting_source_dirs(dirs: list[Path]) -> dict[str, str]:
 
 @contextmanager
 def _cli_errors() -> Iterator[None]:
-    """Translate analytics errors into typer.Exit with the right code.
-
-    Exit code 3 signals "invalid data" (e.g. a meeting events file with no
-    session_ended event) so the Go GUI can render that case distinctly from
-    generic load failures.
+    """Translate analytics errors into ``typer.Exit``. Exit 3 = invalid
+    data (e.g. no ``session_ended``); exit 1 = OS error.
     """
     try:
         yield

@@ -1,5 +1,3 @@
-"""Tabular CSV report generation for single-meeting and cross-meeting views."""
-
 from __future__ import annotations
 
 import polars as pl
@@ -9,9 +7,6 @@ from ptrack_py._frames import challenge_stats, presence_totals
 
 
 def generate_csv(events: pl.LazyFrame, cross_meeting: bool = False) -> str:
-    """CSV report. Single-meeting by default; *cross_meeting* adds a
-    'meeting' column (ISO-8601 UTC start) and one row per (name, meeting).
-    """
     times = meeting_times(events)
     by = ["display_name", "meeting_id"] if cross_meeting else ["display_name"]
 

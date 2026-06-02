@@ -1,9 +1,5 @@
-"""Polars schemas for the canonical Parquet event log and the JSONL question
-bank. Keep in sync with the Go side.
-
-from_start_ms: ms elapsed since the meeting start (session_started is 0). The
-absolute start/end instants live in session_started/session_ended metadata
-under "timestamp_ms" (Unix ms).
+"""Polars schemas for the event log and the question bank. Mirrored on
+the Go side — both ends must agree.
 """
 
 from __future__ import annotations

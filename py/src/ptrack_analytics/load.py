@@ -16,14 +16,6 @@ _GLOB_CHARS = "*?["
 
 
 def resolve_meetings(*patterns: str) -> list[Path]:
-    """Expand one or more meeting-directory paths or globs into resolved dirs.
-
-    Each match must be a directory containing events.parquet. Order is
-    deterministic (sorted by path); duplicates across patterns are removed.
-
-    Raises ValueError when called with no patterns, FileNotFoundError when
-    no patterns matched a meeting directory.
-    """
     if not patterns:
         raise ValueError("no patterns given")
 
@@ -49,10 +41,6 @@ def resolve_meetings(*patterns: str) -> list[Path]:
 
 
 def load_events(meeting_dirs: Iterable[Path | str]) -> pl.LazyFrame:
-    """Lazy-concat events.parquet from every resolved meeting directory and
-    reject any meeting still in progress — treating the last observed
-    timestamp as the meeting end would mislead.
-    """
     schema = pl.Schema(EVENT_SCHEMA)
     frames: list[pl.LazyFrame] = []
     for d in meeting_dirs:
@@ -70,14 +58,6 @@ def load_events(meeting_dirs: Iterable[Path | str]) -> pl.LazyFrame:
 
 
 def load_questions(meeting_dirs: Iterable[Path | str]) -> pl.LazyFrame:
-    """Load every meeting's questions.jsonl, deduplicated by question_id and
-    reshaped into (question_id, question) where `question` is a struct of the
-    remaining record fields. Missing files are skipped.
-
-    The struct shape keeps challenges → questions joins to one extra column
-    instead of seven, and lets question text live in a single place even when
-    it is referenced from many rows.
-    """
     inner_schema = {k: v for k, v in QUESTIONS_SCHEMA.items() if k != "question_id"}
     empty = pl.LazyFrame(
         schema={

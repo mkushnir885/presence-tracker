@@ -1,15 +1,26 @@
-"""
-ptrack_analytics — meeting analysis library.
+"""ptrack_analytics — meeting analysis for Jupyter.
 
-Typical Jupyter usage::
+Quick start::
 
-    from ptrack_analytics import load
+    from ptrack_analytics import load, meetings, presence, challenges, questions
+    import polars as pl
 
     load("~/Documents/ptrack/meetings/spring-2026-*")
 
-    from ptrack_analytics import meetings, presence, challenges, questions
+    # Every frame is a polars LazyFrame — call .collect() when you want
+    # a concrete DataFrame back.
+    presence.filter(pl.col("ratio") > 0.8).collect()
 
-See docs/QUERIES.md for the full API.
+After calling :func:`load`, the four module-level frames are populated:
+
+* ``meetings`` — one row per meeting.
+* ``presence`` — one row per (participant, meeting), with per-join
+  bands packed into a list.
+* ``challenges`` — one row per issued challenge.
+* ``questions`` — one row per unique question id (join key for
+  ``challenges``).
+
+Use ``.schema`` on any frame to see its columns.
 """
 
 from __future__ import annotations
@@ -28,18 +39,109 @@ __all__ = [
 ]
 
 meetings: pl.LazyFrame | None = None
+"""One row per meeting. ``None`` until :func:`load` is called.
+
+Columns:
+
+* ``meeting_id`` (Utf8)
+* ``platform`` (Utf8) — ``bbb`` / ``meet`` / ``zoom`` / ``mock``
+* ``started_at`` / ``ended_at`` (Datetime("ms","UTC"))
+* ``duration`` (Duration("ms"))
+* ``start_cause`` / ``end_cause`` (Utf8) — why the session began and ended
+
+Example::
+
+    meetings.sort("started_at").collect()
+"""
+
 presence: pl.LazyFrame | None = None
+"""One row per (participant, meeting). ``None`` until :func:`load` is called.
+
+Columns:
+
+* ``display_name`` / ``meeting_id`` (Utf8)
+* ``total_duration`` (Duration("ms")) — sum of band durations
+* ``ratio`` (Float64) — ``total_duration / meeting duration``, clipped
+  to ``[0, 1]``
+* ``present_till_end`` (Bool) — true when any band stayed open at
+  session end
+* ``bands`` (List[Struct]) — per-join bands ordered by ``joined_at``,
+  each carrying ``joined_at``, ``left_at``, ``duration``,
+  ``join_method``, ``leave_reason``. Open bands are clipped at the
+  meeting end.
+
+Use ``presence.explode("bands").unnest("bands")`` to flatten back to
+one row per band.
+
+Example::
+
+    presence.filter(pl.col("ratio") > 0.8).collect()
+"""
+
 challenges: pl.LazyFrame | None = None
+"""One row per issued challenge. ``None`` until :func:`load` is called.
+
+Columns:
+
+* ``display_name`` / ``meeting_id`` / ``challenge_id`` / ``question_id`` (Utf8)
+* ``issued_at`` (Datetime("ms","UTC"))
+* ``answered_at`` (Datetime("ms","UTC"), nullable) — null when
+  ``state == "unanswered"``
+* ``latency`` (Duration("ms"), nullable) — same nullability
+* ``state`` (Enum{correct, incorrect, unanswered})
+* ``submitted_answer`` (Utf8, nullable) — same nullability
+* ``auto_submitted`` (Bool) — poll dispatched without teacher review
+
+Question text is not joined in; it lives once in :data:`questions` and
+the join key is ``question_id``.
+
+Example::
+
+    # Hardest questions across the loaded set
+    (
+        challenges
+        .join(questions, on="question_id")
+        .group_by("question_id")
+        .agg((pl.col("state") == "correct").mean().alias("accuracy"))
+        .sort("accuracy")
+        .collect()
+    )
+"""
+
 questions: pl.LazyFrame | None = None
+"""One row per unique ``question_id`` seen across the loaded meetings.
+``None`` until :func:`load` is called.
+
+Columns:
+
+* ``question_id`` (Utf8) — join key from :data:`challenges`
+* ``question`` (Struct) — full record packed into one column:
+  ``auto_submitted``, ``question_type``, ``prompt``, ``choices``,
+  ``correct_answer``, ``match_mode``, ``tolerance``
+
+Example::
+
+    challenges.join(questions, on="question_id").select(
+        "display_name", "state", pl.col("question").struct.field("prompt"),
+    ).collect()
+"""
 
 
 def load(*patterns: str) -> None:
-    """Load meetings matching *patterns* (paths or globs) and populate the
-    module-level lazy frames. Each matched directory must contain
-    events.parquet; an adjacent questions.jsonl is loaded when present.
+    """Load meetings matching *patterns* (paths or globs) and populate
+    :data:`meetings`, :data:`presence`, :data:`challenges`,
+    :data:`questions` at module level.
 
-    Rejects meetings still in progress (no session_ended event) so every
-    frame has fully-closed presence bands and a concrete end time.
+    Each matched directory must contain ``events.parquet``; a sibling
+    ``questions.jsonl`` is read when present. In-progress meetings (no
+    ``session_ended`` event) are rejected — every frame is guaranteed
+    closed bands and a concrete end time.
+
+    Example::
+
+        load("meetings/2026-04-21")           # one meeting
+        load("meetings/spring-2026-*")        # a semester
+        load("meetings/a", "meetings/b/*")    # mix paths and globs
     """
     global meetings, presence, challenges, questions
 

@@ -1,7 +1,3 @@
-"""JSON stats payload for the GUI's /stats view. See docs/GUI.md for the
-consumer contract.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -26,10 +22,6 @@ def generate_stats(
     mode: str,
     questions: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Build the stats document. mode "cross_meeting" adds absent-participant
-    placeholder rows; "meeting" omits them. *questions* maps each question_id
-    to its full record (prompt, type, choices, …, meeting_id).
-    """
     meetings = _collect_meetings(events)
     segments = _collect_segments(events)
     summary = _collect_summary(events)
@@ -57,8 +49,6 @@ def generate_stats(
 
 
 def _collect_meetings(events: pl.LazyFrame) -> list[dict[str, Any]]:
-    # started_at + duration come from the shared frames.meeting_times; only the
-    # GUI-specific platform/cause metadata is pulled out here.
     times = meeting_times(events)
     start_meta = (
         events.filter(pl.col("event_type") == "session_started")
@@ -103,9 +93,8 @@ def _collect_meetings(events: pl.LazyFrame) -> list[dict[str, Any]]:
 def _collect_segments(
     events: pl.LazyFrame,
 ) -> dict[tuple[str, str], list[dict[str, Any]]]:
-    # Express each closed band as start/width percentages of the meeting for
-    # the SVG. presence_bands already pairs joins↔leaves and clips at
-    # duration; this only adds the SVG geometry.
+    # Add SVG geometry (start/width as % of meeting duration) on top of
+    # the already-clipped bands.
     df = collect_df(
         presence_bands(events)
         .with_columns(
@@ -145,8 +134,8 @@ def _collect_segments(
 def _collect_summary(
     events: pl.LazyFrame,
 ) -> dict[tuple[str, str], dict[str, Any]]:
-    # Full-outer join: a participant who has presence but no challenges (or
-    # vice versa) still gets a complete cell after fill_null.
+    # Full-outer + fill_null: presence-only or challenge-only participants
+    # still get a complete cell.
     times = meeting_times(events).select(["meeting_id", "duration_seconds"])
     joined = (
         presence_totals(events)
@@ -205,9 +194,8 @@ _MARKER_COLS = [
 def _collect_markers(
     events: pl.LazyFrame,
 ) -> dict[tuple[str, str], list[dict[str, Any]]]:
-    # Issued and skipped challenges share one schema so they sort onto a single
-    # timeline together; the question payload is merged in later by the Go
-    # stats loader from the paired JSONL.
+    # Issued and skipped share one shape so they sort onto a single
+    # timeline; question payloads are joined in by the caller.
     durations = meeting_times(events).select(["meeting_id", "duration_ms"])
 
     issued = (
@@ -296,9 +284,8 @@ def _assemble_participants(
     markers: dict[tuple[str, str], list[dict[str, Any]]],
     include_absent: bool,
 ) -> list[dict[str, Any]]:
-    # One row per (participant, meeting). In cross-meeting mode every
-    # participant gets a cell for every meeting — an absent placeholder where
-    # they did not appear — so the GUI can page through a uniform grid.
+    # Cross-meeting mode fills every absent cell so the GUI can page
+    # through a uniform participant × meeting grid.
     names = sorted({n for (n, _) in summary}, key=str.lower)
     meeting_ids = [m["meeting_id"] for m in meetings]
 

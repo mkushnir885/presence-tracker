@@ -1,10 +1,3 @@
-"""Notebook-facing lazy frames exported via :mod:`ptrack_analytics`.
-
-The views convert raw ms offsets from the internal helpers in
-:mod:`ptrack_analytics.frames` to ``Datetime`` / ``Duration`` and pack
-per-event metadata into struct columns.
-"""
-
 from __future__ import annotations
 
 import polars as pl
@@ -17,20 +10,12 @@ _DUR_MS = pl.Duration(time_unit="ms")
 
 
 def _ms_after(start: pl.Expr, offset_ms: pl.Expr) -> pl.Expr:
-    """Datetime("ms","UTC") at start + offset_ms. Polars datetime + duration
-    arithmetic widens to microseconds; we cast back so the public schema
-    stays a stable Datetime("ms","UTC").
-    """
+    # Polars widens datetime + duration to microseconds; cast back so
+    # every emitted column stays Datetime("ms","UTC").
     return (start + pl.duration(milliseconds=offset_ms)).cast(_DT_MS_UTC)
 
 
 def meetings_view(events: pl.LazyFrame) -> pl.LazyFrame:
-    """Notebook-facing per-meeting frame.
-
-    Columns: meeting_id, platform, started_at (Datetime),
-    ended_at (Datetime), duration (Duration), start_cause (Utf8),
-    end_cause (Utf8).
-    """
     times = meeting_times(events).select("meeting_id", "started_at", "duration_ms")
     start_meta = (
         events.filter(pl.col("event_type") == "session_started")
@@ -79,21 +64,7 @@ def meetings_view(events: pl.LazyFrame) -> pl.LazyFrame:
 
 
 def presence_view(events: pl.LazyFrame) -> pl.LazyFrame:
-    """Notebook-facing per-participant presence frame.
-
-    One row per (display_name, meeting_id). Bands are packed into a list of
-    structs ordered by joined_at; open bands (no matching leave) are clipped
-    at the meeting's end, and present_till_end flags the participant as
-    having been present through to session end.
-
-    Columns: display_name, meeting_id, total_duration (Duration),
-    ratio (Float64; total_duration / meeting duration, in [0, 1]),
-    present_till_end (Bool), bands (List[Struct{joined_at, left_at,
-    duration, join_method, leave_reason}]).
-    """
-    times = meeting_times(events).select(
-        "meeting_id", "started_at", "duration_ms"
-    )
+    times = meeting_times(events).select("meeting_id", "started_at", "duration_ms")
     return (
         presence_bands(events)
         .join(times, on="meeting_id", how="left")
@@ -138,19 +109,6 @@ def presence_view(events: pl.LazyFrame) -> pl.LazyFrame:
 
 
 def challenges_view(events: pl.LazyFrame) -> pl.LazyFrame:
-    """Notebook-facing per-challenge frame.
-
-    One row per challenge_issued. answered_at, latency, and
-    submitted_answer are null when state == "unanswered" — no answer
-    was submitted, so there is no real instant to record. Question
-    payload is intentionally not joined in: it lives in the questions
-    frame and is reused across rows via question_id.
-
-    Columns: display_name, meeting_id, challenge_id, question_id,
-    issued_at (Datetime), answered_at (Datetime, nullable),
-    latency (Duration, nullable), state (Enum),
-    submitted_answer (Utf8, nullable), auto_submitted (Bool).
-    """
     starts = meeting_times(events).select("meeting_id", "started_at")
     answered = pl.col("state").is_in(["correct", "incorrect"])
     return (

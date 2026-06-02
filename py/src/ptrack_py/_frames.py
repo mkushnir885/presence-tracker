@@ -1,10 +1,3 @@
-"""Aggregations consumed by the CSV report and GUI stats payload.
-
-These live next to their callers (reports.py, stats.py) rather than in
-ptrack_analytics so the notebook library's public surface stays small.
-They build on the internal helpers in ptrack_analytics.frames.
-"""
-
 from __future__ import annotations
 
 import polars as pl
@@ -13,10 +6,9 @@ from ptrack_analytics.frames import challenge_results, presence_bands
 
 
 def presence_totals(events: pl.LazyFrame) -> pl.LazyFrame:
-    """Per (display_name, meeting_id) total presence seconds, with every band
-    closed at the meeting's duration. The single source for "how long was X
-    present in Y" — feeds the CSV report and the GUI stats payload so the two
-    cannot drift.
+    """Per (display_name, meeting_id) total presence seconds. The single
+    source for "how long was X present in Y" — shared by the CSV report
+    and the GUI stats payload so they cannot drift.
     """
     return (
         presence_bands(events)
@@ -29,11 +21,8 @@ def presence_totals(events: pl.LazyFrame) -> pl.LazyFrame:
 
 
 def challenge_stats(events: pl.LazyFrame, by: list[str]) -> pl.LazyFrame:
-    """Per-group challenge counts: issued, correct, incorrect, unanswered.
-
-    *by* is the group-by key (e.g. ["display_name"] or
-    ["display_name", "meeting_id"]). The CSV report only consumes issued and
-    correct; the GUI stats payload consumes all four.
+    """Per-group challenge counts: ``issued``, ``correct``,
+    ``incorrect``, ``unanswered``. *by* is the group-by key.
     """
     return (
         challenge_results(events)
@@ -57,10 +46,10 @@ def challenge_stats(events: pl.LazyFrame, by: list[str]) -> pl.LazyFrame:
 
 
 def concurrent_participants(events: pl.LazyFrame) -> pl.LazyFrame:
-    """Peak concurrent participants per meeting via a sweep-line over joins.
+    """Peak concurrent participants per meeting via a sweep-line.
 
-    Sorting delta descending puts joins (+1) before leaves (-1) at the same
-    instant, so a simultaneous swap still counts the momentary peak.
+    Sorting delta descending puts joins (+1) before leaves (-1) at the
+    same instant, so a simultaneous swap still counts the peak.
     """
     joined = events.filter(pl.col("event_type") == "participant_joined").select(
         pl.col("meeting_id"),
