@@ -145,6 +145,39 @@ load("meetings/spring-2026-*")
 )
 ```
 
+### Helper analyses
+
+`ptrack_analytics.analysis` ships a few ready-to-call helpers built on
+the four exported frames. Each takes the relevant frames as arguments
+so the call site reads as documentation.
+
+```python
+from ptrack_analytics import load, meetings, presence, challenges
+from ptrack_analytics.analysis import (
+    challenge_accuracy,
+    plot_concurrent_participants,
+    plot_presence_heatmap,
+)
+
+load("meetings/spring-2026-*")
+
+# Per-meeting step chart of concurrent participants over time.
+plot_concurrent_participants(presence, meetings)
+
+# Per-participant correct/issued ratio across the loaded meetings.
+# Skipped challenges are excluded.
+challenge_accuracy(challenges)
+
+# Heatmap of presence ratio (participants × meetings); each cell
+# carries its ratio label. Pass display_name to keep one row only.
+plot_presence_heatmap(presence, meetings)
+plot_presence_heatmap(presence, meetings, display_name="Alice")
+```
+
+The plotting helpers lazy-import `matplotlib` — install it (`uv add
+matplotlib`) before calling them if it isn't already in your notebook
+environment.
+
 ### CSV reports from a notebook
 
 There is no notebook helper for CSV generation; for ad-hoc tables call
