@@ -93,6 +93,22 @@ def presence_closed(events: pl.LazyFrame) -> pl.LazyFrame:
     )
 
 
+def presence_totals(events: pl.LazyFrame) -> pl.LazyFrame:
+    """Per (display_name, meeting_id) total presence seconds, with every band
+    closed at the meeting's duration. The single source for "how long was X
+    present in Y" — feeds the CSV report and the GUI stats payload so the two
+    cannot drift.
+    """
+    return (
+        presence_closed(events)
+        .with_columns(
+            ((pl.col("end_ms") - pl.col("joined_ms")) / 1_000.0).alias("band_seconds")
+        )
+        .group_by(["display_name", "meeting_id"])
+        .agg(pl.col("band_seconds").sum().alias("presence_seconds"))
+    )
+
+
 def presence(events: pl.LazyFrame) -> pl.LazyFrame:
     """One row per (display_name, meeting_id) presence interval.
 

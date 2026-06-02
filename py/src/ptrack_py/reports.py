@@ -7,7 +7,7 @@ import polars as pl
 from ptrack_analytics.frames import (
     challenge_stats,
     meeting_times,
-    presence_closed,
+    presence_totals,
 )
 from ptrack_analytics.load import collect_df
 
@@ -19,7 +19,7 @@ def generate_csv(events: pl.LazyFrame, cross_meeting: bool = False) -> str:
     times = meeting_times(events)
     by = ["display_name", "meeting_id"] if cross_meeting else ["display_name"]
 
-    pres = _presence_seconds(events).join(
+    pres = presence_totals(events).join(
         times.select(
             ["meeting_id", "started_at", "duration_seconds"]
             if cross_meeting
@@ -70,17 +70,6 @@ def generate_csv(events: pl.LazyFrame, cross_meeting: bool = False) -> str:
             )
         )
     return df.write_csv()
-
-
-def _presence_seconds(events: pl.LazyFrame) -> pl.LazyFrame:
-    return (
-        presence_closed(events)
-        .with_columns(
-            ((pl.col("end_ms") - pl.col("joined_ms")) / 1_000.0).alias("band_seconds")
-        )
-        .group_by(["display_name", "meeting_id"])
-        .agg(pl.col("band_seconds").sum().alias("presence_seconds"))
-    )
 
 
 def _presence_ratio() -> pl.Expr:
