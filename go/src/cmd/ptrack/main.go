@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"presence-tracker/src/internal/messengers"
 	mockmessenger "presence-tracker/src/internal/messengers/mock"
 	"presence-tracker/src/internal/messengers/telegram"
+	"presence-tracker/src/internal/mockfixture"
 	"presence-tracker/src/internal/participants"
 	"presence-tracker/src/internal/providers"
 	bbbprovider "presence-tracker/src/internal/providers/bbb"
@@ -94,7 +96,6 @@ func trackCmd() *cobra.Command {
 		cfgPath      string
 		providerName string
 		meetingID    string
-		fixture      string
 		port         int
 	)
 
@@ -102,15 +103,13 @@ func trackCmd() *cobra.Command {
 		Use:   "track",
 		Short: "Track presence for a meeting",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runTrack(cmd.Context(), cfgPath, providerName, meetingID, fixture, port)
+			return runTrack(cmd.Context(), cfgPath, providerName, meetingID, port)
 		},
 	}
 
 	cmd.Flags().StringVar(&cfgPath, "config", "", "path to config.json (default: search standard locations)")
 	cmd.Flags().StringVar(&providerName, "provider", "bbb", "video-conferencing provider (bbb, meet, zoom)")
 	cmd.Flags().StringVar(&meetingID, "meeting", "", "meeting ID")
-	cmd.Flags().StringVar(&fixture, "fixture", "", "path to a recorded fixture directory for offline replay")
-	_ = cmd.Flags().MarkHidden("fixture")
 	cmd.Flags().IntVar(&port, "port", 0, "control-plane port; overrides gui.port from config")
 
 	return cmd
@@ -215,7 +214,7 @@ func runReport(ctx context.Context, inputs []string) error {
 	return err
 }
 
-func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture string, portOverride int) error {
+func runTrack(ctx context.Context, cfgPath, providerName, meetingID string, portOverride int) error {
 	cfg, err := loadConfig(cfgPath)
 	if err != nil {
 		return err
@@ -228,20 +227,35 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 		bindPort = portOverride
 	}
 
-	if fixture != "" {
-		if meetingID == "" {
-			meetingID = "fixture"
-		}
-	} else if meetingID == "" {
+	if meetingID == "" {
 		return fmt.Errorf("--meeting is required")
 	}
 
-	prov, err := buildProvider(providerName, fixture, cfg)
+	usingMock := providerName == mockprovider.Name
+	var loadedFixture *mockfixture.Fixture
+	if usingMock {
+		loadedFixture, err = mockfixture.Load(meetingID)
+		if err != nil {
+			return err
+		}
+
+		speed := 10.0
+		if env, ok := os.LookupEnv("FIXTURE_SPEED"); ok {
+			if x, err := strconv.ParseFloat(env, 64); err == nil {
+				speed = x
+			}
+		}
+		loadedFixture.WithSpeed(speed)
+	}
+
+	prov, err := buildProvider(providerName, loadedFixture, cfg)
 	if err != nil {
 		return err
 	}
 
-	if fixture == "" {
+	if usingMock {
+		meetingID = "fixture"
+	} else {
 		meetingID, err = prov.ParseMeetingID(meetingID)
 		if err != nil {
 			return fmt.Errorf("meeting input: %w", err)
@@ -265,7 +279,7 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 		}
 	}()
 
-	msgr, err := buildMessenger(cfg, registry)
+	msgr, err := buildMessenger(cfg, registry, loadedFixture)
 	if err != nil {
 		return err
 	}
@@ -555,7 +569,7 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	msgr, err := buildMessenger(cfg, registry)
+	msgr, err := buildMessenger(cfg, registry, nil)
 	if err != nil {
 		return err
 	}
@@ -604,10 +618,13 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 	return nil
 }
 
-func buildMessenger(cfg *config.Config, registry participants.Registry) (messengers.Messenger, error) {
+func buildMessenger(cfg *config.Config, registry participants.Registry, fixture *mockfixture.Fixture) (messengers.Messenger, error) {
+	if fixture != nil {
+		return mockmessenger.New(fixture, registry), nil
+	}
 	tg := cfg.Get().Messengers.Telegram
 	if !tg.Enabled {
-		return mockmessenger.New(), nil
+		return nil, fmt.Errorf("telegram messenger must be enabled in config")
 	}
 	m, err := telegram.New(tg.BotToken, registry)
 	if err != nil {
@@ -616,11 +633,10 @@ func buildMessenger(cfg *config.Config, registry participants.Registry) (messeng
 	return m, nil
 }
 
-func buildProvider(name, fixture string, cfg *config.Config) (providers.Provider, error) {
-	if fixture != "" {
-		return mockprovider.New(fixture).WithSpeed(10.0), nil
-	}
+func buildProvider(name string, fixture *mockfixture.Fixture, cfg *config.Config) (providers.Provider, error) {
 	switch name {
+	case mockprovider.Name:
+		return mockprovider.New(fixture), nil
 	case "bbb":
 		return bbbprovider.New(cfg), nil
 	case "meet":

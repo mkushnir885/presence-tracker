@@ -3,88 +3,141 @@ package mock
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
-	"time"
 
 	"presence-tracker/src/internal/messengers"
+	"presence-tracker/src/internal/mockfixture"
+	"presence-tracker/src/internal/participants"
 )
-
-type SentChallenge struct {
-	Handle  string
-	Prompt  messengers.ChallengePrompt
-	SentAt  time.Time
-	Ref     messengers.MessageRef
-	Deleted bool
-}
 
 const (
 	Name        = "mock"
 	DisplayName = "Mock"
 )
 
-// Messenger is an in-memory test double: it records what was sent (challenges,
-// confirmations) and lets tests inject incoming events via the Inject* methods.
+// Messenger replays messenger entries from a shared mockfixture and records
+// outgoing messages so the session coordinator can edit/delete them later.
 type Messenger struct {
-	mu            sync.Mutex
-	events        chan messengers.Event
-	challenges    []*SentChallenge
-	refIdx        int
-	confirmations []SentConfirmation
+	fixture  *mockfixture.Fixture
+	registry participants.Registry
+
+	events chan messengers.Event
+
+	mu     sync.Mutex
+	refIdx int
+
+	stop context.CancelFunc
+	done chan struct{}
 }
 
-type SentConfirmation struct {
-	Handle    string
-	MeetingID string
-	Platform  string
-	Ref       messengers.MessageRef
-}
-
-func New() *Messenger {
-	return &Messenger{events: make(chan messengers.Event, 64)}
+func New(f *mockfixture.Fixture, registry participants.Registry) *Messenger {
+	return &Messenger{
+		fixture:  f,
+		registry: registry,
+		events:   make(chan messengers.Event, 64),
+	}
 }
 
 func (m *Messenger) Name() string        { return Name }
 func (m *Messenger) DisplayName() string { return DisplayName }
 
-func (m *Messenger) Start(_ context.Context) (<-chan messengers.Event, error) {
+func (m *Messenger) Start(ctx context.Context) (<-chan messengers.Event, error) {
+	runCtx, cancel := context.WithCancel(ctx)
+	m.stop = cancel
+	m.done = make(chan struct{})
+	go m.replay(runCtx)
 	return m.events, nil
 }
 
 func (m *Messenger) Stop(_ context.Context) error {
-	close(m.events)
+	if m.stop != nil {
+		m.stop()
+	}
+	if m.done != nil {
+		<-m.done
+	}
 	return nil
 }
 
-func (m *Messenger) SendJoinConfirmation(_ context.Context, handle, _, meetingID, platform string) (messengers.MessageRef, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.refIdx++
-	ref := messengers.MessageRef{Opaque: fmt.Sprintf("mock-confirm-%d", m.refIdx)}
-	m.confirmations = append(m.confirmations, SentConfirmation{
-		Handle:    handle,
-		MeetingID: meetingID,
-		Platform:  platform,
-		Ref:       ref,
-	})
-	return ref, nil
+func (m *Messenger) replay(ctx context.Context) {
+	defer close(m.done)
+	defer close(m.events)
+
+	for _, e := range m.fixture.Entries() {
+		if !isMessengerKind(e.Kind) {
+			continue
+		}
+		if !m.fixture.WaitAt(ctx, e.OffsetMS) {
+			return
+		}
+		evt, ok := m.buildEvent(ctx, e)
+		if !ok {
+			continue
+		}
+		select {
+		case m.events <- evt:
+		case <-ctx.Done():
+			return
+		}
+	}
+
+	<-ctx.Done()
 }
 
-func (m *Messenger) SendChallenge(_ context.Context, handle, _ string, c messengers.ChallengePrompt) (messengers.MessageRef, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.refIdx++
-	ref := messengers.MessageRef{Opaque: fmt.Sprintf("mock-%d", m.refIdx)}
-	m.challenges = append(m.challenges, &SentChallenge{
-		Handle: handle,
-		Prompt: c,
-		SentAt: time.Now().UTC(),
-		Ref:    ref,
-	})
-	return ref, nil
+func (m *Messenger) buildEvent(ctx context.Context, e mockfixture.Entry) (messengers.Event, bool) {
+	ts := m.fixture.EventTime(e.OffsetMS)
+	switch e.Kind {
+	case mockfixture.KindRegistration:
+		if err := m.registry.Register(ctx, Name, e.Handle, e.Handle, e.DisplayName, e.Language); err != nil {
+			slog.Warn("mock messenger: registry register", "handle", e.Handle, "err", err)
+			return messengers.Event{}, false
+		}
+		return messengers.Event{
+			Kind:        messengers.EventKindRegistration,
+			Handle:      e.Handle,
+			DisplayName: e.DisplayName,
+			Timestamp:   ts,
+		}, true
+	case mockfixture.KindJoinConfirmation:
+		return messengers.Event{
+			Kind:      messengers.EventKindJoinConfirmation,
+			Handle:    e.Handle,
+			Confirmed: e.Confirmed,
+			Timestamp: ts,
+		}, true
+	case mockfixture.KindAnswerReceived:
+		return messengers.Event{
+			Kind:        messengers.EventKindAnswerReceived,
+			Handle:      e.Handle,
+			ChallengeID: e.ChallengeID,
+			Answer:      e.Answer,
+			Selected:    e.Selected,
+			Timestamp:   ts,
+		}, true
+	}
+	return messengers.Event{}, false
 }
 
-func (m *Messenger) Notify(_ context.Context, ref messengers.MessageRef, _ string, _ messengers.NotifyKind, _ ...any) error {
-	_ = ref
+func isMessengerKind(k string) bool {
+	switch k {
+	case mockfixture.KindRegistration,
+		mockfixture.KindJoinConfirmation,
+		mockfixture.KindAnswerReceived:
+		return true
+	}
+	return false
+}
+
+func (m *Messenger) SendJoinConfirmation(_ context.Context, _, _, _, _ string) (messengers.MessageRef, error) {
+	return m.nextRef("confirm"), nil
+}
+
+func (m *Messenger) SendChallenge(_ context.Context, _, _ string, _ messengers.ChallengePrompt) (messengers.MessageRef, error) {
+	return m.nextRef("challenge"), nil
+}
+
+func (m *Messenger) Notify(_ context.Context, _ messengers.MessageRef, _ string, _ messengers.NotifyKind, _ ...any) error {
 	return nil
 }
 
@@ -92,50 +145,13 @@ func (m *Messenger) SendNotification(_ context.Context, _, _ string, _ messenger
 	return nil
 }
 
-func (m *Messenger) DeleteMessage(_ context.Context, ref messengers.MessageRef) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, sc := range m.challenges {
-		if sc.Ref == ref {
-			sc.Deleted = true
-			return nil
-		}
-	}
+func (m *Messenger) DeleteMessage(_ context.Context, _ messengers.MessageRef) error {
 	return nil
 }
 
-func (m *Messenger) InjectAnswer(handle, challengeID, text string, selected []string) {
-	m.events <- messengers.Event{
-		Kind:        messengers.EventKindAnswerReceived,
-		Handle:      handle,
-		ChallengeID: challengeID,
-		Answer:      text,
-		Selected:    selected,
-		Timestamp:   time.Now().UTC(),
-	}
-}
-
-func (m *Messenger) InjectConfirmation(handle string, confirmed bool) {
-	m.events <- messengers.Event{
-		Kind:      messengers.EventKindJoinConfirmation,
-		Handle:    handle,
-		Confirmed: confirmed,
-		Timestamp: time.Now().UTC(),
-	}
-}
-
-func (m *Messenger) Sent() []SentChallenge {
+func (m *Messenger) nextRef(prefix string) messengers.MessageRef {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]SentChallenge, len(m.challenges))
-	for i, sc := range m.challenges {
-		out[i] = *sc
-	}
-	return out
-}
-
-func (m *Messenger) Confirmations() []SentConfirmation {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return append([]SentConfirmation(nil), m.confirmations...)
+	m.refIdx++
+	return messengers.MessageRef{Opaque: fmt.Sprintf("mock-%s-%d", prefix, m.refIdx)}
 }

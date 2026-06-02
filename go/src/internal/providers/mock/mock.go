@@ -1,15 +1,10 @@
 package mock
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
+	"presence-tracker/src/internal/mockfixture"
 	"presence-tracker/src/internal/providers"
 )
 
@@ -20,26 +15,14 @@ const (
 
 func init() { providers.Register(Name, DisplayName) }
 
-type fixtureEvent struct {
-	Kind              string            `json:"kind"`
-	PlatformID        string            `json:"platform_id"`
-	DisplayName       string            `json:"display_name"`
-	OffsetMS          int64             `json:"offset_ms"`
-	Extra             map[string]string `json:"extra"`
-	MeetingInProgress bool              `json:"meeting_in_progress"`
-}
-
 type Provider struct {
-	fixturePath string
-	meetingID   string
-	speed       float64
+	fixture   *mockfixture.Fixture
+	meetingID string
 }
 
-func New(fixturePath string) *Provider {
-	return &Provider{fixturePath: fixturePath, speed: 1.0}
+func New(f *mockfixture.Fixture) *Provider {
+	return &Provider{fixture: f}
 }
-
-func (p *Provider) WithSpeed(s float64) *Provider { p.speed = s; return p }
 
 func (p *Provider) Name() string        { return Name }
 func (p *Provider) DisplayName() string { return DisplayName }
@@ -50,47 +33,28 @@ func (p *Provider) ParseMeetingID(input string) (string, error) {
 	return strings.TrimSpace(input), nil
 }
 
-// Subscribe replays the fixture's events.jsonl, emitting each event at its
-// recorded offset scaled by speed (WithSpeed(10) is 10× faster; speed 0 fires
-// everything immediately).
+// Subscribe replays the provider entries from the shared fixture, emitting
+// each at its scheduled time.
 func (p *Provider) Subscribe(ctx context.Context, meetingID string) (<-chan providers.Event, error) {
 	p.meetingID = meetingID
-	path := filepath.Join(p.fixturePath, "events.jsonl")
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("mock: open fixture %s: %w", path, err)
-	}
-
 	ch := make(chan providers.Event, 16)
 	go func() {
 		defer close(ch)
-		defer func() { _ = f.Close() }()
-
-		start := time.Now()
-		sc := bufio.NewScanner(f)
-		for sc.Scan() {
-			var fe fixtureEvent
-			if err := json.Unmarshal(sc.Bytes(), &fe); err != nil {
+		for _, e := range p.fixture.Entries() {
+			kind, ok := providerKind(e.Kind)
+			if !ok {
 				continue
 			}
-			if p.speed > 0 {
-				target := start.Add(time.Duration(float64(fe.OffsetMS) / p.speed * float64(time.Millisecond)))
-				wait := time.Until(target)
-				if wait > 0 {
-					select {
-					case <-ctx.Done():
-						return
-					case <-time.After(wait):
-					}
-				}
+			if !p.fixture.WaitAt(ctx, e.OffsetMS) {
+				return
 			}
 			evt := providers.Event{
-				Kind:              providers.EventKind(fe.Kind),
-				PlatformID:        fe.PlatformID,
-				DisplayName:       fe.DisplayName,
-				Timestamp:         start.Add(time.Duration(fe.OffsetMS) * time.Millisecond),
-				Extra:             fe.Extra,
-				MeetingInProgress: fe.MeetingInProgress,
+				Kind:              kind,
+				PlatformID:        e.PlatformID,
+				DisplayName:       e.DisplayName,
+				Timestamp:         p.fixture.EventTime(e.OffsetMS),
+				Extra:             e.Extra,
+				MeetingInProgress: e.MeetingInProgress,
 			}
 			select {
 			case ch <- evt:
@@ -99,6 +63,19 @@ func (p *Provider) Subscribe(ctx context.Context, meetingID string) (<-chan prov
 			}
 		}
 	}()
-
 	return ch, nil
+}
+
+func providerKind(k string) (providers.EventKind, bool) {
+	switch k {
+	case mockfixture.KindMeetingStarted:
+		return providers.EventKindMeetingStarted, true
+	case mockfixture.KindMeetingEnded:
+		return providers.EventKindMeetingEnded, true
+	case mockfixture.KindParticipantJoined:
+		return providers.EventKindParticipantJoined, true
+	case mockfixture.KindParticipantLeft:
+		return providers.EventKindParticipantLeft, true
+	}
+	return "", false
 }

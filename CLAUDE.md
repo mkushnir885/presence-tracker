@@ -373,7 +373,7 @@ For releases: PyInstaller single-file binary (`ptrack_py`).
 | Run all tests                   | `just test`                                                              |
 | Format                          | `just fmt`                                                               |
 | Lint                            | `just lint`                                                              |
-| Run a fixture end-to-end        | `./bin/ptrack track --provider=mock --fixture=test/fixtures/bbb/lesson1` |
+| Run a fixture end-to-end        | `./bin/ptrack track --provider=mock --meeting=test/fixtures/lesson1.jsonl` |
 | Track without GUI (headless)    | `./bin/ptrack track --provider=bbb --meeting=<id>`                       |
 | Start GUI (connect via browser) | `./bin/ptrack serve --port=8080` — use the Connect form on the dashboard |
 | Trigger a poll (any producer)   | `./bin/ptrack poll path/to/bank.yaml`                                    |

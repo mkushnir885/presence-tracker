@@ -1,0 +1,16 @@
+{"kind":"registration","offset_ms":100,"handle":"tg_alice","display_name":"Alice","language":"en"}
+{"kind":"registration","offset_ms":200,"handle":"tg_bohdan","display_name":"Bohdan","language":"uk"}
+{"kind":"registration","offset_ms":300,"handle":"tg_dmytro","display_name":"Dmytro","language":"uk"}
+{"kind":"meeting_started","offset_ms":500,"extra":{"platform":"mock"}}
+{"kind":"participant_joined","offset_ms":1000,"platform_id":"w_alice","display_name":"Alice","extra":{"role":"VIEWER"}}
+{"kind":"participant_joined","offset_ms":2000,"platform_id":"w_bohdan","display_name":"Bohdan","extra":{"role":"VIEWER"}}
+{"kind":"participant_joined","offset_ms":3000,"platform_id":"w_dmytro","display_name":"Dmytro","extra":{"role":"VIEWER"}}
+{"kind":"join_confirmation","offset_ms":4000,"handle":"tg_alice","confirmed":true}
+{"kind":"join_confirmation","offset_ms":5000,"handle":"tg_bohdan","confirmed":true}
+{"kind":"join_confirmation","offset_ms":6000,"handle":"tg_dmytro","confirmed":true}
+{"kind":"participant_left","offset_ms":60000,"platform_id":"w_bohdan","display_name":"Bohdan","extra":{"reason":"left"}}
+{"kind":"participant_joined","offset_ms":65000,"platform_id":"w_bohdan","display_name":"Bohdan","extra":{"role":"VIEWER"}}
+{"kind":"join_confirmation","offset_ms":68000,"handle":"tg_bohdan","confirmed":true}
+{"kind":"participant_left","offset_ms":164000,"platform_id":"w_bohdan","display_name":"Bohdan","extra":{"reason":"left"}}
+{"kind":"participant_left","offset_ms":258000,"platform_id":"w_alice","display_name":"Alice","extra":{"reason":"left"}}
+{"kind":"meeting_ended","offset_ms":360000}
