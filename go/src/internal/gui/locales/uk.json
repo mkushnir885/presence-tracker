@@ -51,6 +51,7 @@
   "stats.tooltip.duration_label": "Тривалість",
   "stats.loading": "Завантаження…",
   "stats.loading_many_hint": "Опрацювання багатьох зустрічей може зайняти час.",
+  "stats.error": "Щось пішло не так.",
   "stats.empty_meeting": "У вибраному файлі немає учасників.",
   "stats.empty_cross": "У вибраних файлах немає учасників.",
   "stats.filter_no_matches": "Жоден учасник не відповідає фільтру.",

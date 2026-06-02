@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import glob as _glob
+import json
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 
@@ -58,27 +60,32 @@ def load_events(meeting_dirs: Iterable[Path | str]) -> pl.LazyFrame:
 
 
 def load_questions(meeting_dirs: Iterable[Path | str]) -> pl.LazyFrame:
-    inner_schema = {k: v for k, v in QUESTIONS_SCHEMA.items() if k != "question_id"}
-    empty = pl.LazyFrame(
-        schema={
-            "question_id": pl.String,
-            "question": pl.Struct(inner_schema),
-        }
-    )
+    inner_keys = [k for k in QUESTIONS_SCHEMA if k != "question_id"]
+    frame_schema = {
+        "question_id": pl.String,
+        "question": pl.Struct({k: QUESTIONS_SCHEMA[k] for k in inner_keys}),
+    }
 
-    frames: list[pl.LazyFrame] = []
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for d in meeting_dirs:
         path = Path(d) / QUESTIONS_FILE
-        if path.exists():
-            frames.append(pl.scan_ndjson(str(path)))
-    if not frames:
-        return empty
+        if not path.exists():
+            continue
+        with path.open(encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                rec = json.loads(line)
+                qid = rec.get("question_id")
+                if not isinstance(qid, str) or qid in seen:
+                    continue
+                seen.add(qid)
+                ans = rec.get("correct_answer")
+                inner = {k: rec.get(k) for k in inner_keys}
+                inner["correct_answer"] = (
+                    None if ans is None else json.dumps(ans, ensure_ascii=False)
+                )
+                rows.append({"question_id": qid, "question": inner})
 
-    return (
-        pl.concat(frames)
-        .unique(subset=["question_id"])
-        .select(
-            pl.col("question_id"),
-            pl.struct(pl.exclude("question_id")).alias("question"),
-        )
-    )
+    return pl.LazyFrame(rows, schema=frame_schema)

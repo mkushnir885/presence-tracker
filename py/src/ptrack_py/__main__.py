@@ -69,10 +69,16 @@ def stats(
         events = load_events(dirs)
         mode = "meeting" if len(dirs) == 1 else "cross_meeting"
         source_dirs = _meeting_source_dirs(dirs)
-        # Splice question_id back inside each value so the dict shape
-        # matches the on-disk JSONL record verbatim.
         questions = {
-            qid: {"question_id": qid, **rec}
+            qid: {
+                "question_id": qid,
+                **rec,
+                "correct_answer": (
+                    json.loads(rec["correct_answer"])
+                    if rec.get("correct_answer") is not None
+                    else None
+                ),
+            }
             for qid, rec in collect_df(load_questions(dirs)).iter_rows()
         }
         payload = generate_stats(events, mode=mode, questions=questions)

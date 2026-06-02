@@ -25,6 +25,7 @@ templ Stats(dirs []string, locale Locale) {
 				hx-get={ "/stats/rows?" + dirsQueryFor(dirs) }
 				hx-trigger="load"
 				hx-swap="outerHTML"
+				hx-on::response-error="this.outerHTML = document.getElementById('stats-error-tpl').innerHTML"
 			>
 				<div class="stats-spinner" aria-hidden="true"></div>
 				<p class="text-muted">{ locale.T("stats.loading") }</p>
@@ -32,6 +33,11 @@ templ Stats(dirs []string, locale Locale) {
 					<p class="text-muted stats-loading-hint">{ locale.T("stats.loading_many_hint") }</p>
 				}
 			</div>
+			<template id="stats-error-tpl">
+				<div class="stats-loader stats-error">
+					<p class="text-muted">{ locale.T("stats.error") }</p>
+				</div>
+			</template>
 		</div>
 		<script src="/assets/stats.js"></script>
 	}

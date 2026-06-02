@@ -147,7 +147,9 @@ Columns:
 * ``question_id`` (Utf8) — join key from :data:`challenges`
 * ``question`` (Struct) — full record packed into one column:
   ``auto_submitted``, ``question_type``, ``prompt``, ``choices``,
-  ``correct_answer``, ``match_mode``, ``tolerance``
+  ``correct_answer``, ``match_mode``, ``tolerance``.
+  ``correct_answer`` is JSON-encoded (``["foo"]`` for choice/text,
+  ``5040`` for numeric) — decode with ``json.loads`` when needed.
 
 Example::
 

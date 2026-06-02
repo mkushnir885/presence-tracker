@@ -1101,6 +1101,7 @@ details.menu .menu-list button.active svg { color: var(--accent); }
     animation: ptrack-spin 0.9s linear infinite;
 }
 .stats-loading-hint { font-size: 0.88rem; }
+.stats-error > p { font-size: 1.25rem; }
 
 .stopped-body {
     margin: 0;

@@ -22,6 +22,7 @@ QUESTIONS_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "question_type": pl.String,
     "prompt": pl.String,
     "choices": pl.List(pl.String),
+    # JSON-encoded — list for choice/text answers, number for numeric.
     "correct_answer": pl.String,
     "match_mode": pl.String,
     "tolerance": pl.Float64,
