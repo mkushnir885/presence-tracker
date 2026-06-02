@@ -96,14 +96,15 @@ def test_report_and_stats_presence_ratios_agree() -> None:
 
     reader = csv.DictReader(io.StringIO(generate_csv(events, cross_meeting=True)))
     report_ratio = {
-        (r["name"], r["meeting"]): float(r["presence_ratio"]) for r in reader
+        (r["name"], r["meeting_started_at"]): float(r["presence_ratio"])
+        for r in reader
     }
 
     payload = generate_stats(events, mode="cross_meeting")
     started = {
-        m["meeting_id"]: dt.datetime.fromtimestamp(
-            m["started_at"] / 1000, tz=dt.timezone.utc
-        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        m["meeting_id"]: dt.datetime.fromtimestamp(m["started_at"] / 1000).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
         for m in payload["meetings"]
     }
     stats_ratio = {

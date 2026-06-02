@@ -3,6 +3,15 @@ from __future__ import annotations
 from typing import cast
 
 import polars as pl
+import tzlocal
+
+# Assign an IANA name (e.g. ``"America/New_York"``) to override
+# autodetection; views and the CSV report pick it up on the next call.
+TZ: str | None = None
+
+
+def _TZ() -> str:
+    return TZ or tzlocal.get_localzone_name() or "UTC"
 
 
 def collect_df(lf: pl.LazyFrame) -> pl.DataFrame:
@@ -101,10 +110,11 @@ def meeting_times(events: pl.LazyFrame) -> pl.LazyFrame:
         pl.coalesce([pl.col("ended_ms"), pl.col("tail_ms")]).alias("duration_ms"),
     )
     return start.join(duration, on="meeting_id", how="left").with_columns(
+        pl.col("started_at").dt.replace_time_zone("UTC"),
         pl.when(pl.col("duration_ms") > 0)
         .then(pl.col("duration_ms") / 1_000.0)
         .otherwise(pl.lit(1.0))
-        .alias("duration_seconds")
+        .alias("duration_seconds"),
     )
 
 

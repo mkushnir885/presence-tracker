@@ -25,12 +25,36 @@ Use ``.schema`` on any frame to see its columns.
 
 from __future__ import annotations
 
+import sys
+import types
+
 import polars as pl
 
+from . import frames
 from .load import load_events, load_questions, resolve_meetings
 from .views import challenges_view, meetings_view, presence_view
 
+
+class _Module(types.ModuleType):
+    """Module subclass so ``ptrack_analytics.TZ = "..."`` writes through
+    to :data:`frames.TZ`, the override consulted before ``tzlocal``
+    autodetection (and ultimately ``"UTC"``).
+    """
+
+    @property
+    def TZ(self) -> str | None:
+        return frames.TZ
+
+    @TZ.setter
+    def TZ(self, value: str | None) -> None:
+        frames.TZ = value
+
+
+sys.modules[__name__].__class__ = _Module
+
+
 __all__ = [
+    "TZ",
     "load",
     "meetings",
     "presence",
@@ -45,7 +69,7 @@ Columns:
 
 * ``meeting_id`` (Utf8)
 * ``platform`` (Utf8) — ``bbb`` / ``meet`` / ``zoom`` / ``mock``
-* ``started_at`` / ``ended_at`` (Datetime("ms","UTC"))
+* ``started_at`` / ``ended_at`` (Datetime("ms"), system local tz)
 * ``duration`` (Duration("ms"))
 * ``start_cause`` / ``end_cause`` (Utf8) — why the session began and ended
 
@@ -84,9 +108,9 @@ challenges: pl.LazyFrame | None = None
 Columns:
 
 * ``display_name`` / ``meeting_id`` / ``challenge_id`` / ``question_id`` (Utf8)
-* ``issued_at`` (Datetime("ms","UTC"))
-* ``answered_at`` (Datetime("ms","UTC"), nullable) — null when
-  ``state == "unanswered"``
+* ``issued_at`` (Datetime("ms"), system local tz)
+* ``answered_at`` (Datetime("ms"), system local tz, nullable) — null
+  when ``state == "unanswered"``
 * ``latency`` (Duration("ms"), nullable) — same nullability
 * ``state`` (Enum{correct, incorrect, unanswered})
 * ``submitted_answer`` (Utf8, nullable) — same nullability

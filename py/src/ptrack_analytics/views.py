@@ -2,21 +2,36 @@ from __future__ import annotations
 
 import polars as pl
 
-from .frames import challenge_results, meeting_times, presence_bands
+from .frames import (
+    _TZ,
+    challenge_results,
+    meeting_times,
+    presence_bands,
+)
 
 _CHALLENGE_STATE = pl.Enum(["correct", "incorrect", "unanswered"])
-_DT_MS_UTC = pl.Datetime(time_unit="ms", time_zone="UTC")
 _DUR_MS = pl.Duration(time_unit="ms")
+
+
+def _to_local_starts(events: pl.LazyFrame) -> pl.LazyFrame:
+    # meeting_times keeps started_at UTC for stats; views retag to local.
+    return meeting_times(events).with_columns(
+        pl.col("started_at")
+        .dt.convert_time_zone(_TZ())
+        .dt.cast_time_unit("ms"),
+    )
 
 
 def _ms_after(start: pl.Expr, offset_ms: pl.Expr) -> pl.Expr:
     # Polars widens datetime + duration to microseconds; cast back so
-    # every emitted column stays Datetime("ms","UTC").
-    return (start + pl.duration(milliseconds=offset_ms)).cast(_DT_MS_UTC)
+    # every emitted column stays Datetime("ms", _TZ()).
+    return (start + pl.duration(milliseconds=offset_ms)).cast(
+        pl.Datetime(time_unit="ms", time_zone=_TZ())
+    )
 
 
 def meetings_view(events: pl.LazyFrame) -> pl.LazyFrame:
-    times = meeting_times(events).select("meeting_id", "started_at", "duration_ms")
+    times = _to_local_starts(events).select("meeting_id", "started_at", "duration_ms")
     start_meta = (
         events.filter(pl.col("event_type") == "session_started")
         .group_by("meeting_id")
@@ -45,7 +60,6 @@ def meetings_view(events: pl.LazyFrame) -> pl.LazyFrame:
         times.join(start_meta, on="meeting_id", how="left")
         .join(end_meta, on="meeting_id", how="left")
         .with_columns(
-            pl.col("started_at").cast(_DT_MS_UTC),
             _ms_after(pl.col("started_at"), pl.col("duration_ms")).alias("ended_at"),
             pl.duration(milliseconds=pl.col("duration_ms"))
             .cast(_DUR_MS)
@@ -64,7 +78,7 @@ def meetings_view(events: pl.LazyFrame) -> pl.LazyFrame:
 
 
 def presence_view(events: pl.LazyFrame) -> pl.LazyFrame:
-    times = meeting_times(events).select("meeting_id", "started_at", "duration_ms")
+    times = _to_local_starts(events).select("meeting_id", "started_at", "duration_ms")
     return (
         presence_bands(events)
         .join(times, on="meeting_id", how="left")
@@ -109,7 +123,7 @@ def presence_view(events: pl.LazyFrame) -> pl.LazyFrame:
 
 
 def challenges_view(events: pl.LazyFrame) -> pl.LazyFrame:
-    starts = meeting_times(events).select("meeting_id", "started_at")
+    starts = _to_local_starts(events).select("meeting_id", "started_at")
     answered = pl.col("state").is_in(["correct", "incorrect"])
     return (
         challenge_results(events)
