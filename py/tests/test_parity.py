@@ -15,7 +15,7 @@ import polars as pl
 
 from ptrack_analytics.frames import meeting_times, presence_bands
 from ptrack_analytics.schema import EVENT_SCHEMA
-from ptrack_py.reports import generate_aggregate_csv
+from ptrack_py.reports import generate_csv
 from ptrack_py.stats import generate_stats
 
 
@@ -94,7 +94,7 @@ def _sample() -> pl.LazyFrame:
 def test_report_and_stats_presence_ratios_agree() -> None:
     events = _sample()
 
-    reader = csv.DictReader(io.StringIO(generate_aggregate_csv(events)))
+    reader = csv.DictReader(io.StringIO(generate_csv(events, cross_meeting=True)))
     report_ratio = {
         (r["name"], r["meeting"]): float(r["presence_ratio"]) for r in reader
     }

@@ -9,11 +9,11 @@ from typing import Any
 import polars as pl
 
 from ptrack_analytics.frames import (
-    challenge_results as _challenge_frame,
-)
-from ptrack_analytics.frames import (
+    challenge_results,
+    challenge_stats,
+    concurrent_participants,
     meeting_times,
-    presence_bands,
+    presence_closed,
 )
 
 
@@ -27,7 +27,7 @@ def generate_stats(
     to its full record (prompt, type, choices, …, meeting_id).
     """
     meetings = _collect_meetings(events)
-    segments = _collect_segments(events, meetings)
+    segments = _collect_segments(events)
     summary = _collect_summary(events, meetings, segments)
     markers = _collect_markers(events, meetings)
     max_participants = _collect_max_participants(events)
@@ -94,36 +94,13 @@ def _collect_meetings(events: pl.LazyFrame) -> list[dict[str, Any]]:
 
 
 def _collect_segments(
-    events: pl.LazyFrame, meetings: list[dict[str, Any]]
+    events: pl.LazyFrame,
 ) -> dict[tuple[str, str], list[dict[str, Any]]]:
-    # n-th join pairs with n-th leave (a rejoin is its own segment); a
-    # surplus join gets null left_ms. Must match reports.py's pairing.
-    durations = pl.LazyFrame(
-        {
-            "meeting_id": [m["meeting_id"] for m in meetings],
-            "duration_ms": [int(m["duration_ms"]) for m in meetings],
-        }
-    )
-
-    paired = presence_bands(events)
-
-    # Express each band as start/width percentages of the meeting for the SVG;
-    # a band with no leave (or one past the end) is still-present and closes at
-    # duration.
+    # Express each closed band as start/width percentages of the meeting for
+    # the SVG. presence_closed already pairs joins↔leaves and clips at
+    # duration; this only adds the SVG geometry.
     df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
-        paired.join(durations, on="meeting_id", how="left")
-        .with_columns(
-            (
-                pl.col("left_ms").is_null()
-                | (pl.col("left_ms") > pl.col("duration_ms"))
-            ).alias("still_present"),
-        )
-        .with_columns(
-            pl.when(pl.col("still_present"))
-            .then(pl.col("duration_ms"))
-            .otherwise(pl.col("left_ms"))
-            .alias("end_ms"),
-        )
+        presence_closed(events)
         .with_columns(
             (pl.col("joined_ms") / pl.col("duration_ms") * 100.0)
             .clip(0.0, 100.0)
@@ -176,24 +153,7 @@ def _collect_summary(
         presence_rows[key] = total / 1_000.0
 
     chal_df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
-        _challenge_frame(events)
-        .group_by(["display_name", "meeting_id"])
-        .agg(
-            pl.len().alias("challenges_issued"),
-            (pl.col("state") == "correct")
-            .sum()
-            .cast(pl.Int64)
-            .alias("challenges_correct"),
-            (pl.col("state") == "incorrect")
-            .sum()
-            .cast(pl.Int64)
-            .alias("challenges_incorrect"),
-            (pl.col("state") == "unanswered")
-            .sum()
-            .cast(pl.Int64)
-            .alias("challenges_unanswered"),
-        )
-        .collect()
+        challenge_stats(events, by=["display_name", "meeting_id"]).collect()
     )
 
     out: dict[tuple[str, str], dict[str, Any]] = {}
@@ -229,26 +189,8 @@ def _collect_summary(
 
 
 def _collect_max_participants(events: pl.LazyFrame) -> dict[str, int]:
-    # Sweep-line: +1 per join, -1 per leave, track the running max.
-    joined = events.filter(pl.col("event_type") == "participant_joined").select(
-        pl.col("meeting_id"),
-        pl.col("from_start_ms").alias("t"),
-        pl.lit(1, dtype=pl.Int64).alias("delta"),
-    )
-    left = events.filter(pl.col("event_type") == "participant_left").select(
-        pl.col("meeting_id"),
-        pl.col("from_start_ms").alias("t"),
-        pl.lit(-1, dtype=pl.Int64).alias("delta"),
-    )
-    # Sorting delta descending puts joins (+1) before leaves (-1) at the same
-    # instant, so a simultaneous swap still counts the momentary peak.
     df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
-        pl.concat([joined, left])
-        .sort(["meeting_id", "t", "delta"], descending=[False, False, True])
-        .with_columns(pl.col("delta").cum_sum().over("meeting_id").alias("concurrent"))
-        .group_by("meeting_id")
-        .agg(pl.col("concurrent").max().alias("max_participants"))
-        .collect()
+        concurrent_participants(events).collect()
     )
     return {row["meeting_id"]: int(row["max_participants"]) for row in df.to_dicts()}
 
@@ -267,7 +209,7 @@ def _collect_markers(
     )
 
     issued_df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
-        _challenge_frame(events)
+        challenge_results(events)
         .join(durations, on="meeting_id", how="left")
         .with_columns(
             (pl.col("issued_ms") / pl.col("duration_ms") * 100.0)

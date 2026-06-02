@@ -57,6 +57,33 @@ def presence_bands(events: pl.LazyFrame) -> pl.LazyFrame:
     ).drop("pair_idx")
 
 
+def presence_closed(events: pl.LazyFrame) -> pl.LazyFrame:
+    """Presence bands with every band closed at the meeting's duration.
+
+    An open band (no matching leave) or one whose leave landed past
+    duration_ms is closed at duration_ms; still_present flags those rows. The
+    closed end_ms is what both the CSV report and the GUI timeline use to
+    compute presence seconds — clipping here keeps the two surfaces in sync.
+    """
+    durations = meeting_times(events).select(["meeting_id", "duration_ms"])
+    return (
+        presence_bands(events)
+        .join(durations, on="meeting_id", how="left")
+        .with_columns(
+            (
+                pl.col("left_ms").is_null()
+                | (pl.col("left_ms") > pl.col("duration_ms"))
+            ).alias("still_present"),
+        )
+        .with_columns(
+            pl.when(pl.col("still_present"))
+            .then(pl.col("duration_ms"))
+            .otherwise(pl.col("left_ms"))
+            .alias("end_ms"),
+        )
+    )
+
+
 def presence(events: pl.LazyFrame) -> pl.LazyFrame:
     """One row per (display_name, meeting_id) presence interval.
 
@@ -166,3 +193,56 @@ def challenge_results(events: pl.LazyFrame) -> pl.LazyFrame:
     )
 
     return issued.join(result_events, on="challenge_id", how="left")
+
+
+def challenge_stats(events: pl.LazyFrame, by: list[str]) -> pl.LazyFrame:
+    """Per-group challenge counts: issued, correct, incorrect, unanswered.
+
+    *by* is the group-by key (e.g. ["display_name"] or
+    ["display_name", "meeting_id"]). The CSV report only consumes issued and
+    correct; the GUI stats payload consumes all four.
+    """
+    return (
+        challenge_results(events)
+        .group_by(by)
+        .agg(
+            pl.len().alias("challenges_issued"),
+            (pl.col("state") == "correct")
+            .sum()
+            .cast(pl.Int64)
+            .alias("challenges_correct"),
+            (pl.col("state") == "incorrect")
+            .sum()
+            .cast(pl.Int64)
+            .alias("challenges_incorrect"),
+            (pl.col("state") == "unanswered")
+            .sum()
+            .cast(pl.Int64)
+            .alias("challenges_unanswered"),
+        )
+    )
+
+
+def concurrent_participants(events: pl.LazyFrame) -> pl.LazyFrame:
+    """Peak concurrent participants per meeting via a sweep-line over joins.
+
+    Sorting delta descending puts joins (+1) before leaves (-1) at the same
+    instant, so a simultaneous swap still counts the momentary peak.
+    """
+    joined = events.filter(pl.col("event_type") == "participant_joined").select(
+        pl.col("meeting_id"),
+        pl.col("from_start_ms").alias("t"),
+        pl.lit(1, dtype=pl.Int64).alias("delta"),
+    )
+    left = events.filter(pl.col("event_type") == "participant_left").select(
+        pl.col("meeting_id"),
+        pl.col("from_start_ms").alias("t"),
+        pl.lit(-1, dtype=pl.Int64).alias("delta"),
+    )
+    return (
+        pl.concat([joined, left])
+        .sort(["meeting_id", "t", "delta"], descending=[False, False, True])
+        .with_columns(pl.col("delta").cum_sum().over("meeting_id").alias("concurrent"))
+        .group_by("meeting_id")
+        .agg(pl.col("concurrent").max().alias("max_participants"))
+    )

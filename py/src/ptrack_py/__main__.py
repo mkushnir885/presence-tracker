@@ -18,7 +18,7 @@ from ptrack_analytics.load import (
 )
 from ptrack_analytics.validate import IncompleteMeetingError, ensure_session_ended
 from ptrack_py.rename import rename_display_name
-from ptrack_py.reports import generate_aggregate_csv, generate_csv
+from ptrack_py.reports import generate_csv
 from ptrack_py.stats import generate_stats
 
 INCOMPLETE_MEETING_EXIT_CODE = 3
@@ -46,11 +46,7 @@ def report(
         dirs = resolve_meetings(*inputs)
         _validate_complete(dirs)
         events = load_events(dirs)
-        csv_text = (
-            generate_csv(events)
-            if len(dirs) == 1
-            else generate_aggregate_csv(events)
-        )
+        csv_text = generate_csv(events, cross_meeting=len(dirs) > 1)
     except (LoadError, OSError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
