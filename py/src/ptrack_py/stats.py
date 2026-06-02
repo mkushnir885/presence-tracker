@@ -10,7 +10,7 @@ from ptrack_analytics.frames import (
     meeting_times,
     presence_bands,
 )
-from ptrack_py._frames import (
+from ptrack_py.frames import (
     challenge_stats,
     concurrent_participants,
     presence_totals,
@@ -176,71 +176,23 @@ def _collect_summary(
     }
 
 
-_MARKER_COLS = [
-    "display_name",
-    "meeting_id",
-    "challenge_id",
-    "question_id",
-    "auto_submitted",
-    "result",
-    "skip_reason",
-    "timestamp_ms",
-    "x_pct",
-    "latency_ms",
-    "submitted_answer",
-]
-
-
 def _collect_markers(
     events: pl.LazyFrame,
 ) -> dict[tuple[str, str], list[dict[str, Any]]]:
-    # Issued and skipped share one shape so they sort onto a single
-    # timeline; question payloads are joined in by the caller.
     durations = meeting_times(events).select(["meeting_id", "duration_ms"])
-
-    issued = (
+    df = collect_df(
         challenge_results(events)
         .join(durations, on="meeting_id", how="left")
         .with_columns(
-            pl.col("issued_ms").alias("timestamp_ms"),
-            (pl.col("issued_ms") / pl.col("duration_ms") * 100.0)
+            (pl.col("fired_ms") / pl.col("duration_ms") * 100.0)
             .clip(0.0, 100.0)
             .alias("x_pct"),
-            pl.col("state").fill_null("unanswered").alias("result"),
-            pl.lit("").alias("skip_reason"),
             pl.col("latency_ms").fill_null(0),
+            pl.col("submitted_answer").fill_null(""),
+            pl.col("skip_reason").fill_null(""),
+            pl.col("question_id").fill_null(""),
         )
-        .select(_MARKER_COLS)
-    )
-
-    skipped = (
-        events.filter(pl.col("event_type") == "challenge_skipped")
-        .join(durations, on="meeting_id", how="left")
-        .with_columns(
-            pl.col("from_start_ms").alias("timestamp_ms"),
-            (pl.col("from_start_ms") / pl.col("duration_ms") * 100.0)
-            .clip(0.0, 100.0)
-            .alias("x_pct"),
-            pl.lit("skipped").alias("result"),
-            pl.col("metadata")
-            .str.json_path_match("$.reason")
-            .fill_null("")
-            .alias("skip_reason"),
-            pl.col("metadata")
-            .str.json_path_match("$.auto_submitted")
-            .eq("true")
-            .alias("auto_submitted"),
-            pl.lit("").alias("question_id"),
-            pl.lit(0, dtype=pl.Int64).alias("latency_ms"),
-            pl.lit("").alias("submitted_answer"),
-        )
-        .select(_MARKER_COLS)
-    )
-
-    df = collect_df(
-        pl.concat([issued, skipped]).sort(
-            ["display_name", "meeting_id", "timestamp_ms"]
-        )
+        .sort(["display_name", "meeting_id", "fired_ms"])
     )
 
     out: dict[tuple[str, str], list[dict[str, Any]]] = {}
@@ -250,11 +202,11 @@ def _collect_markers(
             {
                 "x_pct": float(row["x_pct"]),
                 "auto_submitted": bool(row["auto_submitted"]),
-                "result": row["result"],
+                "result": row["state"],
                 "skip_reason": row["skip_reason"],
                 "challenge_id": row["challenge_id"],
                 "question_id": row["question_id"],
-                "timestamp_ms": int(row["timestamp_ms"]),
+                "timestamp_ms": int(row["fired_ms"]),
                 "latency_ms": int(row["latency_ms"]),
                 "submitted_answer": row["submitted_answer"],
             }

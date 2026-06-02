@@ -16,7 +16,7 @@ After calling :func:`load`, the four module-level frames are populated:
 * ``meetings`` — one row per meeting.
 * ``presence`` — one row per (participant, meeting), with per-join
   bands packed into a list.
-* ``challenges`` — one row per issued challenge.
+* ``challenges`` — one row per issued or skipped challenge.
 * ``questions`` — one row per unique question id (join key for
   ``challenges``).
 
@@ -103,17 +103,23 @@ Example::
 """
 
 challenges: pl.LazyFrame | None = None
-"""One row per issued challenge. ``None`` until :func:`load` is called.
+"""One row per issued or skipped challenge. ``None`` until :func:`load`
+is called.
 
 Columns:
 
 * ``display_name`` / ``meeting_id`` / ``challenge_id`` / ``question_id`` (Utf8)
-* ``issued_at`` (Datetime("ms"), system local tz)
-* ``answered_at`` (Datetime("ms"), system local tz, nullable) — null
-  when ``state == "unanswered"``
-* ``latency`` (Duration("ms"), nullable) — same nullability
-* ``state`` (Enum{correct, incorrect, unanswered})
-* ``submitted_answer`` (Utf8, nullable) — same nullability
+* ``fired_at`` (Datetime("ms"), system local tz) — when the challenge
+  was issued or skipped
+* ``answered_at`` (Datetime("ms"), system local tz, nullable) — set
+  only when ``state`` is ``correct`` or ``incorrect``
+* ``latency`` (Duration("ms"), nullable) — same nullability as
+  ``answered_at``
+* ``state`` (Enum{correct, incorrect, unanswered, skipped})
+* ``submitted_answer`` (Utf8, nullable) — same nullability as
+  ``answered_at``
+* ``skip_reason`` (Utf8, nullable) — set only when
+  ``state == "skipped"``
 * ``auto_submitted`` (Bool) — poll dispatched without teacher review
 
 Question text is not joined in; it lives once in :data:`questions` and

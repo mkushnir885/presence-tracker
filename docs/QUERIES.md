@@ -65,20 +65,21 @@ Each `bands` element is a struct with:
 Use `pl.col("bands").list.explode()` (or `explode("bands")`) to flatten back
 to one row per band when you need band-level aggregations.
 
-### `challenges` — one row per `challenge_issued`
+### `challenges` — one row per `challenge_issued` or `challenge_skipped`
 
-| Column             | Type                                    | Notes                                  |
-| ------------------ | --------------------------------------- | -------------------------------------- |
-| `display_name`     | `Utf8`                                  |                                        |
-| `meeting_id`       | `Utf8`                                  |                                        |
-| `challenge_id`     | `Utf8`                                  |                                        |
-| `question_id`      | `Utf8`                                  | join key to `questions`                |
-| `issued_at`        | `Datetime("ms","UTC")`                  |                                        |
-| `answered_at`      | `Datetime("ms","UTC")`                  | null when `state == "unanswered"`      |
-| `latency`          | `Duration("ms")`                        | null when `state == "unanswered"`      |
-| `state`            | `Enum{correct,incorrect,unanswered}`    |                                        |
-| `submitted_answer` | `Utf8`                                  | null when `state == "unanswered"`      |
-| `auto_submitted`   | `Boolean`                               | poll dispatched without teacher review |
+| Column             | Type                                            | Notes                                  |
+| ------------------ | ----------------------------------------------- | -------------------------------------- |
+| `display_name`     | `Utf8`                                          |                                        |
+| `meeting_id`       | `Utf8`                                          |                                        |
+| `challenge_id`     | `Utf8`                                          |                                        |
+| `question_id`      | `Utf8`                                          | join key to `questions`; null when `state == "skipped"` |
+| `fired_at`         | `Datetime("ms","UTC")`                          | when the challenge was issued or skipped |
+| `answered_at`      | `Datetime("ms","UTC")`                          | set only when `state` is `correct` or `incorrect` |
+| `latency`          | `Duration("ms")`                                | same nullability as `answered_at`      |
+| `state`            | `Enum{correct,incorrect,unanswered,skipped}`    |                                        |
+| `submitted_answer` | `Utf8`                                          | same nullability as `answered_at`      |
+| `skip_reason`      | `Utf8`                                          | set only when `state == "skipped"`     |
+| `auto_submitted`   | `Boolean`                                       | poll dispatched without teacher review |
 
 Question text is not duplicated onto every challenge row — `challenges`
 carries only `question_id`. Join with `questions` to bring in the

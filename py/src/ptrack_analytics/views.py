@@ -9,16 +9,14 @@ from .frames import (
     presence_bands,
 )
 
-_CHALLENGE_STATE = pl.Enum(["correct", "incorrect", "unanswered"])
+_CHALLENGE_STATE = pl.Enum(["correct", "incorrect", "unanswered", "skipped"])
 _DUR_MS = pl.Duration(time_unit="ms")
 
 
 def _to_local_starts(events: pl.LazyFrame) -> pl.LazyFrame:
     # meeting_times keeps started_at UTC for stats; views retag to local.
     return meeting_times(events).with_columns(
-        pl.col("started_at")
-        .dt.convert_time_zone(_TZ())
-        .dt.cast_time_unit("ms"),
+        pl.col("started_at").dt.convert_time_zone(_TZ()).dt.cast_time_unit("ms"),
     )
 
 
@@ -129,11 +127,11 @@ def challenges_view(events: pl.LazyFrame) -> pl.LazyFrame:
         challenge_results(events)
         .join(starts, on="meeting_id", how="left")
         .with_columns(
-            _ms_after(pl.col("started_at"), pl.col("issued_ms")).alias("issued_at"),
+            _ms_after(pl.col("started_at"), pl.col("fired_ms")).alias("fired_at"),
             pl.when(answered)
             .then(
                 _ms_after(
-                    pl.col("started_at"), pl.col("issued_ms") + pl.col("latency_ms")
+                    pl.col("started_at"), pl.col("fired_ms") + pl.col("latency_ms")
                 )
             )
             .otherwise(None)
@@ -142,27 +140,19 @@ def challenges_view(events: pl.LazyFrame) -> pl.LazyFrame:
             .then(pl.duration(milliseconds=pl.col("latency_ms")).cast(_DUR_MS))
             .otherwise(None)
             .alias("latency"),
-            pl.when(answered)
-            .then(pl.col("submitted_answer"))
-            .otherwise(None)
-            .alias("submitted_answer"),
         )
-        .with_columns(
-            pl.col("state")
-            .fill_null("unanswered")
-            .cast(_CHALLENGE_STATE)
-            .alias("state"),
-        )
+        .with_columns(pl.col("state").cast(_CHALLENGE_STATE).alias("state"))
         .select(
             "display_name",
             "meeting_id",
             "challenge_id",
             "question_id",
-            "issued_at",
+            "fired_at",
             "answered_at",
             "latency",
             "state",
             "submitted_answer",
+            "skip_reason",
             "auto_submitted",
         )
     )

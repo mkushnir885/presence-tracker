@@ -119,22 +119,25 @@ def meeting_times(events: pl.LazyFrame) -> pl.LazyFrame:
 
 
 def challenge_results(events: pl.LazyFrame) -> pl.LazyFrame:
-    """One row per ``challenge_issued``, joined to its final state.
-    ``state`` is null when no outcome event was recorded.
+    """One row per ``challenge_issued`` / ``challenge_skipped``.
+    ``latency_ms`` and ``submitted_answer`` are set only when ``state``
+    is ``correct``/``incorrect``; ``skip_reason`` only when ``skipped``.
     """
-    issued = events.filter(pl.col("event_type") == "challenge_issued").select(
-        pl.col("display_name"),
-        pl.col("meeting_id"),
-        pl.col("from_start_ms").alias("issued_ms"),
-        pl.col("challenge_id"),
-        pl.col("question_id"),
-        pl.col("metadata")
-        .str.json_path_match("$.auto_submitted")
-        .eq("true")
-        .alias("auto_submitted"),
+    auto_submitted = (
+        pl.col("metadata").str.json_path_match("$.auto_submitted").eq("true")
+    )
+    base = events.select(
+        "display_name",
+        "meeting_id",
+        "challenge_id",
+        "question_id",
+        pl.col("from_start_ms").alias("fired_ms"),
+        auto_submitted.alias("auto_submitted"),
+        pl.col("event_type"),
+        pl.col("metadata"),
     )
 
-    result_events = events.filter(
+    results = events.filter(
         pl.col("event_type").is_in(
             [
                 "challenge_answered_correct",
@@ -143,23 +146,41 @@ def challenge_results(events: pl.LazyFrame) -> pl.LazyFrame:
             ]
         )
     ).select(
-        pl.col("challenge_id"),
-        pl.col("event_type").alias("state"),
+        "challenge_id",
+        pl.col("event_type").str.split("_").list.last().alias("state"),
         pl.col("metadata")
         .str.json_path_match("$.latency_ms")
         .cast(pl.Int64, strict=False)
         .alias("latency_ms"),
         pl.col("metadata")
         .str.json_path_match("$.submitted_answer")
-        .fill_null("")
         .alias("submitted_answer"),
     )
 
-    result_events = result_events.with_columns(
-        pl.col("state")
-        .str.replace("challenge_answered_correct", "correct")
-        .str.replace("challenge_answered_incorrect", "incorrect")
-        .str.replace("challenge_unanswered", "unanswered")
+    answered = pl.col("state").is_in(["correct", "incorrect"])
+    issued = (
+        base.filter(pl.col("event_type") == "challenge_issued")
+        .drop("event_type", "metadata")
+        .join(results, on="challenge_id", how="left")
+        .with_columns(
+            pl.col("state").fill_null("unanswered"),
+            pl.when(answered).then(pl.col("latency_ms")).alias("latency_ms"),
+            pl.when(answered)
+            .then(pl.col("submitted_answer").fill_null(""))
+            .alias("submitted_answer"),
+            pl.lit(None, dtype=pl.String).alias("skip_reason"),
+        )
     )
 
-    return issued.join(result_events, on="challenge_id", how="left")
+    skipped = base.filter(pl.col("event_type") == "challenge_skipped").select(
+        pl.exclude("event_type", "metadata"),
+        pl.lit("skipped").alias("state"),
+        pl.lit(None, dtype=pl.Int64).alias("latency_ms"),
+        pl.lit(None, dtype=pl.String).alias("submitted_answer"),
+        pl.col("metadata")
+        .str.json_path_match("$.reason")
+        .fill_null("")
+        .alias("skip_reason"),
+    )
+
+    return pl.concat([issued, skipped])

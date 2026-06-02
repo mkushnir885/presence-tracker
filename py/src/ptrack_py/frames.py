@@ -26,6 +26,7 @@ def challenge_stats(events: pl.LazyFrame, by: list[str]) -> pl.LazyFrame:
     """
     return (
         challenge_results(events)
+        .filter(pl.col("state") != "skipped")
         .group_by(by)
         .agg(
             pl.len().alias("challenges_issued"),
