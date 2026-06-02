@@ -28,19 +28,14 @@ const (
 // JSON tags exist so the persisted form in questions.jsonl is exactly this
 // struct; the stats view consumes the same shape over the questions map.
 type Question struct {
-	QuestionID   string       `json:"question_id"`
-	QuestionType QuestionType `json:"question_type"`
-	Prompt       string       `json:"prompt"`
-	Choices      []string     `json:"choices,omitempty"`
-	Answer       any          `json:"correct_answer"`
-	MatchMode    string       `json:"match_mode,omitempty"`
-	Tolerance    float64      `json:"tolerance,omitempty"`
-}
-
-// RecordedQuestion is a Question as persisted to <meetingDir>/questions.jsonl.
-type RecordedQuestion struct {
-	Question
-	AutoSubmitted bool `json:"auto_submitted"`
+	QuestionID    string       `json:"question_id"`
+	QuestionType  QuestionType `json:"question_type"`
+	Prompt        string       `json:"prompt"`
+	Choices       []string     `json:"choices,omitempty"`
+	Answer        any          `json:"correct_answer"`
+	MatchMode     string       `json:"match_mode,omitempty"`
+	Tolerance     float64      `json:"tolerance,omitempty"`
+	AutoSubmitted bool         `json:"auto_submitted"`
 }
 
 type Bank struct {

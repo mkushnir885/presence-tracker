@@ -281,7 +281,7 @@ templ bandEdge(xPct float64, popover string, ariaLabel string) {
 	</button>
 }
 
-templ bandMarker(mk StatMarker, _ *challenges.RecordedQuestion, _ StatMeeting, locale Locale) {
+templ bandMarker(mk StatMarker, _ *challenges.Question, _ StatMeeting, locale Locale) {
 	<button
 		type="button"
 		class={ markerButtonClass(mk) }

@@ -111,7 +111,7 @@ type StatsData struct {
 	Mode         string                                 `json:"mode"`
 	Meetings     []StatMeeting                          `json:"meetings"`
 	Participants []StatParticipant                      `json:"participants"`
-	Questions    map[string]challenges.RecordedQuestion `json:"questions"`
+	Questions    map[string]challenges.Question         `json:"questions"`
 }
 
 type StatMeeting struct {
@@ -176,7 +176,7 @@ func (d StatsData) MeetingByID(id string) *StatMeeting {
 	return nil
 }
 
-func (d StatsData) Question(id string) *challenges.RecordedQuestion {
+func (d StatsData) Question(id string) *challenges.Question {
 	if id == "" {
 		return nil
 	}

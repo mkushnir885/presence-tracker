@@ -21,14 +21,13 @@ type EligibleParticipant struct {
 }
 
 type IssuedChallenge struct {
-	ChallengeID   string
-	DisplayName   string
-	AutoSubmitted bool
-	Question      Question
-	Handle        string
-	Language      string
-	MessageRef    string
-	IssuedAt      time.Time
+	ChallengeID string
+	DisplayName string
+	Question    Question
+	Handle      string
+	Language    string
+	MessageRef  string
+	IssuedAt    time.Time
 }
 
 type SkippedChallenge struct {
@@ -111,13 +110,14 @@ func (p *Pipeline) RunPoll(
 	for i := range eligible {
 		src := bank.Questions[rand.IntN(len(bank.Questions))] //nolint:gosec // G404: question selection is not security-sensitive
 		assignments[i] = Question{
-			QuestionID:   uuid.Must(uuid.NewV7()).String(),
-			QuestionType: src.QuestionType,
-			Prompt:       src.Prompt,
-			Choices:      src.Choices,
-			Answer:       src.Answer,
-			MatchMode:    src.MatchMode,
-			Tolerance:    src.Tolerance,
+			QuestionID:    uuid.Must(uuid.NewV7()).String(),
+			QuestionType:  src.QuestionType,
+			Prompt:        src.Prompt,
+			Choices:       src.Choices,
+			Answer:        src.Answer,
+			MatchMode:     src.MatchMode,
+			Tolerance:     src.Tolerance,
+			AutoSubmitted: autoSubmitted,
 		}
 	}
 
@@ -129,7 +129,7 @@ func (p *Pipeline) RunPoll(
 		q := assignments[i]
 		cid := uuid.Must(uuid.NewV7()).String()
 		wg.Go(func() {
-			results[i].delivered = p.deliver(ctx, ep, cid, q, autoSubmitted, issuedAt, answerWindow, send)
+			results[i].delivered = p.deliver(ctx, ep, cid, q, issuedAt, answerWindow, send)
 		})
 	}
 	wg.Wait()
@@ -143,7 +143,7 @@ func (p *Pipeline) RunPoll(
 	}
 
 	if meetingDir != "" {
-		p.saveQuestions(assignments, autoSubmitted, meetingDir)
+		p.saveQuestions(assignments, meetingDir)
 	}
 
 	return res, nil
@@ -152,7 +152,7 @@ func (p *Pipeline) RunPoll(
 // saveQuestions appends one JSON line per delivered question to
 // <meetingDir>/questions.jsonl, creating the meeting dir if needed. The
 // stats view consumes this file directly.
-func (p *Pipeline) saveQuestions(questions []Question, autoSubmitted bool, meetingDir string) {
+func (p *Pipeline) saveQuestions(questions []Question, meetingDir string) {
 	if err := os.MkdirAll(meetingDir, 0o755); err != nil {
 		slog.Error("challenges: save questions: mkdir", "err", err)
 		return
@@ -166,7 +166,7 @@ func (p *Pipeline) saveQuestions(questions []Question, autoSubmitted bool, meeti
 	defer func() { _ = f.Close() }()
 
 	for _, q := range questions {
-		line, err := json.Marshal(RecordedQuestion{Question: q, AutoSubmitted: autoSubmitted})
+		line, err := json.Marshal(q)
 		if err != nil {
 			slog.Error("challenges: save questions: marshal", "err", err)
 			return
@@ -183,7 +183,6 @@ func (p *Pipeline) deliver(
 	ep EligibleParticipant,
 	cid string,
 	q Question,
-	autoSubmitted bool,
 	issuedAt time.Time,
 	answerWindow time.Duration,
 	send SendFn,
@@ -195,21 +194,20 @@ func (p *Pipeline) deliver(
 			ChallengeID:   cid,
 			DisplayName:   ep.DisplayName,
 			Reason:        "delivery_failed",
-			AutoSubmitted: autoSubmitted,
+			AutoSubmitted: q.AutoSubmitted,
 			SkippedAt:     time.Now().UTC(),
 		})
 		return false
 	}
 
 	issued := IssuedChallenge{
-		ChallengeID:   cid,
-		DisplayName:   ep.DisplayName,
-		AutoSubmitted: autoSubmitted,
-		Question:      q,
-		Handle:        ep.Handle,
-		Language:      ep.Language,
-		MessageRef:    ref,
-		IssuedAt:      issuedAt,
+		ChallengeID: cid,
+		DisplayName: ep.DisplayName,
+		Question:    q,
+		Handle:      ep.Handle,
+		Language:    ep.Language,
+		MessageRef:  ref,
+		IssuedAt:    issuedAt,
 	}
 	if err := p.sink.RecordChallengeIssued(ctx, issued); err != nil {
 		slog.Error("challenges: record issued", "err", err)

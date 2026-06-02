@@ -653,7 +653,7 @@ func (c *Coordinator) RecordChallengeIssued(_ context.Context, issued challenges
 		ChallengeID: issued.ChallengeID,
 		QuestionID:  issued.Question.QuestionID,
 		Metadata: map[string]string{
-			"auto_submitted":  strconv.FormatBool(issued.AutoSubmitted),
+			"auto_submitted":  strconv.FormatBool(issued.Question.AutoSubmitted),
 			"answer_window_s": strconv.Itoa(c.dyn.Get().Challenges.Defaults.AnswerWindowSeconds),
 		},
 	})
