@@ -403,8 +403,8 @@ func segmentEdgeTooltip(isStart bool, seg StatSegment, m StatMeeting, locale Loc
 			))
 		}
 	} else {
-		if seg.StillPresent {
-			parts = append(parts, locale.T(stillPresentKey(m.EndedCause)))
+		if seg.PresentTillEnd {
+			parts = append(parts, locale.T(presentTillEndKey(m.EndedCause)))
 		} else {
 			parts = append(parts, fmt.Sprintf("%s %s",
 				locale.T("stats.tooltip.left_at"),
@@ -420,14 +420,14 @@ func segmentEdgeTooltip(isStart bool, seg StatSegment, m StatMeeting, locale Loc
 	return strings.Join(parts, "\n")
 }
 
-func stillPresentKey(endedCause string) string {
+func presentTillEndKey(endedCause string) string {
 	switch endedCause {
 	case "meeting":
 		return "stats.tooltip.till_meeting_end"
 	case "tracking":
 		return "stats.tooltip.till_tracking_stopped"
 	default:
-		return "stats.tooltip.still_present"
+		return "stats.tooltip.present_till_end"
 	}
 }
 

@@ -38,25 +38,32 @@ All four are `pl.LazyFrame`. Their schemas:
 | `started_at` | `Datetime("ms","UTC")`|                                         |
 | `ended_at`   | `Datetime("ms","UTC")`| always set (validated on load)          |
 | `duration`   | `Duration("ms")`      | `ended_at - started_at`                 |
-| `start`      | `Struct{cause}`       | from session_started metadata           |
-| `end`        | `Struct{cause}`       | from session_ended metadata             |
+| `start_cause`| `Utf8`                | from session_started metadata           |
+| `end_cause`  | `Utf8`                | from session_ended metadata             |
 
-### `presence` — one row per join (rejoins produce additional rows)
+### `presence` — one row per (display_name, meeting_id)
 
-| Column          | Type                    | Notes                                          |
-| --------------- | ----------------------- | ---------------------------------------------- |
-| `display_name`  | `Utf8`                  |                                                |
-| `meeting_id`    | `Utf8`                  | join with `meetings` for absolute times        |
-| `joined_at`     | `Datetime("ms","UTC")`  |                                                |
-| `left_at`       | `Datetime("ms","UTC")`  | open bands clipped to `meetings.ended_at`      |
-| `duration`      | `Duration("ms")`        | `left_at - joined_at`                          |
-| `total_duration`| `Duration("ms")`        | sum of `duration` over `(display_name, meeting_id)` |
-| `still_present` | `Boolean`               | `True` for bands that were clipped at end      |
-| `join`          | `Struct{method}`        |                                                |
-| `leave`         | `Struct{reason}`        | `reason` is null when `still_present`          |
+| Column             | Type                        | Notes                                          |
+| ------------------ | --------------------------- | ---------------------------------------------- |
+| `display_name`     | `Utf8`                      |                                                |
+| `meeting_id`       | `Utf8`                      | join with `meetings` for absolute times        |
+| `total_duration`   | `Duration("ms")`            | sum of band durations                          |
+| `ratio`            | `Float64`                   | `total_duration / meetings.duration`, in `[0, 1]` |
+| `present_till_end` | `Boolean`                   | `True` if any band stayed open at session end  |
+| `bands`            | `List[Struct{...}]`         | per-join bands, ordered by `joined_at`         |
 
-`(display_name, meeting_id)` is **not** unique — a rejoin produces a
-second row. Sort by `joined_at` if you need band order.
+Each `bands` element is a struct with:
+
+| Field          | Type                    | Notes                                     |
+| -------------- | ----------------------- | ----------------------------------------- |
+| `joined_at`    | `Datetime("ms","UTC")`  |                                           |
+| `left_at`      | `Datetime("ms","UTC")`  | open bands clipped to `meetings.ended_at` |
+| `duration`     | `Duration("ms")`        | `left_at - joined_at`                     |
+| `join_method`  | `Utf8`                  |                                           |
+| `leave_reason` | `Utf8`                  | null for the open band when `present_till_end` |
+
+Use `pl.col("bands").list.explode()` (or `explode("bands")`) to flatten back
+to one row per band when you need band-level aggregations.
 
 ### `challenges` — one row per `challenge_issued`
 

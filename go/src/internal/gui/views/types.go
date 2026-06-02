@@ -147,11 +147,11 @@ type StatSegment struct {
 	StartPct     float64 `json:"start_pct"`
 	WidthPct     float64 `json:"width_pct"`
 	Present      bool    `json:"present"`
-	StartMS      int64   `json:"start_ms"`
-	EndMS        int64   `json:"end_ms"`
-	StillPresent bool    `json:"still_present"`
-	JoinMethod   string  `json:"join_method"`
-	LeaveReason  string  `json:"leave_reason"`
+	StartMS        int64  `json:"start_ms"`
+	EndMS          int64  `json:"end_ms"`
+	PresentTillEnd bool   `json:"present_till_end"`
+	JoinMethod     string `json:"join_method"`
+	LeaveReason    string `json:"leave_reason"`
 }
 
 // StatMarker carries only event-side fields; the question is in StatsData.Questions.

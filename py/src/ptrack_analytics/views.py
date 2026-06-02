@@ -28,8 +28,8 @@ def meetings_view(events: pl.LazyFrame) -> pl.LazyFrame:
     """Notebook-facing per-meeting frame.
 
     Columns: meeting_id, platform, started_at (Datetime),
-    ended_at (Datetime), duration (Duration), start (Struct{cause}),
-    end (Struct{cause}).
+    ended_at (Datetime), duration (Duration), start_cause (Utf8),
+    end_cause (Utf8).
     """
     times = meeting_times(events).select("meeting_id", "started_at", "duration_ms")
     start_meta = (
@@ -65,8 +65,6 @@ def meetings_view(events: pl.LazyFrame) -> pl.LazyFrame:
             pl.duration(milliseconds=pl.col("duration_ms"))
             .cast(_DUR_MS)
             .alias("duration"),
-            pl.struct(pl.col("start_cause").alias("cause")).alias("start"),
-            pl.struct(pl.col("end_cause").alias("cause")).alias("end"),
         )
         .select(
             "meeting_id",
@@ -74,54 +72,67 @@ def meetings_view(events: pl.LazyFrame) -> pl.LazyFrame:
             "started_at",
             "ended_at",
             "duration",
-            "start",
-            "end",
+            "start_cause",
+            "end_cause",
         )
     )
 
 
 def presence_view(events: pl.LazyFrame) -> pl.LazyFrame:
-    """Notebook-facing per-band presence frame.
+    """Notebook-facing per-participant presence frame.
 
-    One row per join; rejoins produce additional rows. Open bands (no
-    matching leave) are clipped at the meeting's end and flagged with
-    still_present, so left_at and duration are always populated.
+    One row per (display_name, meeting_id). Bands are packed into a list of
+    structs ordered by joined_at; open bands (no matching leave) are clipped
+    at the meeting's end, and present_till_end flags the participant as
+    having been present through to session end.
 
-    Columns: display_name, meeting_id, joined_at (Datetime),
-    left_at (Datetime), duration (Duration),
-    total_duration (Duration; sum of all bands for this participant in this
-    meeting), still_present (Bool), join (Struct{method}),
-    leave (Struct{reason}).
+    Columns: display_name, meeting_id, total_duration (Duration),
+    ratio (Float64; total_duration / meeting duration, in [0, 1]),
+    present_till_end (Bool), bands (List[Struct{joined_at, left_at,
+    duration, join_method, leave_reason}]).
     """
-    starts = meeting_times(events).select("meeting_id", "started_at")
+    times = meeting_times(events).select(
+        "meeting_id", "started_at", "duration_ms"
+    )
     return (
         presence_bands(events)
-        .join(starts, on="meeting_id", how="left")
+        .join(times, on="meeting_id", how="left")
         .with_columns(
             _ms_after(pl.col("started_at"), pl.col("joined_ms")).alias("joined_at"),
             _ms_after(pl.col("started_at"), pl.col("end_ms")).alias("left_at"),
             pl.duration(milliseconds=pl.col("end_ms") - pl.col("joined_ms"))
             .cast(_DUR_MS)
             .alias("duration"),
-            pl.struct(pl.col("join_method").alias("method")).alias("join"),
-            pl.struct(pl.col("leave_reason").alias("reason")).alias("leave"),
+        )
+        .sort(["display_name", "meeting_id", "joined_at"])
+        .with_columns(
+            pl.struct(
+                "joined_at", "left_at", "duration", "join_method", "leave_reason"
+            ).alias("band"),
+        )
+        .group_by(["display_name", "meeting_id"], maintain_order=True)
+        .agg(
+            pl.col("duration").sum().alias("total_duration"),
+            pl.col("present_till_end").any().alias("present_till_end"),
+            pl.col("band").alias("bands"),
+            pl.col("duration_ms").first().alias("duration_ms"),
         )
         .with_columns(
-            pl.col("duration")
-            .sum()
-            .over(["display_name", "meeting_id"])
-            .alias("total_duration"),
+            pl.when(pl.col("duration_ms") > 0)
+            .then(
+                pl.col("total_duration").dt.total_milliseconds() / pl.col("duration_ms")
+            )
+            .otherwise(0.0)
+            .clip(0.0, 1.0)
+            .alias("ratio"),
         )
         .select(
             "display_name",
             "meeting_id",
-            "joined_at",
-            "left_at",
-            "duration",
             "total_duration",
-            "still_present",
-            "join",
-            "leave",
+            "ratio",
+            "present_till_end",
+            "bands",
         )
     )
 

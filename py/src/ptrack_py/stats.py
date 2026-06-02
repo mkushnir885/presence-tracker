@@ -132,10 +132,10 @@ def _collect_segments(
                 "present": True,
                 "start_ms": int(row["joined_ms"]),
                 "end_ms": int(row["end_ms"]),
-                "still_present": bool(row["still_present"]),
+                "present_till_end": bool(row["present_till_end"]),
                 "join_method": row["join_method"] or "",
                 "leave_reason": (
-                    "" if row["still_present"] else (row["leave_reason"] or "")
+                    "" if row["present_till_end"] else (row["leave_reason"] or "")
                 ),
             }
         )

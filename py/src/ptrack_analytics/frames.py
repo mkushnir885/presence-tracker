@@ -28,7 +28,7 @@ def presence_bands(events: pl.LazyFrame) -> pl.LazyFrame:
     (display_name, meeting_id); a rejoin is its own band. left_ms is null for a
     band with no matching leave (still present at session end). An open band
     or one whose leave landed past duration_ms is closed at duration_ms;
-    still_present flags those rows. The closed end_ms is what both the CSV
+    present_till_end flags those rows. The closed end_ms is what both the CSV
     report and the GUI timeline use to compute presence seconds — clipping
     here keeps the two surfaces in sync.
     """
@@ -73,10 +73,10 @@ def presence_bands(events: pl.LazyFrame) -> pl.LazyFrame:
             (
                 pl.col("left_ms").is_null()
                 | (pl.col("left_ms") > pl.col("duration_ms"))
-            ).alias("still_present"),
+            ).alias("present_till_end"),
         )
         .with_columns(
-            pl.when(pl.col("still_present"))
+            pl.when(pl.col("present_till_end"))
             .then(pl.col("duration_ms"))
             .otherwise(pl.col("left_ms"))
             .alias("end_ms"),

@@ -81,7 +81,7 @@
   "stats.tooltip.none_issued": "No challenges issued",
   "stats.tooltip.joined_at": "Joined at",
   "stats.tooltip.left_at": "Left at",
-  "stats.tooltip.still_present": "still present at session end",
+  "stats.tooltip.present_till_end": "still present at session end",
   "stats.tooltip.till_meeting_end": "stayed until the end of the meeting",
   "stats.tooltip.till_tracking_stopped": "still present when tracking stopped",
   "stats.tooltip.method": "via",
