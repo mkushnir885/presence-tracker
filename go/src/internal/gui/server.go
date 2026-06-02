@@ -148,7 +148,7 @@ func (s *Server) handleMeetings(w http.ResponseWriter, r *http.Request) {
 
 	var meetings []views.Meeting
 	for _, e := range entries {
-		if !e.IsDir() || strings.HasSuffix(e.Name(), eventstore.TmpSuffix) {
+		if !e.IsDir() {
 			continue
 		}
 		path := filepath.Join(meetingsDir, e.Name())
@@ -229,7 +229,7 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) { //
 	internalMeetingID := uuid.Must(uuid.NewV7()).String()
 	startTime := time.Now()
 
-	store, err := eventstore.NewWriter(cfg.MeetingsDir, tmpl, startTime)
+	store, err := eventstore.NewWriter(cfg.MeetingsDir, internalMeetingID, tmpl, startTime)
 	if err != nil {
 		http.Error(w, "event store error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -724,9 +724,6 @@ func (s *Server) collectMeetingDirs(r *http.Request) (paths, names []string, err
 	for _, name := range raw {
 		if name == "" || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
 			return nil, nil, fmt.Errorf("invalid dir value %q", name)
-		}
-		if strings.HasSuffix(name, eventstore.TmpSuffix) {
-			return nil, nil, fmt.Errorf("in-progress meeting %q is not browsable", name)
 		}
 		full := filepath.Join(base, name)
 		if _, statErr := os.Stat(filepath.Join(full, eventstore.EventsFile)); statErr != nil { //nolint:gosec // name is validated against path separators and ".." just above

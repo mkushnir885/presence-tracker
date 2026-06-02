@@ -290,7 +290,7 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID, fixture str
 	if err != nil {
 		return fmt.Errorf("meetings_dir_format: %w", err)
 	}
-	store, err := eventstore.NewWriter(v.MeetingsDir, tmpl, startTime)
+	store, err := eventstore.NewWriter(v.MeetingsDir, internalMeetingID, tmpl, startTime)
 	if err != nil {
 		return fmt.Errorf("init event store: %w", err)
 	}

@@ -3,12 +3,14 @@ package eventstore
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/apache/arrow/go/v17/arrow"
@@ -36,53 +38,44 @@ const (
 	// EventsFile is the parquet event log inside every meeting directory.
 	EventsFile          = "events.parquet"
 	defaultRowGroupSize = 10000
-	// TmpSuffix marks an in-progress meeting dir; the GUI skips these so a
-	// crashed session never appears in listings.
-	TmpSuffix      = ".tmp"
-	activeBaseName = "active"
 )
 
-// Writer streams events into <meetingsDir>/<dirName>/events.parquet. The
-// active dir is named active[_NN].tmp; on Close the DirTemplate is rendered
-// with start+end and the dir is renamed to the final name (with _NN if the
-// rendered name collides).
+// Writer streams events into <os.TempDir>/ptrack/meetings/<meetingID> while a
+// session is active; Close moves the directory into meetingsDir under the
+// rendered template name (with _NN appended if it collides).
 type Writer struct {
-	mu        sync.Mutex
-	buf       []Record
-	parentDir string
-	dirName   string
-	tmpl      DirTemplate
-	startTime time.Time
+	mu          sync.Mutex
+	buf         []Record
+	finalParent string
+	activeDir   string
+	finalName   string
+	tmpl        DirTemplate
+	startTime   time.Time
 }
 
-// NewWriter creates the writer with an active.tmp directory. dirNameTemplate
-// is rendered at Close. Use ParseDirTemplate to validate user input before
-// calling.
-func NewWriter(meetingsDir string, dirNameTemplate DirTemplate, startTime time.Time) (*Writer, error) {
+// NewWriter validates the meetings dir and creates the active dir under the
+// system tmp dir. Use ParseDirTemplate to validate dirNameTemplate first.
+func NewWriter(meetingsDir, meetingID string, dirNameTemplate DirTemplate, startTime time.Time) (*Writer, error) {
 	if err := os.MkdirAll(meetingsDir, 0o755); err != nil {
 		return nil, fmt.Errorf("eventstore: mkdir %s: %w", meetingsDir, err)
 	}
-	unique, err := ensureUniqueDir(meetingsDir, activeBaseName, TmpSuffix)
-	if err != nil {
-		return nil, fmt.Errorf("eventstore: %w", err)
-	}
-	full := filepath.Join(meetingsDir, unique)
-	if err := os.MkdirAll(full, 0o755); err != nil {
-		return nil, fmt.Errorf("eventstore: mkdir %s: %w", full, err)
+	activeDir := filepath.Join(os.TempDir(), "ptrack", "meetings", meetingID)
+	if err := os.MkdirAll(activeDir, 0o755); err != nil {
+		return nil, fmt.Errorf("eventstore: mkdir %s: %w", activeDir, err)
 	}
 	return &Writer{
-		parentDir: meetingsDir,
-		dirName:   unique,
-		tmpl:      dirNameTemplate,
-		startTime: startTime,
+		finalParent: meetingsDir,
+		activeDir:   activeDir,
+		tmpl:        dirNameTemplate,
+		startTime:   startTime,
 	}, nil
 }
 
-func ensureUniqueDir(parent, baseName, suffix string) (string, error) {
+func ensureUniqueDir(parent, baseName string) (string, error) {
 	for i := 0; i <= 99; i++ {
-		candidate := baseName + suffix
+		candidate := baseName
 		if i > 0 {
-			candidate = fmt.Sprintf("%s_%02d%s", baseName, i, suffix)
+			candidate = fmt.Sprintf("%s_%02d", baseName, i)
 		}
 		_, err := os.Stat(filepath.Join(parent, candidate))
 		if os.IsNotExist(err) {
@@ -92,7 +85,7 @@ func ensureUniqueDir(parent, baseName, suffix string) (string, error) {
 			return "", fmt.Errorf("stat %s: %w", candidate, err)
 		}
 	}
-	return "", fmt.Errorf("too many collisions for %q", baseName+suffix)
+	return "", fmt.Errorf("too many collisions for %q", baseName)
 }
 
 func (w *Writer) Append(r Record) {
@@ -110,7 +103,7 @@ func (w *Writer) Flush(_ context.Context) error {
 	rows := make([]Record, len(w.buf))
 	copy(rows, w.buf)
 	w.buf = w.buf[:0]
-	parquetPath := filepath.Join(w.parentDir, w.dirName, EventsFile)
+	parquetPath := filepath.Join(w.activeDir, EventsFile)
 	w.mu.Unlock()
 
 	return w.writeRowGroup(parquetPath, rows)
@@ -127,18 +120,15 @@ func (w *Writer) SetStartTime(t time.Time) {
 func (w *Writer) Dir() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return filepath.Join(w.parentDir, w.dirName)
+	if w.finalName != "" {
+		return filepath.Join(w.finalParent, w.finalName)
+	}
+	return w.activeDir
 }
 
-func (w *Writer) DirName() string {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.dirName
-}
-
-// Close flushes, renders the template with start+end, and renames the dir to
-// the resulting name (with _NN if it collides). Returns the final name — or ""
-// when no events were written and the empty dir was removed.
+// Close flushes, renders the template, and moves the active dir into
+// meetingsDir under the rendered name. Returns the final name — or "" when
+// no events were written and the empty dir was removed.
 func (w *Writer) Close(ctx context.Context) (string, error) {
 	if err := w.Flush(ctx); err != nil {
 		return "", err
@@ -146,29 +136,42 @@ func (w *Writer) Close(ctx context.Context) (string, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	currentPath := filepath.Join(w.parentDir, w.dirName)
-	parquetPath := filepath.Join(currentPath, EventsFile)
-
+	parquetPath := filepath.Join(w.activeDir, EventsFile)
 	if _, err := os.Stat(parquetPath); os.IsNotExist(err) {
-		// No events were written; remove the empty dir so we leave no trace.
-		_ = os.Remove(currentPath)
+		_ = os.RemoveAll(w.activeDir)
 		return "", nil
 	}
 
 	rendered := w.tmpl.Render(w.startTime.Local(), time.Now().Local())
-	finalName, err := ensureUniqueDir(w.parentDir, rendered, "")
+	finalName, err := ensureUniqueDir(w.finalParent, rendered)
 	if err != nil {
 		slog.Warn("eventstore: could not pick final meeting dir name", "err", err)
-		return w.dirName, nil
+		return "", nil
 	}
-	finalPath := filepath.Join(w.parentDir, finalName)
-	if err := os.Rename(currentPath, finalPath); err != nil {
-		slog.Warn("eventstore: could not rename meeting dir", "from", currentPath, "to", finalPath, "err", err)
-		return w.dirName, nil
+	finalPath := filepath.Join(w.finalParent, finalName)
+	if err := moveDir(w.activeDir, finalPath); err != nil {
+		slog.Warn("eventstore: could not move meeting dir", "from", w.activeDir, "to", finalPath, "err", err)
+		return "", nil
 	}
-	w.dirName = finalName
+	w.finalName = finalName
 	slog.Info("eventstore: closed", "dir", finalPath)
 	return finalName, nil
+}
+
+// moveDir renames src to dst, falling back to copy+remove when the two are on
+// different filesystems (the active dir lives under os.TempDir, which on
+// Linux is often a tmpfs separate from the user's home filesystem).
+func moveDir(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	} else if !errors.Is(err, syscall.EXDEV) {
+		return err
+	}
+	if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
+		_ = os.RemoveAll(dst)
+		return err
+	}
+	return os.RemoveAll(src)
 }
 
 func (w *Writer) writeRowGroup(parquetPath string, rows []Record) error {
