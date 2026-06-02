@@ -98,7 +98,6 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /registry/delete", s.handleDeleteRegistry)
 	mux.HandleFunc("GET /config", s.handleConfig)
 	mux.HandleFunc("POST /config", s.handleSaveConfig)
-	mux.HandleFunc("POST /poll/file", s.handlePollFile)
 	mux.HandleFunc("POST /system/shutdown", s.handleShutdown)
 	mux.HandleFunc("GET /events", s.handleEvents)
 }
@@ -481,75 +480,6 @@ func (s *Server) statusData() (views.StatusData, bool) {
 		AutoGenAutoSubmit: ag.AutoSubmit,
 		AutoGenIntervalS:  ag.PollIntervalSeconds,
 	}, true
-}
-
-const pollFileMaxBytes = 1 << 20
-
-// writeJSONError sends {"error": msg} as JSON. Unlike http.Error it sets an
-// application/json content type and escapes msg, so error text containing
-// quotes or backslashes still produces valid JSON.
-func writeJSONError(w http.ResponseWriter, status int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg}) //nolint:errchkjson // map[string]string cannot fail to marshal
-}
-
-func (s *Server) handlePollFile(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	act := s.active
-	s.mu.RUnlock()
-	if act == nil {
-		writeJSONError(w, http.StatusConflict, "no active session")
-		return
-	}
-
-	r.Body = http.MaxBytesReader(w, r.Body, pollFileMaxBytes)
-	if err := r.ParseMultipartForm(pollFileMaxBytes); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "upload too large or malformed")
-		return
-	}
-	file, header, err := r.FormFile("bank")
-	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, "missing bank file")
-		return
-	}
-	defer func() { _ = file.Close() }()
-
-	tmp, err := os.CreateTemp("", "ptrack-bank-*.yaml")
-	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "temp file: "+err.Error())
-		return
-	}
-	tmpPath := tmp.Name()
-	defer func() { _ = os.Remove(tmpPath) }()
-
-	if _, err := io.Copy(tmp, file); err != nil {
-		_ = tmp.Close()
-		writeJSONError(w, http.StatusInternalServerError, "write bank: "+err.Error())
-		return
-	}
-	if err := tmp.Close(); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "close bank: "+err.Error())
-		return
-	}
-
-	result, err := act.coord.RunPoll(r.Context(), tmpPath, false)
-	if err != nil {
-		status := http.StatusUnprocessableEntity
-		if errors.Is(err, os.ErrNotExist) {
-			status = http.StatusNotFound
-		}
-		writeJSONError(w, status, err.Error())
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{ //nolint:errchkjson // response fields are JSON-safe scalars
-		"poll_id":         result.PollID,
-		"scheduled_count": result.ScheduledCount,
-		"skipped_count":   result.SkippedCount,
-		"file_name":       header.Filename,
-	})
 }
 
 // handleEvents is the daemon-liveness SSE stream every page holds open. When

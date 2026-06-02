@@ -35,9 +35,13 @@ func TestReviewPathWriteCreatesDir(t *testing.T) {
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("file not present: %v", err)
 	}
-	bank, err := challenges.Load(path)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read back: %v", err)
+	}
+	bank, err := challenges.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse bank: %v", err)
 	}
 	if len(bank.Questions) != 1 {
 		t.Errorf("read back %d questions", len(bank.Questions))

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 
 	"github.com/google/uuid"
@@ -66,18 +65,6 @@ type rawQuestion struct {
 	Match     string          `json:"match,omitempty"`
 	Tolerance float64         `json:"tolerance,omitempty"`
 	Answer    json.RawMessage `json:"answer"`
-}
-
-func Load(path string) (Bank, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return Bank{}, fmt.Errorf("challenges: read bank: %w", err)
-	}
-	bank, err := Parse(raw)
-	if err != nil {
-		return Bank{}, fmt.Errorf("challenges: %s: %w", path, err)
-	}
-	return bank, nil
 }
 
 // Parse decodes a YAML bank. It round-trips through JSON so the bank can be

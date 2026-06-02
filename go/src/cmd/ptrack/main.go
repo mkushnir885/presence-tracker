@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -22,6 +21,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"presence-tracker/src/internal/challenger"
+	"presence-tracker/src/internal/challenges"
 	"presence-tracker/src/internal/config"
 	"presence-tracker/src/internal/eventstore"
 	"presence-tracker/src/internal/gui"
@@ -365,7 +365,7 @@ func runHTTPServer(ctx context.Context, ln net.Listener, mux *http.ServeMux, bef
 // daemon and the ptrack poll client.
 type pollRequest struct {
 	AutoSubmitted bool   `json:"auto_submitted"`
-	BankPath      string `json:"bank_path"`
+	BankYAML      string `json:"bank_yaml"`
 }
 
 type pollResponse struct {
@@ -382,13 +382,14 @@ type pollErrorResponse struct {
 // coordinator, or nil when no session is running.
 func mountPollHandler(mux *http.ServeMux, coordFn func() *session.Coordinator) {
 	mux.HandleFunc("POST /poll", func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, pollBodyLimit)
 		var req pollRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writePollError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 			return
 		}
-		if req.BankPath == "" {
-			writePollError(w, http.StatusBadRequest, "bank_path is required")
+		if req.BankYAML == "" {
+			writePollError(w, http.StatusBadRequest, "bank_yaml is required")
 			return
 		}
 
@@ -398,12 +399,14 @@ func mountPollHandler(mux *http.ServeMux, coordFn func() *session.Coordinator) {
 			return
 		}
 
-		result, err := coord.RunPoll(r.Context(), req.BankPath, req.AutoSubmitted)
+		bank, err := challenges.Parse([]byte(req.BankYAML))
 		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				writePollError(w, http.StatusNotFound, err.Error())
-				return
-			}
+			writePollError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+
+		result, err := coord.RunPollBank(r.Context(), bank, req.AutoSubmitted)
+		if err != nil {
 			writePollError(w, http.StatusUnprocessableEntity, err.Error())
 			return
 		}
@@ -435,6 +438,9 @@ func mountReloadHandler(mux *http.ServeMux, cfg *config.Config) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
+
+// pollBodyLimit caps one POST /poll request body (~1 MB is generous for any YAML bank).
+const pollBodyLimit = 1 << 20
 
 // audioBodyLimit caps one /audio/segment upload (~30 min of Opus).
 const audioBodyLimit = 64 << 20
@@ -481,9 +487,9 @@ func wrapPortBindError(addr string, err error) error {
 }
 
 func runPoll(ctx context.Context, cfgPath, serverURL string, autoSubmitted bool, port int, bankPath string) error {
-	abs, err := filepath.Abs(bankPath)
+	yaml, err := os.ReadFile(bankPath)
 	if err != nil {
-		return fmt.Errorf("resolve bank path: %w", err)
+		return fmt.Errorf("read bank: %w", err)
 	}
 
 	base, err := resolveDaemonURL(serverURL, cfgPath, port)
@@ -491,7 +497,7 @@ func runPoll(ctx context.Context, cfgPath, serverURL string, autoSubmitted bool,
 		return err
 	}
 
-	body, _ := json.Marshal(pollRequest{AutoSubmitted: autoSubmitted, BankPath: abs}) //nolint:errchkjson // plain bool+string struct cannot fail to marshal
+	body, _ := json.Marshal(pollRequest{AutoSubmitted: autoSubmitted, BankYAML: string(yaml)}) //nolint:errchkjson // plain bool+string struct cannot fail to marshal
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/poll", bytes.NewReader(body))
 	if err != nil {
 		return err
