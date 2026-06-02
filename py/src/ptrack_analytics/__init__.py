@@ -19,6 +19,7 @@ from __future__ import annotations
 import polars as pl
 
 from .frames import challenge_results, meeting_times
+from .frames import participants as _participants_fn
 from .frames import presence as _presence_fn
 from .load import LoadError, load_events, load_questions, resolve_meetings
 
@@ -51,11 +52,7 @@ def load(*patterns: str) -> None:
     dirs = resolve_meetings(*patterns)
     data = load_events(dirs)
     meetings = meeting_times(data)
-    participants = (
-        data.filter(pl.col("display_name").is_not_null())
-        .group_by("display_name")
-        .agg(pl.len().alias("event_count"))
-    )
+    participants = _participants_fn(data)
     presence = _presence_fn(data)
     challenges = challenge_results(data)
     questions = load_questions(dirs)

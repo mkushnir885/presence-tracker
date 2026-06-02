@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import polars as pl
 
-from .load import scan_events
+from .load import collect_df, scan_events
 
 
 class IncompleteMeetingError(Exception):
@@ -20,11 +20,10 @@ class IncompleteMeetingError(Exception):
 
 def ensure_session_ended(path: str) -> None:
     """Raise IncompleteMeetingError if *path* has no session_ended event."""
-    df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
+    df = collect_df(
         scan_events(path)
         .filter(pl.col("event_type") == "session_ended")
         .select(pl.len())
-        .collect()
     )
     if int(df.item()) == 0:
         raise IncompleteMeetingError(path)

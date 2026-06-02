@@ -8,7 +8,7 @@ from typing import Any
 
 import polars as pl
 
-from .schema import EVENT_SCHEMA
+from .schema import EVENT_SCHEMA, QUESTIONS_SCHEMA
 
 EVENTS_FILE = "events.parquet"
 QUESTIONS_FILE = "questions.jsonl"
@@ -23,6 +23,13 @@ class LoadError(Exception):
 def scan_events(path: str | Path) -> pl.LazyFrame:
     """Lazy-scan one events.parquet with the canonical event schema applied."""
     return pl.scan_parquet(str(path), schema=pl.Schema(EVENT_SCHEMA))
+
+
+def collect_df(lf: pl.LazyFrame) -> pl.DataFrame:
+    """Eager-collect *lf* into a DataFrame. Centralizes the ty-vs-polars
+    "collect returns a union" annotation so call sites stay clean.
+    """
+    return lf.collect()  # type: ignore  # ty: collect() return is typed as a union
 
 
 def resolve_meetings(*patterns: str) -> list[Path]:
@@ -74,10 +81,10 @@ def meeting_source_dirs(meeting_dirs: Iterable[Path | str]) -> dict[str, str]:
     out: dict[str, str] = {}
     for d in meeting_dirs:
         dir_path = Path(d)
-        df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
-            scan_events(dir_path / EVENTS_FILE)
-            .select(pl.col("meeting_id").first().alias("meeting_id"))
-            .collect()
+        df = collect_df(
+            scan_events(dir_path / EVENTS_FILE).select(
+                pl.col("meeting_id").first().alias("meeting_id")
+            )
         )
         if df.height == 0:
             continue
@@ -127,17 +134,6 @@ def load_questions(meeting_dirs: Iterable[Path | str]) -> pl.LazyFrame:
     # No question files (e.g. a tracking-only session): return a typed empty
     # frame so the `questions` schema stays stable for downstream joins.
     if not frames:
-        return pl.LazyFrame(
-            schema={
-                "question_id": pl.String,
-                "auto_submitted": pl.Boolean,
-                "question_type": pl.String,
-                "prompt": pl.String,
-                "choices": pl.List(pl.String),
-                "correct_answer": pl.String,
-                "match_mode": pl.String,
-                "tolerance": pl.Float64,
-            }
-        )
+        return pl.LazyFrame(schema=QUESTIONS_SCHEMA)
 
     return pl.concat(frames)

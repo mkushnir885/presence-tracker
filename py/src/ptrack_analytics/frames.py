@@ -57,6 +57,15 @@ def presence_bands(events: pl.LazyFrame) -> pl.LazyFrame:
     ).drop("pair_idx")
 
 
+def participants(events: pl.LazyFrame) -> pl.LazyFrame:
+    """Distinct display names with their event counts."""
+    return (
+        events.filter(pl.col("display_name").is_not_null())
+        .group_by("display_name")
+        .agg(pl.len().alias("event_count"))
+    )
+
+
 def presence_closed(events: pl.LazyFrame) -> pl.LazyFrame:
     """Presence bands with every band closed at the meeting's duration.
 

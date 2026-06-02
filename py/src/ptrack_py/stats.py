@@ -15,6 +15,7 @@ from ptrack_analytics.frames import (
     meeting_times,
     presence_closed,
 )
+from ptrack_analytics.load import collect_df
 
 
 def generate_stats(
@@ -81,14 +82,13 @@ def _collect_meetings(events: pl.LazyFrame) -> list[dict[str, Any]]:
             .alias("ended_cause"),
         )
     )
-    df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
+    df = collect_df(
         times.join(start_meta, on="meeting_id", how="left")
         .join(ended_meta, on="meeting_id", how="left")
         .with_columns(
             pl.col("started_at").dt.timestamp("ms").alias("started_at_ms"),
         )
         .sort("started_at")
-        .collect()
     )
     return df.to_dicts()
 
@@ -99,7 +99,7 @@ def _collect_segments(
     # Express each closed band as start/width percentages of the meeting for
     # the SVG. presence_closed already pairs joins↔leaves and clips at
     # duration; this only adds the SVG geometry.
-    df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
+    df = collect_df(
         presence_closed(events)
         .with_columns(
             (pl.col("joined_ms") / pl.col("duration_ms") * 100.0)
@@ -113,7 +113,6 @@ def _collect_segments(
             (pl.col("end_pct") - pl.col("start_pct")).alias("width_pct"),
         )
         .sort(["display_name", "meeting_id", "joined_ms"])
-        .collect()
     )
 
     out: dict[tuple[str, str], list[dict[str, Any]]] = {}
@@ -152,9 +151,7 @@ def _collect_summary(
             total += s["end_ms"] - s["start_ms"]
         presence_rows[key] = total / 1_000.0
 
-    chal_df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
-        challenge_stats(events, by=["display_name", "meeting_id"]).collect()
-    )
+    chal_df = collect_df(challenge_stats(events, by=["display_name", "meeting_id"]))
 
     out: dict[tuple[str, str], dict[str, Any]] = {}
     for row in chal_df.to_dicts():
@@ -189,9 +186,7 @@ def _collect_summary(
 
 
 def _collect_max_participants(events: pl.LazyFrame) -> dict[str, int]:
-    df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
-        concurrent_participants(events).collect()
-    )
+    df = collect_df(concurrent_participants(events))
     return {row["meeting_id"]: int(row["max_participants"]) for row in df.to_dicts()}
 
 
@@ -208,7 +203,7 @@ def _collect_markers(
         }
     )
 
-    issued_df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
+    issued_df = collect_df(
         challenge_results(events)
         .join(durations, on="meeting_id", how="left")
         .with_columns(
@@ -218,7 +213,6 @@ def _collect_markers(
             pl.col("state").fill_null("unanswered").alias("result"),
         )
         .sort(["display_name", "meeting_id", "issued_ms"])
-        .collect()
     )
 
     skipped_df = _collect_skipped(events, durations)
@@ -263,7 +257,7 @@ def _collect_markers(
 
 
 def _collect_skipped(events: pl.LazyFrame, durations: pl.LazyFrame) -> pl.DataFrame:
-    df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
+    return collect_df(
         events.filter(pl.col("event_type") == "challenge_skipped")
         .select(
             pl.col("display_name"),
@@ -285,9 +279,7 @@ def _collect_skipped(events: pl.LazyFrame, durations: pl.LazyFrame) -> pl.DataFr
             .clip(0.0, 100.0)
             .alias("x_pct"),
         )
-        .collect()
     )
-    return df
 
 
 def _assemble_participants(

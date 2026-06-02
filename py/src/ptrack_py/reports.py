@@ -9,6 +9,7 @@ from ptrack_analytics.frames import (
     meeting_times,
     presence_closed,
 )
+from ptrack_analytics.load import collect_df
 
 
 def generate_csv(events: pl.LazyFrame, cross_meeting: bool = False) -> str:
@@ -44,7 +45,7 @@ def generate_csv(events: pl.LazyFrame, cross_meeting: bool = False) -> str:
     )
 
     if cross_meeting:
-        df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
+        df = collect_df(
             base.with_columns(
                 pl.col("started_at")
                 .dt.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -58,18 +59,15 @@ def generate_csv(events: pl.LazyFrame, cross_meeting: bool = False) -> str:
                 pl.col("challenges_correct"),
                 pl.col("challenges_issued"),
             )
-            .collect()
         )
     else:
-        df: pl.DataFrame = (  # type: ignore  # ty: collect() return is typed as a union
-            base.sort(pl.col("display_name").str.to_lowercase())
-            .select(
+        df = collect_df(
+            base.sort(pl.col("display_name").str.to_lowercase()).select(
                 pl.col("display_name").alias("name"),
                 pl.col("presence_ratio"),
                 pl.col("challenges_correct"),
                 pl.col("challenges_issued"),
             )
-            .collect()
         )
     return df.write_csv()
 
