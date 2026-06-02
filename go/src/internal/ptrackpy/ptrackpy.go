@@ -17,9 +17,9 @@ var cachedPath atomic.Pointer[string]
 
 var ErrBinaryNotFound = errors.New("ptrackpy: ptrack_py not found next to ptrack or in PATH")
 
-var ErrIncompleteMeeting = errors.New("ptrackpy: meeting still in progress")
+var ErrInvalidData = errors.New("ptrackpy: invalid meeting data")
 
-const incompleteMeetingExitCode = 3
+const invalidDataExitCode = 3
 
 func Locate() (string, error) {
 	if p := cachedPath.Load(); p != nil {
@@ -34,8 +34,9 @@ func Locate() (string, error) {
 }
 
 // Run invokes the ptrack_py binary and returns its stdout. Exit code 3 — the
-// Python side's "meeting still in progress" signal — is mapped to
-// ErrIncompleteMeeting so callers (the GUI) can show a 409 instead of failing.
+// Python side's "invalid data" signal (e.g. an events file with no
+// session_ended event) — is mapped to ErrInvalidData so callers (the GUI)
+// can show a 409 instead of failing.
 func Run(ctx context.Context, args ...string) ([]byte, error) {
 	bin, err := Locate()
 	if err != nil {
@@ -50,11 +51,11 @@ func Run(ctx context.Context, args ...string) ([]byte, error) {
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == incompleteMeetingExitCode {
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == invalidDataExitCode {
 			if msg != "" {
-				return nil, fmt.Errorf("%w: %s", ErrIncompleteMeeting, msg)
+				return nil, fmt.Errorf("%w: %s", ErrInvalidData, msg)
 			}
-			return nil, ErrIncompleteMeeting
+			return nil, ErrInvalidData
 		}
 		if msg != "" {
 			return nil, fmt.Errorf("ptrackpy: %s: %w: %s", argSummary(args), err, msg)

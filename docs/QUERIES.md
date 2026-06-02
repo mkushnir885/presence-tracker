@@ -21,7 +21,7 @@ import polars as pl
 # Load one or more meeting directories. Each must contain
 # events.parquet; the adjacent questions.jsonl is loaded automatically
 # when present. Meetings still in progress (no session_ended event) are
-# rejected — pass validate=False to peek at a live session.
+# rejected.
 load("~/Documents/ptrack/meetings/spring-2026-*")
 
 from ptrack_analytics import meetings, presence, challenges, questions
@@ -50,6 +50,7 @@ All four are `pl.LazyFrame`. Their schemas:
 | `joined_at`     | `Datetime("ms","UTC")`  |                                                |
 | `left_at`       | `Datetime("ms","UTC")`  | open bands clipped to `meetings.ended_at`      |
 | `duration`      | `Duration("ms")`        | `left_at - joined_at`                          |
+| `ratio`         | `Float64`               | `duration / meetings.duration`, clipped [0, 1] |
 | `still_present` | `Boolean`               | `True` for bands that were clipped at end      |
 | `join`          | `Struct{method}`        |                                                |
 | `leave`         | `Struct{reason}`        | `reason` is null when `still_present`          |

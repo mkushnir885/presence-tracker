@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import polars as pl
 
-from ptrack_analytics.frames import meeting_times
-from ptrack_analytics.load import collect_df
+from ptrack_analytics.frames import collect_df, meeting_times
 from ptrack_py._frames import challenge_stats, presence_totals
 
 

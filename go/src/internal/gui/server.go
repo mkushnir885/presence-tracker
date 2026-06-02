@@ -634,7 +634,7 @@ func (s *Server) handleStatsRows(w http.ResponseWriter, r *http.Request) {
 
 	out, err := ptrackpy.Run(r.Context(), append([]string{"stats"}, dirs...)...)
 	if err != nil {
-		if errors.Is(err, ptrackpy.ErrIncompleteMeeting) {
+		if errors.Is(err, ptrackpy.ErrInvalidData) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
@@ -664,7 +664,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 
 	csv, err := ptrackpy.Run(r.Context(), append([]string{"report"}, dirs...)...)
 	if err != nil {
-		if errors.Is(err, ptrackpy.ErrIncompleteMeeting) {
+		if errors.Is(err, ptrackpy.ErrInvalidData) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}

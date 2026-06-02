@@ -9,7 +9,16 @@ end. Only the views are exported from :mod:`ptrack_analytics`.
 
 from __future__ import annotations
 
+from typing import cast
+
 import polars as pl
+
+
+def collect_df(lf: pl.LazyFrame) -> pl.DataFrame:
+    """Eager-collect *lf* into a DataFrame. Centralizes the cast around
+    polars' DataFrame | InProcessQuery union so call sites stay clean.
+    """
+    return cast(pl.DataFrame, lf.collect())
 
 
 def presence_bands(events: pl.LazyFrame) -> pl.LazyFrame:
@@ -257,8 +266,9 @@ def presence_view(events: pl.LazyFrame) -> pl.LazyFrame:
     still_present, so left_at and duration are always populated.
 
     Columns: display_name, meeting_id, joined_at (Datetime),
-    left_at (Datetime), duration (Duration), still_present (Bool),
-    join (Struct{method}), leave (Struct{reason}).
+    left_at (Datetime), duration (Duration),
+    ratio (Float64; band duration / meeting duration, clipped to [0, 1]),
+    still_present (Bool), join (Struct{method}), leave (Struct{reason}).
     """
     starts = meeting_times(events).select("meeting_id", "started_at")
     return (
@@ -270,6 +280,9 @@ def presence_view(events: pl.LazyFrame) -> pl.LazyFrame:
             pl.duration(milliseconds=pl.col("end_ms") - pl.col("joined_ms"))
             .cast(_DUR_MS)
             .alias("duration"),
+            ((pl.col("end_ms") - pl.col("joined_ms")) / pl.col("duration_ms"))
+            .clip(0.0, 1.0)
+            .alias("ratio"),
             pl.struct(pl.col("join_method").alias("method")).alias("join"),
             pl.struct(pl.col("leave_reason").alias("reason")).alias("leave"),
         )
@@ -279,6 +292,7 @@ def presence_view(events: pl.LazyFrame) -> pl.LazyFrame:
             "joined_at",
             "left_at",
             "duration",
+            "ratio",
             "still_present",
             "join",
             "leave",

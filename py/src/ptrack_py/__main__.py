@@ -6,24 +6,24 @@ import json
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 
+import polars as pl
 import typer
 
+from ptrack_analytics.frames import collect_df
 from ptrack_analytics.load import (
     EVENTS_FILE,
-    IncompleteMeetingError,
-    LoadError,
-    collect_df,
-    load_meetings,
+    load_events,
     load_questions,
     resolve_meetings,
 )
-from ptrack_py._load import meeting_source_dirs
+from ptrack_analytics.schema import EVENT_SCHEMA
 from ptrack_py.rename import rename_display_name
 from ptrack_py.reports import generate_csv
 from ptrack_py.stats import generate_stats
 
-INCOMPLETE_MEETING_EXIT_CODE = 3
+INVALID_DATA_EXIT_CODE = 3
 
 app = typer.Typer(
     name="ptrack_py", help="ptrack Python analytics and generation binary."
@@ -45,7 +45,8 @@ def report(
 ) -> None:
     """Generate a CSV report from one or more meeting directories."""
     with _cli_errors():
-        dirs, events = load_meetings(*inputs)
+        dirs = resolve_meetings(*inputs)
+        events = load_events(dirs)
         csv_text = generate_csv(events, cross_meeting=len(dirs) > 1)
 
     sys.stdout.write(csv_text)
@@ -66,9 +67,10 @@ def stats(
 ) -> None:
     """Emit the GUI stats JSON for one or more meeting directories."""
     with _cli_errors():
-        dirs, events = load_meetings(*inputs)
+        dirs = resolve_meetings(*inputs)
+        events = load_events(dirs)
         mode = "meeting" if len(dirs) == 1 else "cross_meeting"
-        source_dirs = meeting_source_dirs(dirs)
+        source_dirs = _meeting_source_dirs(dirs)
         # Splice question_id back into each value so the inner record matches
         # the on-disk JSONL shape that the Go stats template re-marshals.
         questions = {
@@ -108,19 +110,41 @@ def rename(
             rename_display_name(d / EVENTS_FILE, from_name, to_name)
 
 
+def _meeting_source_dirs(dirs: list[Path]) -> dict[str, str]:
+    """Map each directory's meeting_id to its path. The stats payload uses
+    this to thread the source directory back into each meeting entry so the
+    GUI can display it.
+    """
+    schema = pl.Schema(EVENT_SCHEMA)
+    out: dict[str, str] = {}
+    for d in dirs:
+        df = collect_df(
+            pl.scan_parquet(str(d / EVENTS_FILE), schema=schema).select(
+                pl.col("meeting_id").first()
+            )
+        )
+        if df.height == 0:
+            continue
+        mid = df.row(0)[0]
+        if isinstance(mid, str) and mid:
+            out[mid] = str(d)
+    return out
+
+
 @contextmanager
 def _cli_errors() -> Iterator[None]:
     """Translate analytics errors into typer.Exit with the right code.
 
-    Exit code 3 lets the Go GUI show "meeting still in progress" distinctly
-    from generic load failures.
+    Exit code 3 signals "invalid data" (e.g. a meeting events file with no
+    session_ended event) so the Go GUI can render that case distinctly from
+    generic load failures.
     """
     try:
         yield
-    except IncompleteMeetingError as exc:
+    except ValueError as exc:
         typer.echo(str(exc), err=True)
-        raise typer.Exit(code=INCOMPLETE_MEETING_EXIT_CODE) from exc
-    except (LoadError, OSError) as exc:
+        raise typer.Exit(code=INVALID_DATA_EXIT_CODE) from exc
+    except OSError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 

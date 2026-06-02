@@ -17,17 +17,10 @@ from __future__ import annotations
 import polars as pl
 
 from .frames import challenges_view, meetings_view, presence_view
-from .load import (
-    IncompleteMeetingError,
-    LoadError,
-    load_meetings,
-    load_questions,
-)
+from .load import load_events, load_questions, resolve_meetings
 
 __all__ = [
     "load",
-    "LoadError",
-    "IncompleteMeetingError",
     "meetings",
     "presence",
     "challenges",
@@ -40,18 +33,18 @@ challenges: pl.LazyFrame | None = None
 questions: pl.LazyFrame | None = None
 
 
-def load(*patterns: str, validate: bool = True) -> None:
+def load(*patterns: str) -> None:
     """Load meetings matching *patterns* (paths or globs) and populate the
     module-level lazy frames. Each matched directory must contain
     events.parquet; an adjacent questions.jsonl is loaded when present.
 
-    By default rejects meetings still in progress (no session_ended event)
-    so every frame has fully-closed presence bands and a concrete end
-    time. Pass validate=False to peek at a live session.
+    Rejects meetings still in progress (no session_ended event) so every
+    frame has fully-closed presence bands and a concrete end time.
     """
     global meetings, presence, challenges, questions
 
-    dirs, events = load_meetings(*patterns, validate=validate)
+    dirs = resolve_meetings(*patterns)
+    events = load_events(dirs)
     meetings = meetings_view(events)
     presence = presence_view(events)
     challenges = challenges_view(events)

@@ -10,10 +10,10 @@ import polars as pl
 
 from ptrack_analytics.frames import (
     challenge_results,
+    collect_df,
     meeting_times,
     presence_closed,
 )
-from ptrack_analytics.load import collect_df
 from ptrack_py._frames import (
     challenge_stats,
     concurrent_participants,
