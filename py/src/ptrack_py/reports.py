@@ -35,7 +35,10 @@ def generate_csv(events: pl.LazyFrame, cross_meeting: bool = False) -> str:
     )
 
     base = pres.join(chal, on=by, how="left").with_columns(
-        _presence_ratio(),
+        (pl.col("presence_seconds").fill_null(0.0) / pl.col("duration_seconds"))
+        .clip(0.0, 1.0)
+        .round(4)
+        .alias("presence_ratio"),
         pl.col("challenges_issued").fill_null(0),
         pl.col("challenges_correct").fill_null(0),
     )
@@ -64,12 +67,3 @@ def generate_csv(events: pl.LazyFrame, cross_meeting: bool = False) -> str:
             )
         )
     return df.write_csv()
-
-
-def _presence_ratio() -> pl.Expr:
-    return (
-        (pl.col("presence_seconds").fill_null(0.0) / pl.col("duration_seconds"))
-        .clip(0.0, 1.0)
-        .round(4)
-        .alias("presence_ratio")
-    )

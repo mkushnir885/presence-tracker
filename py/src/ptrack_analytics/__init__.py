@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import polars as pl
 
-from .frames import challenges_view, meetings_view, presence_view
 from .load import load_events, load_questions, resolve_meetings
+from .views import challenges_view, meetings_view, presence_view
 
 __all__ = [
     "load",

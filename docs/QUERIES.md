@@ -50,7 +50,7 @@ All four are `pl.LazyFrame`. Their schemas:
 | `joined_at`     | `Datetime("ms","UTC")`  |                                                |
 | `left_at`       | `Datetime("ms","UTC")`  | open bands clipped to `meetings.ended_at`      |
 | `duration`      | `Duration("ms")`        | `left_at - joined_at`                          |
-| `ratio`         | `Float64`               | `duration / meetings.duration`, clipped [0, 1] |
+| `total_duration`| `Duration("ms")`        | sum of `duration` over `(display_name, meeting_id)` |
 | `still_present` | `Boolean`               | `True` for bands that were clipped at end      |
 | `join`          | `Struct{method}`        |                                                |
 | `leave`         | `Struct{reason}`        | `reason` is null when `still_present`          |

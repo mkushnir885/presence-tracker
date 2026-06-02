@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import polars as pl
 
-from ptrack_analytics.frames import challenge_results, presence_closed
+from ptrack_analytics.frames import challenge_results, presence_bands
 
 
 def presence_totals(events: pl.LazyFrame) -> pl.LazyFrame:
@@ -19,7 +19,7 @@ def presence_totals(events: pl.LazyFrame) -> pl.LazyFrame:
     cannot drift.
     """
     return (
-        presence_closed(events)
+        presence_bands(events)
         .with_columns(
             ((pl.col("end_ms") - pl.col("joined_ms")) / 1_000.0).alias("band_seconds")
         )

@@ -12,7 +12,7 @@ from ptrack_analytics.frames import (
     challenge_results,
     collect_df,
     meeting_times,
-    presence_closed,
+    presence_bands,
 )
 from ptrack_py._frames import (
     challenge_stats,
@@ -104,10 +104,10 @@ def _collect_segments(
     events: pl.LazyFrame,
 ) -> dict[tuple[str, str], list[dict[str, Any]]]:
     # Express each closed band as start/width percentages of the meeting for
-    # the SVG. presence_closed already pairs joins↔leaves and clips at
+    # the SVG. presence_bands already pairs joins↔leaves and clips at
     # duration; this only adds the SVG geometry.
     df = collect_df(
-        presence_closed(events)
+        presence_bands(events)
         .with_columns(
             (pl.col("joined_ms") / pl.col("duration_ms") * 100.0)
             .clip(0.0, 100.0)
