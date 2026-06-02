@@ -13,10 +13,12 @@ from ptrack_analytics.load import (
     EVENTS_FILE,
     IncompleteMeetingError,
     LoadError,
+    collect_df,
     load_meetings,
+    load_questions,
     resolve_meetings,
 )
-from ptrack_py._load import load_questions_index, meeting_source_dirs
+from ptrack_py._load import meeting_source_dirs
 from ptrack_py.rename import rename_display_name
 from ptrack_py.reports import generate_csv
 from ptrack_py.stats import generate_stats
@@ -67,7 +69,12 @@ def stats(
         dirs, events = load_meetings(*inputs)
         mode = "meeting" if len(dirs) == 1 else "cross_meeting"
         source_dirs = meeting_source_dirs(dirs)
-        questions = load_questions_index(dirs)
+        # Splice question_id back into each value so the inner record matches
+        # the on-disk JSONL shape that the Go stats template re-marshals.
+        questions = {
+            qid: {"question_id": qid, **rec}
+            for qid, rec in collect_df(load_questions(dirs)).iter_rows()
+        }
         payload = generate_stats(events, mode=mode, questions=questions)
         for meeting in payload["meetings"]:
             src = source_dirs.get(meeting["meeting_id"])
