@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import polars as pl
 
-from ptrack_analytics.load import scan_events
+from .load import scan_events
 
 
 class IncompleteMeetingError(Exception):
