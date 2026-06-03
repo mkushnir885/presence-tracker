@@ -463,7 +463,7 @@ func (c *Coordinator) HandleMessengerEvent(ctx context.Context, evt messengers.E
 			Selected:   evt.Selected,
 			MessageRef: evt.AnswerMessageRef.Opaque,
 		}
-		if !c.pipeline.HandleAnswer(evt.ChallengeID, answer) {
+		if !c.pipeline.HandleAnswer(evt.Handle, answer) {
 			slog.Debug("session: answer arrived after window closed", "challenge", evt.ChallengeID)
 		}
 	}
@@ -532,6 +532,11 @@ func (c *Coordinator) onRegistration(ctx context.Context, evt messengers.Event) 
 }
 
 func (c *Coordinator) RunPollBank(ctx context.Context, bank challenges.Bank, autoSubmitted bool) (challenges.PollResult, error) {
+	for i := range bank.Questions {
+		bank.Questions[i].AutoSubmitted = autoSubmitted
+	}
+	challengeID := uuid.Must(uuid.NewV7()).String()
+
 	if r, ok := c.provider.(providers.Refreshable); ok {
 		r.Refresh()
 		select {
@@ -543,7 +548,7 @@ func (c *Coordinator) RunPollBank(ctx context.Context, bank challenges.Bank, aut
 	eligible, ineligible := c.eligibleParticipants()
 	for _, sk := range ineligible {
 		_ = c.RecordChallengeSkipped(ctx, challenges.SkippedChallenge{
-			ChallengeID:   uuid.Must(uuid.NewV7()).String(),
+			ChallengeID:   challengeID,
 			DisplayName:   sk.DisplayName,
 			Reason:        sk.Reason,
 			AutoSubmitted: autoSubmitted,
@@ -551,9 +556,9 @@ func (c *Coordinator) RunPollBank(ctx context.Context, bank challenges.Bank, aut
 		})
 	}
 
-	sendFn := func(ctx context.Context, handle, lang, challengeID string, q challenges.Question) (string, error) {
+	sendFn := func(ctx context.Context, handle, lang, cid string, q challenges.Question) (string, error) {
 		mp := messengers.ChallengePrompt{
-			ChallengeID:  challengeID,
+			ChallengeID:  cid,
 			QuestionID:   q.QuestionID,
 			Prompt:       q.Prompt,
 			QuestionType: string(q.QuestionType),
@@ -566,7 +571,7 @@ func (c *Coordinator) RunPollBank(ctx context.Context, bank challenges.Bank, aut
 		return ref.Opaque, nil
 	}
 	answerWindow := time.Duration(c.dyn.Get().Challenges.Defaults.AnswerWindowSeconds) * time.Second
-	return c.pipeline.RunPoll(ctx, bank, autoSubmitted, answerWindow, eligible, sendFn, c.store.Dir())
+	return c.pipeline.RunPoll(ctx, bank, challengeID, answerWindow, eligible, sendFn, c.store.Dir())
 }
 
 func (c *Coordinator) RecordGeneratorFailed(_ context.Context, reason string) {

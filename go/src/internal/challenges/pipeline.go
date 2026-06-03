@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 type EligibleParticipant struct {
@@ -81,12 +79,12 @@ func NewPipeline(sink EventSink) *Pipeline {
 
 // RunPoll assigns each eligible participant one random question from the
 // bank, delivers it via send, and scores answers within answerWindow. The
-// per-participant question payloads are appended to meetingDir/questions.jsonl
-// when meetingDir is non-empty.
+// full bank is appended to meetingDir/questions.jsonl when meetingDir is
+// non-empty.
 func (p *Pipeline) RunPoll(
 	ctx context.Context,
 	bank Bank,
-	autoSubmitted bool,
+	challengeID string,
 	answerWindow time.Duration,
 	eligible []EligibleParticipant,
 	send SendFn,
@@ -95,30 +93,17 @@ func (p *Pipeline) RunPoll(
 	if len(bank.Questions) == 0 {
 		return PollResult{}, fmt.Errorf("challenges: empty bank")
 	}
-	pollID := uuid.Must(uuid.NewV7()).String()
-	res := PollResult{PollID: pollID}
+	res := PollResult{PollID: challengeID}
 	if len(eligible) == 0 {
-		slog.Info("challenges: poll skipped — no eligible participants", "poll_id", pollID)
+		slog.Info("challenges: poll skipped — no eligible participants", "challenge_id", challengeID)
 		return res, nil
 	}
 
 	issuedAt := time.Now().UTC()
 
-	// Each delivery gets a fresh QuestionID so the same bank question handed
-	// to several participants is tracked as distinct issued instances.
-	assignments := make([]Question, len(eligible))
+	selected := make([]Question, len(eligible))
 	for i := range eligible {
-		src := bank.Questions[rand.IntN(len(bank.Questions))] //nolint:gosec // G404: question selection is not security-sensitive
-		assignments[i] = Question{
-			QuestionID:    uuid.Must(uuid.NewV7()).String(),
-			QuestionType:  src.QuestionType,
-			Prompt:        src.Prompt,
-			Choices:       src.Choices,
-			Answer:        src.Answer,
-			MatchMode:     src.MatchMode,
-			Tolerance:     src.Tolerance,
-			AutoSubmitted: autoSubmitted,
-		}
+		selected[i] = bank.Questions[rand.IntN(len(bank.Questions))] //nolint:gosec // G404: question selection is not security-sensitive
 	}
 
 	type deliveryResult struct{ delivered bool }
@@ -126,10 +111,9 @@ func (p *Pipeline) RunPoll(
 
 	var wg sync.WaitGroup
 	for i, ep := range eligible {
-		q := assignments[i]
-		cid := uuid.Must(uuid.NewV7()).String()
+		q := selected[i]
 		wg.Go(func() {
-			results[i].delivered = p.deliver(ctx, ep, cid, q, issuedAt, answerWindow, send)
+			results[i].delivered = p.deliver(ctx, ep, challengeID, q, issuedAt, answerWindow, send)
 		})
 	}
 	wg.Wait()
@@ -143,16 +127,15 @@ func (p *Pipeline) RunPoll(
 	}
 
 	if meetingDir != "" {
-		p.saveQuestions(assignments, meetingDir)
+		p.saveQuestions(bank, meetingDir)
 	}
 
 	return res, nil
 }
 
-// saveQuestions appends one JSON line per delivered question to
-// <meetingDir>/questions.jsonl, creating the meeting dir if needed. The
-// stats view consumes this file directly.
-func (p *Pipeline) saveQuestions(questions []Question, meetingDir string) {
+// saveQuestions appends one JSON line per bank question to
+// <meetingDir>/questions.jsonl, creating the meeting dir if needed.
+func (p *Pipeline) saveQuestions(bank Bank, meetingDir string) {
 	if err := os.MkdirAll(meetingDir, 0o755); err != nil {
 		slog.Error("challenges: save questions: mkdir", "err", err)
 		return
@@ -165,7 +148,7 @@ func (p *Pipeline) saveQuestions(questions []Question, meetingDir string) {
 	}
 	defer func() { _ = f.Close() }()
 
-	for _, q := range questions {
+	for _, q := range bank.Questions {
 		line, err := json.Marshal(q)
 		if err != nil {
 			slog.Error("challenges: save questions: marshal", "err", err)
@@ -181,17 +164,17 @@ func (p *Pipeline) saveQuestions(questions []Question, meetingDir string) {
 func (p *Pipeline) deliver(
 	ctx context.Context,
 	ep EligibleParticipant,
-	cid string,
+	challengeID string,
 	q Question,
 	issuedAt time.Time,
 	answerWindow time.Duration,
 	send SendFn,
 ) bool {
-	ref, err := send(ctx, ep.Handle, ep.Language, cid, q)
+	ref, err := send(ctx, ep.Handle, ep.Language, challengeID, q)
 	if err != nil {
 		slog.Warn("challenges: delivery failed", "participant", ep.DisplayName, "err", err)
 		_ = p.sink.RecordChallengeSkipped(ctx, SkippedChallenge{
-			ChallengeID:   cid,
+			ChallengeID:   challengeID,
 			DisplayName:   ep.DisplayName,
 			Reason:        "delivery_failed",
 			AutoSubmitted: q.AutoSubmitted,
@@ -201,7 +184,7 @@ func (p *Pipeline) deliver(
 	}
 
 	issued := IssuedChallenge{
-		ChallengeID: cid,
+		ChallengeID: challengeID,
 		DisplayName: ep.DisplayName,
 		Question:    q,
 		Handle:      ep.Handle,
@@ -217,18 +200,18 @@ func (p *Pipeline) deliver(
 	timeoutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), answerWindow)
 
 	p.mu.Lock()
-	p.pending[cid] = &pendingChallenge{info: issued, answerCh: answerCh, cancel: cancel}
+	p.pending[ep.Handle] = &pendingChallenge{info: issued, answerCh: answerCh, cancel: cancel}
 	p.mu.Unlock()
 
-	go p.awaitAnswer(timeoutCtx, cancel, cid, issued, answerCh) //nolint:gosec // G118: derived ctx, bounded lifetime
+	go p.awaitAnswer(timeoutCtx, cancel, ep.Handle, issued, answerCh) //nolint:gosec // G118: derived ctx, bounded lifetime
 	return true
 }
 
-func (p *Pipeline) awaitAnswer(ctx context.Context, cancel context.CancelFunc, cid string, issued IssuedChallenge, answerCh <-chan Answer) {
+func (p *Pipeline) awaitAnswer(ctx context.Context, cancel context.CancelFunc, handle string, issued IssuedChallenge, answerCh <-chan Answer) {
 	defer cancel()
 	defer func() {
 		p.mu.Lock()
-		delete(p.pending, cid)
+		delete(p.pending, handle)
 		p.mu.Unlock()
 	}()
 
@@ -239,7 +222,7 @@ func (p *Pipeline) awaitAnswer(ctx context.Context, cancel context.CancelFunc, c
 		}
 		latency := time.Since(issued.IssuedAt).Milliseconds()
 		result := Score(issued.Question, answer)
-		if err := p.sink.RecordChallengeResult(ctx, cid, result, answer, latency); err != nil {
+		if err := p.sink.RecordChallengeResult(ctx, issued.ChallengeID, result, answer, latency); err != nil {
 			slog.Error("challenges: record result", "err", err)
 		}
 		if err := p.sink.NotifyAnswered(ctx, issued.Handle, issued.Language, issued.MessageRef, answer.MessageRef); err != nil {
@@ -248,7 +231,7 @@ func (p *Pipeline) awaitAnswer(ctx context.Context, cancel context.CancelFunc, c
 
 	case <-ctx.Done():
 		bg := context.Background()
-		if err := p.sink.RecordChallengeUnanswered(bg, cid); err != nil { //nolint:contextcheck
+		if err := p.sink.RecordChallengeUnanswered(bg, issued.ChallengeID); err != nil { //nolint:contextcheck
 			slog.Error("challenges: record unanswered", "err", err)
 		}
 		if err := p.sink.NotifyAnswerTimedOut(bg, issued.Language, issued.MessageRef); err != nil { //nolint:contextcheck
@@ -257,9 +240,9 @@ func (p *Pipeline) awaitAnswer(ctx context.Context, cancel context.CancelFunc, c
 	}
 }
 
-func (p *Pipeline) HandleAnswer(challengeID string, answer Answer) bool {
+func (p *Pipeline) HandleAnswer(handle string, answer Answer) bool {
 	p.mu.Lock()
-	pc, ok := p.pending[challengeID]
+	pc, ok := p.pending[handle]
 	p.mu.Unlock()
 	if !ok {
 		return false
