@@ -28,6 +28,9 @@ func Schema() (*jsonschema.Schema, error) {
 		return nil, fmt.Errorf("config: inject defaults: %w", err)
 	}
 	applyConstraints(schema)
+	// Allow $schema so IDEs don't flag the conventional self-reference as an
+	// additional property when additionalProperties is false.
+	schema.Properties["$schema"] = &jsonschema.Schema{Type: "string"}
 	return schema, nil
 }
 

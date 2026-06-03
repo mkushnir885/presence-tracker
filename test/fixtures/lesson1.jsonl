@@ -3,19 +3,21 @@
 {"kind":"registration","offset_ms":300,"handle":"tg_dmytro","display_name":"Dmytro","language":"uk"}
 {"kind":"meeting_started","offset_ms":500,"extra":{"platform":"mock"}}
 {"kind":"participant_joined","offset_ms":1000,"platform_id":"w_alice","display_name":"Alice","extra":{"role":"VIEWER"}}
-{"kind":"participant_joined","offset_ms":2000,"platform_id":"w_bohdan","display_name":"Bohdan","extra":{"role":"VIEWER"}}
-{"kind":"participant_joined","offset_ms":3000,"platform_id":"w_dmytro","display_name":"Dmytro","extra":{"role":"VIEWER"}}
-{"kind":"join_confirmation","offset_ms":4000,"handle":"tg_alice","confirmed":true}
-{"kind":"join_confirmation","offset_ms":5000,"handle":"tg_bohdan","confirmed":true}
-{"kind":"join_confirmation","offset_ms":6000,"handle":"tg_dmytro","confirmed":true}
-{"kind":"poll","offset_ms":30000,"bank":"{\"questions\":[{\"prompt\":\"Capital of France?\",\"type\":\"multiple_choice\",\"choices\":[\"Paris\",\"London\",\"Berlin\",\"Rome\"],\"answer\":[\"Paris\"]}]}","delivery_failures":["tg_dmytro"]}
+{"kind":"join_confirmation","offset_ms":2000,"handle":"tg_alice","confirmed":true}
+{"kind":"participant_joined","offset_ms":10000,"platform_id":"w_bohdan","display_name":"Bohdan","extra":{"role":"VIEWER"}}
+{"kind":"join_confirmation","offset_ms":12000,"handle":"tg_bohdan","confirmed":true}
+{"kind":"participant_joined","offset_ms":15000,"platform_id":"w_dmytro","display_name":"Dmytro","extra":{"role":"VIEWER"}}
+{"kind":"join_confirmation","offset_ms":15500,"handle":"tg_dmytro","confirmed":true}
+{"kind":"poll","offset_ms":30000,"bank":{"questions":[{"prompt":"Capital of France?","type":"multiple_choice","choices":["Paris","London","Berlin","Rome"],"answer":["Paris"]}]},"delivery_failures":["tg_dmytro"]}
 {"kind":"answer_received","offset_ms":33000,"handle":"tg_alice","selected":["Paris"]}
 {"kind":"participant_left","offset_ms":60000,"platform_id":"w_bohdan","display_name":"Bohdan","extra":{"reason":"left"}}
-{"kind":"poll","offset_ms":90000,"bank":"{\"questions\":[{\"prompt\":\"Largest planet in the solar system?\",\"type\":\"multiple_choice\",\"choices\":[\"Jupiter\",\"Saturn\",\"Earth\",\"Mars\"],\"answer\":[\"Jupiter\"]}]}"}
-{"kind":"answer_received","offset_ms":93000,"handle":"tg_dmytro","selected":["Jupiter"]}
-{"kind":"participant_joined","offset_ms":180000,"platform_id":"w_bohdan","display_name":"Bohdan","extra":{"role":"VIEWER"}}
-{"kind":"join_confirmation","offset_ms":182000,"handle":"tg_bohdan","confirmed":true}
-{"kind":"poll","offset_ms":220000,"bank":"{\"questions\":[{\"prompt\":\"Boiling point of water (C)?\",\"type\":\"numeric\",\"answer\":100,\"tolerance\":1}]}"}
-{"kind":"answer_received","offset_ms":224000,"handle":"tg_bohdan","answer":"100"}
-{"kind":"answer_received","offset_ms":225000,"handle":"tg_dmytro","answer":"100"}
-{"kind":"meeting_ended","offset_ms":300000}
+{"kind":"poll","offset_ms":70000,"bank":{"questions":[{"prompt":"Name the fastest land animal.","type":"short_text","answer":["cheetah"]}]}}
+{"kind":"answer_received","offset_ms":73000,"handle":"tg_dmytro","selected":["Cheetah"]}
+{"kind":"participant_joined","offset_ms":90000,"platform_id":"w_bohdan","display_name":"Bohdan","extra":{"role":"VIEWER"}}
+{"kind":"join_confirmation","offset_ms":92000,"handle":"tg_bohdan","confirmed":true}
+{"kind":"poll","offset_ms":150000,"bank":{"questions":[{"prompt":"Boiling point of water (C)?","type":"numeric","answer":100,"tolerance":1}]}}
+{"kind":"answer_received","offset_ms":159000,"handle":"tg_bohdan","answer":"100"}
+{"kind":"participant_left","offset_ms":165000,"platform_id":"w_alice","display_name":"Alice","extra":{"reason":"left"}}
+{"kind":"answer_received","offset_ms":170000,"handle":"tg_dmytro","answer":"86"}
+{"kind":"participant_left","offset_ms":180000,"platform_id":"w_dmytro","display_name":"Dmytro","extra":{"reason":"left"}}
+{"kind":"meeting_ended","offset_ms":200000}

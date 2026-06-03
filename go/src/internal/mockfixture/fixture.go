@@ -50,8 +50,8 @@ type Entry struct {
 	Selected    []string `json:"selected,omitempty"`
 
 	// poll-kind fields
-	Bank             string   `json:"bank,omitempty"`
-	DeliveryFailures []string `json:"delivery_failures,omitempty"`
+	Bank             json.RawMessage `json:"bank,omitempty"`
+	DeliveryFailures []string        `json:"delivery_failures,omitempty"`
 }
 
 // Fixture is a sorted set of entries plus the shared replay clock.
@@ -209,8 +209,8 @@ func (f *Fixture) ReplayPolls(ctx context.Context) {
 	}
 }
 
-func (f *Fixture) postPoll(ctx context.Context, addr, bank string) error {
-	body, _ := json.Marshal(map[string]any{"auto_submitted": false, "bank": bank}) //nolint:errchkjson // map with string/bool values cannot fail
+func (f *Fixture) postPoll(ctx context.Context, addr string, bank json.RawMessage) error {
+	body, _ := json.Marshal(map[string]any{"auto_submitted": false, "bank": string(bank)}) //nolint:errchkjson // map with string/bool values cannot fail
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, addr+"/poll", bytes.NewReader(body))
 	if err != nil {
 		return err
