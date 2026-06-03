@@ -98,7 +98,7 @@
   "stats.tooltip.state.skipped": "Skipped",
   "stats.marker.missing_question": "Question details unavailable — the matching questions file is missing.",
   "stats.marker.skip_reason": "Reason",
-  "stats.marker.skip_reason.delivery_failed": "Messenger delivery failed",
+  "stats.marker.skip_reason.delivery_failed": "messenger delivery failed",
   "stats.marker.skip_reason.min_gap": "within minimum gap between challenges",
   "stats.marker.auto_submitted": "Auto-submitted",
   "stats.marker.curated": "Curated",
