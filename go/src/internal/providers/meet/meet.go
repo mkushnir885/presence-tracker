@@ -39,6 +39,7 @@ type Adapter struct {
 	cfg    *config.Config
 	client *http.Client
 	events chan providers.Event
+	loop   *polling.Loop
 }
 
 func New(cfg *config.Config) *Adapter {
@@ -122,15 +123,16 @@ func (a *Adapter) Subscribe(ctx context.Context, meetingID string) (<-chan provi
 	}
 	slog.Info("meet: resolved meeting space", "space", spaceName)
 
-	loop := &polling.Loop{
-		Name:     "meet",
-		Interval: time.Duration(a.cfg.Get().Providers.Meet.PollIntervalSeconds) * time.Second,
-		Fetch:    a.newFetcher(spaceName),
-		Events:   a.events,
-	}
-	go loop.Run(ctx)
+	a.loop = polling.NewLoop("meet",
+		time.Duration(a.cfg.Get().Providers.Meet.PollIntervalSeconds)*time.Second,
+		a.newFetcher(spaceName),
+		a.events,
+	)
+	go a.loop.Run(ctx)
 	return a.events, nil
 }
+
+func (a *Adapter) Refresh() { a.loop.Refresh() }
 
 func (a *Adapter) resolveSpace(ctx context.Context, meetingID string) (string, error) {
 	if strings.HasPrefix(meetingID, "spaces/") {

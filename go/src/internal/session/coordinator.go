@@ -19,7 +19,10 @@ import (
 	"presence-tracker/src/internal/providers"
 )
 
-const joinConfirmationTTL = 2 * time.Minute
+const (
+	joinConfirmationTTL = 2 * time.Minute
+	providerRefreshWait = 5 * time.Second
+)
 
 var _ challenges.EventSink = (*Coordinator)(nil)
 
@@ -139,10 +142,6 @@ func (c *Coordinator) Run(ctx context.Context) error {
 			c.handleProviderEvent(ctx, evt)
 		}
 	}
-}
-
-func (c *Coordinator) HandleMessengerEvent(ctx context.Context, evt messengers.Event) {
-	c.handleMessengerEvent(ctx, evt)
 }
 
 func (c *Coordinator) handleProviderEvent(ctx context.Context, evt providers.Event) {
@@ -452,7 +451,7 @@ func (c *Coordinator) Status() CoordStatus {
 	}
 }
 
-func (c *Coordinator) handleMessengerEvent(ctx context.Context, evt messengers.Event) {
+func (c *Coordinator) HandleMessengerEvent(ctx context.Context, evt messengers.Event) {
 	switch evt.Kind {
 	case messengers.EventKindJoinConfirmation:
 		c.onJoinConfirmation(ctx, evt)
@@ -533,10 +532,14 @@ func (c *Coordinator) onRegistration(ctx context.Context, evt messengers.Event) 
 }
 
 func (c *Coordinator) RunPollBank(ctx context.Context, bank challenges.Bank, autoSubmitted bool) (challenges.PollResult, error) {
-	return c.runPollBank(ctx, bank, autoSubmitted)
-}
-
-func (c *Coordinator) runPollBank(ctx context.Context, bank challenges.Bank, autoSubmitted bool) (challenges.PollResult, error) {
+	if r, ok := c.provider.(providers.Refreshable); ok {
+		r.Refresh()
+		select {
+		case <-time.After(providerRefreshWait):
+		case <-ctx.Done():
+			return challenges.PollResult{}, ctx.Err()
+		}
+	}
 	eligible, ineligible := c.eligibleParticipants()
 	for _, sk := range ineligible {
 		_ = c.RecordChallengeSkipped(ctx, challenges.SkippedChallenge{

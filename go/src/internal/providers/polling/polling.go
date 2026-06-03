@@ -33,6 +33,26 @@ type Loop struct {
 	Interval time.Duration
 	Fetch    Fetcher
 	Events   chan<- providers.Event
+	tickNow  chan struct{}
+}
+
+func NewLoop(name string, interval time.Duration, fetch Fetcher, events chan<- providers.Event) *Loop {
+	return &Loop{
+		Name:     name,
+		Interval: interval,
+		Fetch:    fetch,
+		Events:   events,
+		tickNow:  make(chan struct{}, 1),
+	}
+}
+
+// Refresh triggers an immediate off-schedule tick. Safe to call from any
+// goroutine after the loop is started; no-ops if a tick is already queued.
+func (l *Loop) Refresh() {
+	select {
+	case l.tickNow <- struct{}{}:
+	default:
+	}
 }
 
 func (l *Loop) Run(ctx context.Context) {
@@ -49,6 +69,10 @@ func (l *Loop) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if l.tick(ctx, &st) {
+				return
+			}
+		case <-l.tickNow:
 			if l.tick(ctx, &st) {
 				return
 			}

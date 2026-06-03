@@ -30,6 +30,7 @@ type Adapter struct {
 	cfg    *config.Config
 	client *http.Client
 	events chan providers.Event
+	loop   *polling.Loop
 }
 
 func New(cfg *config.Config) *Adapter {
@@ -97,15 +98,16 @@ func (a *Adapter) Authenticate(ctx context.Context) error {
 }
 
 func (a *Adapter) Subscribe(ctx context.Context, meetingID string) (<-chan providers.Event, error) {
-	loop := &polling.Loop{
-		Name:     "bbb",
-		Interval: time.Duration(a.cfg.Get().Providers.BBB.PollIntervalSeconds) * time.Second,
-		Fetch:    a.newFetcher(meetingID),
-		Events:   a.events,
-	}
-	go loop.Run(ctx)
+	a.loop = polling.NewLoop("bbb",
+		time.Duration(a.cfg.Get().Providers.BBB.PollIntervalSeconds)*time.Second,
+		a.newFetcher(meetingID),
+		a.events,
+	)
+	go a.loop.Run(ctx)
 	return a.events, nil
 }
+
+func (a *Adapter) Refresh() { a.loop.Refresh() }
 
 type bbbMeetingInfoResponse struct {
 	ReturnCode string `xml:"returncode"`

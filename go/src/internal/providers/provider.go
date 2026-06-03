@@ -49,6 +49,13 @@ type Event struct {
 	MeetingInProgress bool
 }
 
+// Refreshable is implemented by polling-based providers. Refresh triggers an
+// immediate off-schedule fetch so the coordinator sees the latest participant
+// state before a challenge round begins.
+type Refreshable interface {
+	Refresh()
+}
+
 // Provider abstracts a video-conferencing platform. Subscribe streams
 // events until the meeting ends or ctx is cancelled, then closes the channel.
 // ParseMeetingID normalizes user input (e.g. a meeting URL) into the

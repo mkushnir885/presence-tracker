@@ -21,7 +21,7 @@ func runLoop(t *testing.T, snaps []Snapshot) []providers.Event {
 		return s, nil
 	}
 	ch := make(chan providers.Event, 32)
-	loop := &Loop{Name: "test", Interval: time.Millisecond, Fetch: fetcher, Events: ch}
+	loop := NewLoop("test", time.Millisecond, fetcher, ch)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
