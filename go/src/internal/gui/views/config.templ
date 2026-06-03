@@ -67,7 +67,6 @@ templ ConfigEditor(data ConfigData, locale Locale) {
 			<details>
 				<summary>{ locale.T("config.telegram") }</summary>
 				<div class="card">
-					@checkboxField("messengers.telegram.enabled", locale.T("config.enabled"), data.V.Messengers.Telegram.Enabled)
 					@secretField(data, "messengers.telegram.bot_token", locale.T("config.tg_bot_token"), locale.T("config.secret_hint"), "messengers", "telegram", "bot_token")
 				</div>
 			</details>

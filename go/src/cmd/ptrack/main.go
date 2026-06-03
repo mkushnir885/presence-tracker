@@ -632,9 +632,6 @@ func buildMessenger(cfg *config.Config, registry participants.Registry, fixture 
 		return mockmessenger.New(fixture, registry), nil
 	}
 	tg := cfg.Get().Messengers.Telegram
-	if !tg.Enabled {
-		return nil, fmt.Errorf("telegram messenger must be enabled in config")
-	}
 	m, err := telegram.New(tg.BotToken, registry)
 	if err != nil {
 		return nil, fmt.Errorf("init telegram: %w", err)

@@ -61,7 +61,6 @@ type MessengersConfig struct {
 }
 
 type TelegramConfig struct {
-	Enabled  bool   `json:"enabled,omitempty"`
 	BotToken string `json:"bot_token,omitempty"`
 }
 
