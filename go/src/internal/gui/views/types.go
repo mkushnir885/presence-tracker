@@ -107,11 +107,11 @@ type LogEntry struct {
 
 // StatsData mirrors `ptrack_py stats` output. Mode is "meeting" or "cross_meeting".
 type StatsData struct {
-	Dirs         []string                               `json:"-"`
-	Mode         string                                 `json:"mode"`
-	Meetings     []StatMeeting                          `json:"meetings"`
-	Participants []StatParticipant                      `json:"participants"`
-	Questions    map[string]challenges.Question         `json:"questions"`
+	Dirs         []string                       `json:"-"`
+	Mode         string                         `json:"mode"`
+	Meetings     []StatMeeting                  `json:"meetings"`
+	Participants []StatParticipant              `json:"participants"`
+	Questions    map[string]challenges.Question `json:"questions"`
 }
 
 type StatMeeting struct {
@@ -144,14 +144,14 @@ type StatParticipantRow struct {
 }
 
 type StatSegment struct {
-	StartPct     float64 `json:"start_pct"`
-	WidthPct     float64 `json:"width_pct"`
-	Present      bool    `json:"present"`
-	StartMS        int64  `json:"start_ms"`
-	EndMS          int64  `json:"end_ms"`
-	PresentTillEnd bool   `json:"present_till_end"`
-	JoinMethod     string `json:"join_method"`
-	LeaveReason    string `json:"leave_reason"`
+	StartPct       float64 `json:"start_pct"`
+	WidthPct       float64 `json:"width_pct"`
+	Present        bool    `json:"present"`
+	StartMS        int64   `json:"start_ms"`
+	EndMS          int64   `json:"end_ms"`
+	PresentTillEnd bool    `json:"present_till_end"`
+	JoinMethod     string  `json:"join_method"`
+	LeaveReason    string  `json:"leave_reason"`
 }
 
 // StatMarker carries only event-side fields; the question is in StatsData.Questions.

@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
+from typing import cast
 
 import polars as pl
 
@@ -96,8 +97,7 @@ def test_report_and_stats_presence_ratios_agree() -> None:
 
     reader = csv.DictReader(io.StringIO(generate_csv(events, cross_meeting=True)))
     report_ratio = {
-        (r["name"], r["meeting_started_at"]): float(r["presence_ratio"])
-        for r in reader
+        (r["name"], r["meeting_started_at"]): float(r["presence_ratio"]) for r in reader
     }
 
     payload = generate_stats(events, mode="cross_meeting")
@@ -122,26 +122,28 @@ def test_report_and_stats_presence_ratios_agree() -> None:
 
 
 def test_presence_bands_pairs_rejoin_as_two_bands() -> None:
-    bands = (
+    bands = cast(
+        pl.DataFrame,
         presence_bands(_sample())
         .filter((pl.col("display_name") == "Alice") & (pl.col("meeting_id") == "m1"))
         .sort("joined_ms")
-        .collect()
+        .collect(),
     )
     assert bands["joined_ms"].to_list() == [0, 250_000]
     assert bands["left_ms"].to_list() == [200_000, 600_000]
 
 
 def test_presence_bands_leaves_open_band_null() -> None:
-    bands = (
-        presence_bands(_sample()).filter(pl.col("display_name") == "Carol").collect()
+    bands = cast(
+        pl.DataFrame,
+        presence_bands(_sample()).filter(pl.col("display_name") == "Carol").collect(),
     )
     assert bands.height == 1
     assert bands["left_ms"].to_list() == [None]
 
 
 def test_meeting_times_prefers_session_ended_offset() -> None:
-    times = meeting_times(_sample()).sort("meeting_id").collect()
+    times = cast(pl.DataFrame, meeting_times(_sample()).sort("meeting_id").collect())
     durations = dict(zip(times["meeting_id"], times["duration_ms"], strict=True))
     # session_ended offsets, not the absolute session_started timestamp.
     assert durations == {"m1": 600_000, "m2": 300_000}
