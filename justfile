@@ -9,8 +9,8 @@ run-all recipe:
 build:
   @just run-all build
   mkdir -p bin
-  ln -sf ../go/bin/ptrack bin/ptrack
-  ln -sf ../py/bin/ptrack_py bin/ptrack_py
+  mv go/bin/ptrack bin/ptrack
+  mv py/bin/ptrack_py bin/ptrack_py
 
 test:
   @just run-all test
