@@ -18,7 +18,7 @@ const llmTimeout = 3 * time.Minute
 
 const llmTemperature = 0.4
 
-// LLMClient calls an OpenAI-compatible /v1/chat/completions endpoint to turn a
+// LLMClient calls an OpenAI-compatible /chat/completions endpoint to turn a
 // transcript into a question bank.
 type LLMClient struct {
 	baseURL string
@@ -71,7 +71,7 @@ func (c *LLMClient) Complete(ctx context.Context, system, user string) (string, 
 		return "", fmt.Errorf("challenger: llm encode: %w", err)
 	}
 
-	url := c.baseURL + "/v1/chat/completions"
+	url := c.baseURL + "/chat/completions"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("challenger: llm request: %w", err)

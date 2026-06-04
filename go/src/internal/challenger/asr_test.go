@@ -56,7 +56,7 @@ func TestASRClientTranscribe(t *testing.T) {
 			if text != tc.wantText {
 				t.Errorf("text = %q, want %q", text, tc.wantText)
 			}
-			if gotPath != "/v1/audio/transcriptions" {
+			if gotPath != "/audio/transcriptions" {
 				t.Errorf("path = %q", gotPath)
 			}
 			if gotAuth != "Bearer sk-test" {

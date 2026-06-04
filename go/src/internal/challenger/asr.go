@@ -17,7 +17,7 @@ import (
 
 const asrTimeout = 2 * time.Minute
 
-// ASRClient calls an OpenAI-compatible /v1/audio/transcriptions endpoint.
+// ASRClient calls an OpenAI-compatible /audio/transcriptions endpoint.
 type ASRClient struct {
 	baseURL  string
 	apiKey   string
@@ -98,7 +98,7 @@ func (c *ASRClient) Transcribe(ctx context.Context, audio io.Reader, mime string
 		return "", fmt.Errorf("challenger: asr close multipart: %w", err)
 	}
 
-	url := c.baseURL + "/v1/audio/transcriptions"
+	url := c.baseURL + "/audio/transcriptions"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, body)
 	if err != nil {
 		return "", fmt.Errorf("challenger: asr request: %w", err)
