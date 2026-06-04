@@ -9,8 +9,13 @@ build: gen
   mkdir -p bin
   go build -o bin/ptrack ./src/cmd/ptrack/
 
-test:
-  go test ./src/...
+test-unit:
+  go test $(go list ./src/... | grep -v 'mockfixture')
+
+test-integration:
+  go test -count=1 ./src/internal/mockfixture
+
+test: test-unit test-integration
 
 lint:
   golangci-lint run src/...
