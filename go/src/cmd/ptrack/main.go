@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -97,13 +98,14 @@ func trackCmd() *cobra.Command {
 		providerName string
 		meetingID    string
 		port         int
+		dataDir      string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "track",
 		Short: "Track presence for a meeting",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runTrack(cmd.Context(), cfgPath, providerName, meetingID, port)
+			return runTrack(cmd.Context(), cfgPath, providerName, meetingID, port, dataDir)
 		},
 	}
 
@@ -111,6 +113,7 @@ func trackCmd() *cobra.Command {
 	cmd.Flags().StringVar(&providerName, "provider", "bbb", "video-conferencing provider (bbb, meet, zoom)")
 	cmd.Flags().StringVar(&meetingID, "meeting", "", "meeting ID")
 	cmd.Flags().IntVar(&port, "port", 0, "control-plane port; overrides gui.port from config")
+	cmd.Flags().StringVar(&dataDir, "data-dir", "", "directory for the participant registry and runtime data (default: OS data dir)")
 
 	return cmd
 }
@@ -214,7 +217,7 @@ func runReport(ctx context.Context, inputs []string) error {
 	return err
 }
 
-func runTrack(ctx context.Context, cfgPath, providerName, meetingID string, portOverride int) error {
+func runTrack(ctx context.Context, cfgPath, providerName, meetingID string, portOverride int, dataDir string) error {
 	cfg, err := loadConfig(cfgPath)
 	if err != nil {
 		return err
@@ -269,7 +272,7 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID string, port
 		return fmt.Errorf("provider authenticate: %w", err)
 	}
 
-	registry, err := participants.OpenBolt(config.DataDir())
+	registry, err := participants.OpenBolt(cmp.Or(dataDir, config.DataDir()))
 	if err != nil {
 		return fmt.Errorf("open participant registry: %w", err)
 	}
@@ -544,20 +547,22 @@ func serveCmd() *cobra.Command {
 	var (
 		cfgPath string
 		port    int
+		dataDir string
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the GUI web server",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runServe(cmd.Context(), cfgPath, port)
+			return runServe(cmd.Context(), cfgPath, port, dataDir)
 		},
 	}
 	cmd.Flags().StringVar(&cfgPath, "config", "", "path to config.json")
 	cmd.Flags().IntVar(&port, "port", 0, "override GUI port from config")
+	cmd.Flags().StringVar(&dataDir, "data-dir", "", "directory for the participant registry and runtime data (default: OS data dir)")
 	return cmd
 }
 
-func runServe(ctx context.Context, cfgPath string, portOverride int) error {
+func runServe(ctx context.Context, cfgPath string, portOverride int, dataDir string) error {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return err
@@ -569,7 +574,7 @@ func runServe(ctx context.Context, cfgPath string, portOverride int) error {
 		bindPort = portOverride
 	}
 
-	registry, err := participants.OpenBolt(config.DataDir())
+	registry, err := participants.OpenBolt(cmp.Or(dataDir, config.DataDir()))
 	if err != nil {
 		return fmt.Errorf("open registry: %w", err)
 	}
