@@ -1,5 +1,5 @@
 {
-  "messenger.telegram.start": "Вітаємо у Presence Tracker!\n\nЩоб отримувати запитання для перевірки присутності, надішліть /register і у відповідь на повідомлення бота напишіть ваше ім'я зі списку учасників.\n\nКожен обліковий запис може мати лише одну реєстрацію. /whoami показує поточну реєстрацію, /unregister скасовує її, /language змінює мову бота.",
+  "messenger.telegram.start": "👋 Вітаємо у Presence Tracker! Надішліть /register, щоб прив'язати ваше ім'я зі списку учасників до цього акаунта. Всі команди доступні в меню.",
   "messenger.telegram.whoami.none_hint": "\n\nВикористайте /register, щоб зареєструватись.",
   "messenger.telegram.whoami.current_hint": " /register змінює запис, /unregister скасовує його.",
   "messenger.telegram.commands.register": "Зареєструвати відображуване ім'я",
@@ -8,9 +8,9 @@
   "messenger.telegram.commands.language": "Обрати мову повідомлень бота",
   "messenger.telegram.register.prompt": "Напишіть у відповідь на це повідомлення ваше ім'я зі списку учасників (наприклад, Іван Петренко).",
   "messenger.telegram.language.prompt": "Оберіть мову:",
-  "messenger.telegram.language.confirm": "Мову встановлено: українська.",
-  "messenger.telegram.language.unregistered": "Спершу зареєструйтесь за допомогою /register; мовні налаштування зберігаються разом із реєстрацією.",
+  "messenger.telegram.language.confirm": "✅ Мову встановлено: українська.",
+  "messenger.telegram.language.unregistered": "⚠️ Спершу зареєструйтесь за допомогою /register; мовні налаштування зберігаються разом із реєстрацією.",
   "messenger.telegram.mcq.hint": "\n\nНатискайте варіанти, щоб обрати або скасувати їх, потім натисніть «Надіслати».",
   "messenger.telegram.mcq.submit": "Надіслати",
-  "messenger.telegram.mcq.empty_alert": "Оберіть принаймні один варіант, потім натисніть «Надіслати»."
+  "messenger.telegram.mcq.empty_alert": "ℹ️ Оберіть принаймні один варіант, потім натисніть «Надіслати»."
 }
