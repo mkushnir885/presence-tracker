@@ -54,6 +54,7 @@ func BankSchema() *jsonschema.Schema {
 		Type:        "object",
 		Required:    []string{"questions"},
 		Properties: map[string]*jsonschema.Schema{
+			"$schema": {Type: "string"},
 			"questions": {
 				Type:     "array",
 				MinItems: new(1),

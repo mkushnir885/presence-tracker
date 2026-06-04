@@ -19,6 +19,7 @@ func Schema() (*jsonschema.Schema, error) {
 	if err != nil {
 		return nil, fmt.Errorf("config: build schema: %w", err)
 	}
+	schema.Properties["$schema"] = &jsonschema.Schema{Type: "string"}
 	schema.Schema = "https://json-schema.org/draft/2020-12/schema"
 	schema.Title = "Presence Tracker config"
 	schema.Description = "Generated from go/src/internal/config — do not edit by hand."
@@ -28,9 +29,6 @@ func Schema() (*jsonschema.Schema, error) {
 		return nil, fmt.Errorf("config: inject defaults: %w", err)
 	}
 	applyConstraints(schema)
-	// Allow $schema so IDEs don't flag the conventional self-reference as an
-	// additional property when additionalProperties is false.
-	schema.Properties["$schema"] = &jsonschema.Schema{Type: "string"}
 	return schema, nil
 }
 
