@@ -61,7 +61,7 @@ presence-tracker/
 ├── py/src/
 │   ├── ptrack_analytics/           # Jupyter library: load + Polars frames (meetings, presence, challenges, questions)
 │   └── ptrack_py/                  # binary-only: CLI entry, CSV reports, GUI stats JSON
-├── test/fixtures/                  # recorded event streams for replay
+├── test/                           # per-scenario fixture directories (e.g. test/basic/)
 └── docs/                           # reference docs, loaded on demand via @docs/...
 ```
 
@@ -83,8 +83,8 @@ live behind a `Challenge` interface ("how do we get the questions?") was
 moved outside the system entirely — see "Challenge system" below.
 
 When adding a new implementation of any abstraction: add a subdirectory,
-register it in `go/src/cmd/ptrack/main.go`, add a fixture under
-`test/fixtures/`, and document quirks in `@docs/ARCHITECTURE.md`.
+register it in `go/src/cmd/ptrack/main.go`, add a fixture directory under
+`test/`, and document quirks in `@docs/ARCHITECTURE.md`.
 
 See `@docs/ARCHITECTURE.md` for interface signatures and rationale.
 
@@ -373,7 +373,7 @@ For releases: PyInstaller single-file binary (`ptrack_py`).
 | Run all tests                   | `just test`                                                              |
 | Format                          | `just fmt`                                                               |
 | Lint                            | `just lint`                                                              |
-| Run a fixture end-to-end        | `./bin/ptrack track --provider=mock --meeting=test/fixtures/lesson1.jsonl` |
+| Run a fixture end-to-end        | `./bin/ptrack track --provider=mock --meeting=test/basic/fixture.jsonl` |
 | Track without GUI (headless)    | `./bin/ptrack track --provider=bbb --meeting=<id>`                       |
 | Start GUI (connect via browser) | `./bin/ptrack serve --port=8080` — use the Connect form on the dashboard |
 | Trigger a poll (any producer)   | `./bin/ptrack poll path/to/bank.yaml`                                    |
