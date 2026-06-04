@@ -1,11 +1,10 @@
 {
-  "$schema": "../../config.schema.json",
+  "$schema": "../config.schema.json",
   "challenges": {
     "defaults": {
-      "answer_window_seconds": 5,
+      "answer_window_seconds": 3,
       "min_gap_between_challenges_seconds": 5
     }
   },
-  "meeting_dir_format": "basic",
   "meetings_dir": "/tmp/ptrack/fixtures"
 }
