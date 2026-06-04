@@ -6,7 +6,7 @@
       "default": "~/Documents/ptrack/meetings",
       "minLength": 1
     },
-    "meetings_dir_format": {
+    "meeting_dir_format": {
       "type": "string",
       "default": "{start:%y%m%d-%H%M}_{end:%y%m%d-%H%M}",
       "minLength": 1
@@ -258,7 +258,10 @@
               "items": {
                 "type": "string"
               },
-              "default": null
+              "default": [
+                "Questions must be answerable purely from the transcript. Do not invent facts. Avoid trivia unrelated to the transcript topic.",
+                "Prefer questions tied to what was specifically said in this transcript (e.g. \"Which of these terms did the teacher mention?\") over general subject-knowledge questions answerable without this transcript."
+              ]
             }
           },
           "additionalProperties": false

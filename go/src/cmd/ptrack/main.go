@@ -300,9 +300,9 @@ func runTrack(ctx context.Context, cfgPath, providerName, meetingID string, port
 	internalMeetingID := uuid.Must(uuid.NewV7()).String()
 	startTime := time.Now()
 
-	tmpl, err := eventstore.ParseDirTemplate(v.MeetingsDirFormat)
+	tmpl, err := eventstore.ParseDirTemplate(v.MeetingDirFormat)
 	if err != nil {
-		return fmt.Errorf("meetings_dir_format: %w", err)
+		return fmt.Errorf("meeting_dir_format: %w", err)
 	}
 	store, err := eventstore.NewWriter(v.MeetingsDir, internalMeetingID, tmpl, startTime)
 	if err != nil {

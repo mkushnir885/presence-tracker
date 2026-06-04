@@ -191,7 +191,7 @@ func (s *Server) handleStartSession(w http.ResponseWriter, r *http.Request) { //
 
 	cfg := s.cfg.Get()
 	if dirFormat == "" {
-		dirFormat = cfg.MeetingsDirFormat
+		dirFormat = cfg.MeetingDirFormat
 	}
 	tmpl, err := eventstore.ParseDirTemplate(dirFormat)
 	if err != nil {
@@ -828,7 +828,7 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	form := r.PostForm
 	mutator := func(v *config.Values) {
 		v.MeetingsDir = form.Get("meetings_dir")
-		v.MeetingsDirFormat = form.Get("meetings_dir_format")
+		v.MeetingDirFormat = form.Get("meeting_dir_format")
 		v.RetentionDays = formInt(form, "retention_days", v.RetentionDays)
 
 		v.Providers.BBB.Enabled = formBool(form, "providers.bbb.enabled")
@@ -884,9 +884,9 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	candidate := s.cfg.Get()
 	mutator(&candidate)
 	var applyErr error
-	if candidate.MeetingsDirFormat != "" {
-		if _, err := eventstore.ParseDirTemplate(candidate.MeetingsDirFormat); err != nil {
-			applyErr = fmt.Errorf("meetings_dir_format: %w", err)
+	if candidate.MeetingDirFormat != "" {
+		if _, err := eventstore.ParseDirTemplate(candidate.MeetingDirFormat); err != nil {
+			applyErr = fmt.Errorf("meeting_dir_format: %w", err)
 		}
 	}
 	if applyErr == nil {

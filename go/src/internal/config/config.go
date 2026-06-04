@@ -15,7 +15,7 @@ import (
 
 type Values struct {
 	MeetingsDir       string           `json:"meetings_dir,omitempty"`
-	MeetingsDirFormat string           `json:"meetings_dir_format,omitempty"`
+	MeetingDirFormat string           `json:"meeting_dir_format,omitempty"`
 	RetentionDays     int              `json:"retention_days,omitempty"`
 	Providers         ProvidersConfig  `json:"providers,omitzero"`
 	Messengers        MessengersConfig `json:"messengers,omitzero"`
@@ -114,7 +114,7 @@ type LoggingConfig struct {
 func defaults() Values {
 	return Values{
 		MeetingsDir:       expandPath("~/Documents/ptrack/meetings"),
-		MeetingsDirFormat: "{start:%y%m%d-%H%M}_{end:%y%m%d-%H%M}",
+		MeetingDirFormat: "{start:%y%m%d-%H%M}_{end:%y%m%d-%H%M}",
 		RetentionDays:     180,
 		Providers: ProvidersConfig{
 			BBB:  BBBConfig{PollIntervalSeconds: 10},
@@ -276,7 +276,7 @@ func normalisePaths(v *Values) {
 // infer from the struct.
 func applyConstraints(root *jsonschema.Schema) {
 	at(root, "meetings_dir").MinLength = new(1)
-	at(root, "meetings_dir_format").MinLength = new(1)
+	at(root, "meeting_dir_format").MinLength = new(1)
 	at(root, "retention_days").Minimum = new(0.0)
 
 	at(root, "providers", "bbb", "poll_interval_seconds").Minimum = new(1.0)

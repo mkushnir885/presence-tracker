@@ -35,9 +35,7 @@ var baseRules = []string{
 	`multiple_choice: "choices" is a 2..6 element list of distinct short strings; "answer" is a list of one or more entries, each present verbatim in "choices".`,
 	`numeric: "answer" is a plain number (integer or decimal). Optional "tolerance" defaults to 0.`,
 	`short_text: "answer" is a list of acceptable strings. Optional "match" is "exact", "substring_ci" (default), or "regex".`,
-	`Questions must be answerable purely from the transcript. Do not invent facts.`,
 	`Keep prompts under 200 characters.`,
-	`Avoid yes/no questions and trivia unrelated to the transcript topic.`,
 	`Produce exactly the number of questions requested.`,
 }
 

@@ -20,10 +20,10 @@ templ ConfigEditor(data ConfigData, locale Locale) {
 				<summary>{ locale.T("config.general") }</summary>
 				<div class="card">
 					@textField(data, "meetings_dir", locale.T("config.meetings_dir"), data.V.MeetingsDir)
-					@textField(data, "meetings_dir_format", locale.T("config.meetings_dir_format"), data.V.MeetingsDirFormat)
+					@textField(data, "meeting_dir_format", locale.T("config.meeting_dir_format"), data.V.MeetingDirFormat)
 					<div class="text-muted" style="font-size:0.85rem;margin-top:-0.4rem;margin-bottom:0.5rem;">
-						{ locale.T("config.meetings_dir_format.hint") }
-						<a href="https://pkg.go.dev/github.com/lestrrat-go/strftime#readme-supported-conversion-specifications" target="_blank" rel="noopener">{ locale.T("config.meetings_dir_format.strftime_link") }</a>.
+						{ locale.T("config.meeting_dir_format.hint") }
+						<a href="https://pkg.go.dev/github.com/lestrrat-go/strftime#readme-supported-conversion-specifications" target="_blank" rel="noopener">{ locale.T("config.meeting_dir_format.strftime_link") }</a>.
 					</div>
 					@intField(data, locale.T("config.retention_days"), "retention_days", data.V.RetentionDays, "retention_days")
 				</div>
@@ -246,14 +246,32 @@ templ extraRulesField(locale Locale, rules []string) {
 	</div>
 	<script>
 		(function() {
+			function autoResize(ta) {
+				ta.style.height = 'auto';
+				ta.style.height = ta.scrollHeight + 'px';
+			}
+			function attachRow(list, tpl, val, focus) {
+				var clone = tpl.content.firstElementChild.cloneNode(true);
+				list.appendChild(clone);
+				var ta = clone.querySelector('[data-extra-rule-text]');
+				if (ta) {
+					if (val !== undefined) ta.value = val;
+					autoResize(ta);
+					ta.addEventListener('input', function() { autoResize(ta); });
+					if (focus) ta.focus();
+				}
+				return clone;
+			}
 			document.querySelectorAll('[data-extra-rules]').forEach(function(root) {
 				var list = root.querySelector('[data-extra-rules-list]');
 				var tpl = root.querySelector('[data-extra-rules-template]');
+				// Initial resize for server-rendered rows.
+				root.querySelectorAll('[data-extra-rule-text]').forEach(function(ta) {
+					autoResize(ta);
+					ta.addEventListener('input', function() { autoResize(ta); });
+				});
 				root.querySelector('[data-extra-rules-add]').addEventListener('click', function() {
-					var clone = tpl.content.firstElementChild.cloneNode(true);
-					list.appendChild(clone);
-					var input = clone.querySelector('input');
-					if (input) input.focus();
+					attachRow(list, tpl, undefined, true);
 					root.dispatchEvent(new Event('input', { bubbles: true }));
 				});
 				root.addEventListener('click', function(ev) {
@@ -269,13 +287,13 @@ templ extraRulesField(locale Locale, rules []string) {
 }
 
 templ extraRuleRow(locale Locale, value string) {
-	<div class="extra-rule-row" data-extra-rule style="display:flex;gap:0.4rem;margin-bottom:0.3rem;">
-		<input
-			type="text"
+	<div class="extra-rule-row" data-extra-rule style="display:flex;gap:0.4rem;margin-bottom:0.3rem;align-items:flex-start;">
+		<textarea
 			name="challenges.auto_generation.extra_rules"
-			value={ value }
-			style="flex:1;"
-		/>
+			rows="1"
+			style="flex:1;resize:none;overflow:hidden;line-height:1.4;padding:0.3rem 0.4rem;"
+			data-extra-rule-text
+		>{ value }</textarea>
 		<button
 			type="button"
 			class="btn btn-secondary"

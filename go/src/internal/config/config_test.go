@@ -158,8 +158,8 @@ func TestDiffToMapOnlyWritesOverrides(t *testing.T) {
 	}
 
 	// Fields still at their defaults must not appear in the file.
-	if _, ok := m["meetings_dir_format"]; ok {
-		t.Error("meetings_dir_format should not be written when at default")
+	if _, ok := m["meeting_dir_format"]; ok {
+		t.Error("meeting_dir_format should not be written when at default")
 	}
 	// The changed field must appear.
 	if _, ok := m["retention_days"]; !ok {
