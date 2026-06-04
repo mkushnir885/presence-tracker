@@ -627,14 +627,18 @@ func (c *Coordinator) writeEventAt(at time.Time, r eventstore.Record) {
 	c.store.Append(r)
 }
 
-// offsetMS converts an absolute instant to ms since the meeting start. Events
-// at or before the start (including session_started itself) yield 0.
+// offsetMS converts an absolute instant to ms since the meeting start, clamped
+// to [0, meetingEndedAt] so shutdown events never exceed the session_ended offset.
 func (c *Coordinator) offsetMS(at time.Time) int64 {
 	c.mu.Lock()
 	start := c.meetingStartedAt
+	end := c.meetingEndedAt
 	c.mu.Unlock()
 	if start.IsZero() || at.Before(start) {
 		return 0
+	}
+	if !end.IsZero() && at.After(end) {
+		at = end
 	}
 	return at.Sub(start).Milliseconds()
 }
@@ -659,13 +663,14 @@ func (c *Coordinator) RecordChallengeIssued(_ context.Context, issued challenges
 	return nil
 }
 
-func (c *Coordinator) RecordChallengeResult(_ context.Context, challengeID string, result challenges.ScoreResult, submitted challenges.Answer, latencyMS int64) error {
+func (c *Coordinator) RecordChallengeResult(_ context.Context, challengeID, displayName string, result challenges.ScoreResult, submitted challenges.Answer, latencyMS int64) error {
 	evtType := "challenge_answered_correct"
 	if result == challenges.ScoreIncorrect {
 		evtType = "challenge_answered_incorrect"
 	}
 	c.writeEvent(eventstore.Record{
 		EventType:   evtType,
+		DisplayName: displayName,
 		ChallengeID: challengeID,
 		Metadata: map[string]string{
 			"latency_ms":       strconv.FormatInt(latencyMS, 10),
@@ -686,9 +691,10 @@ func encodeSubmittedAnswer(a challenges.Answer) string {
 	return a.Text
 }
 
-func (c *Coordinator) RecordChallengeUnanswered(_ context.Context, challengeID string) error {
+func (c *Coordinator) RecordChallengeUnanswered(_ context.Context, challengeID, displayName string) error {
 	c.writeEvent(eventstore.Record{
 		EventType:   "challenge_unanswered",
+		DisplayName: displayName,
 		ChallengeID: challengeID,
 	})
 	return nil

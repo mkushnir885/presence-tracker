@@ -125,16 +125,16 @@ event-type-specific metadata.
 | Event type                     | `display_name` | `challenge_id` | `question_id` | Key metadata fields              |
 |--------------------------------|----------------|----------------|---------------|----------------------------------|
 | `challenge_issued`             | set            | set            | set           | `auto_submitted`, `answer_window_s` |
-| `challenge_answered_correct`   | null           | set            | null          | `latency_ms`, `submitted_answer` |
-| `challenge_answered_incorrect` | null           | set            | null          | `latency_ms`, `submitted_answer` |
-| `challenge_unanswered`         | null           | set            | null          | —                                |
+| `challenge_answered_correct`   | set            | set            | null          | `latency_ms`, `submitted_answer` |
+| `challenge_answered_incorrect` | set            | set            | null          | `latency_ms`, `submitted_answer` |
+| `challenge_unanswered`         | set            | set            | null          | —                                |
 | `challenge_skipped`            | set            | set            | null          | `auto_submitted`, `reason`       |
 | `challenge_generator_failed`   | null           | null           | null          | `error_class`                    |
 
 `challenge_id` threads the lifecycle events for one participant's
 challenge together. Result events (`_correct`, `_incorrect`,
-`_unanswered`) carry no `display_name` — analytics join them back to
-the participant via `challenge_id` from the `challenge_issued` row.
+`_unanswered`) carry `display_name` directly so that per-participant
+filtering works without joining back to `challenge_issued`.
 Multiple `challenge_issued` events (different participants, same poll)
 may share a `question_id`.
 

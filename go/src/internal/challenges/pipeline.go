@@ -40,8 +40,8 @@ type SkippedChallenge struct {
 // coordinator implements it: it persists events and drives messenger replies.
 type EventSink interface {
 	RecordChallengeIssued(ctx context.Context, c IssuedChallenge) error
-	RecordChallengeResult(ctx context.Context, challengeID string, result ScoreResult, submitted Answer, latencyMS int64) error
-	RecordChallengeUnanswered(ctx context.Context, challengeID string) error
+	RecordChallengeResult(ctx context.Context, challengeID, displayName string, result ScoreResult, submitted Answer, latencyMS int64) error
+	RecordChallengeUnanswered(ctx context.Context, challengeID, displayName string) error
 	RecordChallengeSkipped(ctx context.Context, sk SkippedChallenge) error
 
 	NotifyAnswered(ctx context.Context, handle, lang, questionRef, replyRef string) error
@@ -68,6 +68,7 @@ type Pipeline struct {
 
 	mu      sync.Mutex
 	pending map[string]*pendingChallenge
+	wg      sync.WaitGroup
 }
 
 func NewPipeline(sink EventSink) *Pipeline {
@@ -203,7 +204,9 @@ func (p *Pipeline) deliver(
 	p.pending[ep.Handle] = &pendingChallenge{info: issued, answerCh: answerCh, cancel: cancel}
 	p.mu.Unlock()
 
-	go p.awaitAnswer(timeoutCtx, cancel, ep.Handle, issued, answerCh) //nolint:gosec // G118: derived ctx, bounded lifetime
+	p.wg.Go(func() { //nolint:gosec // G118: derived ctx, bounded lifetime
+		p.awaitAnswer(timeoutCtx, cancel, ep.Handle, issued, answerCh)
+	})
 	return true
 }
 
@@ -222,7 +225,7 @@ func (p *Pipeline) awaitAnswer(ctx context.Context, cancel context.CancelFunc, h
 		}
 		latency := time.Since(issued.IssuedAt).Milliseconds()
 		result := Score(issued.Question, answer)
-		if err := p.sink.RecordChallengeResult(ctx, issued.ChallengeID, result, answer, latency); err != nil {
+		if err := p.sink.RecordChallengeResult(ctx, issued.ChallengeID, issued.DisplayName, result, answer, latency); err != nil {
 			slog.Error("challenges: record result", "err", err)
 		}
 		if err := p.sink.NotifyAnswered(ctx, issued.Handle, issued.Language, issued.MessageRef, answer.MessageRef); err != nil {
@@ -231,7 +234,7 @@ func (p *Pipeline) awaitAnswer(ctx context.Context, cancel context.CancelFunc, h
 
 	case <-ctx.Done():
 		bg := context.Background()
-		if err := p.sink.RecordChallengeUnanswered(bg, issued.ChallengeID); err != nil { //nolint:contextcheck
+		if err := p.sink.RecordChallengeUnanswered(bg, issued.ChallengeID, issued.DisplayName); err != nil { //nolint:contextcheck
 			slog.Error("challenges: record unanswered", "err", err)
 		}
 		if err := p.sink.NotifyAnswerTimedOut(bg, issued.Language, issued.MessageRef); err != nil { //nolint:contextcheck
@@ -255,10 +258,14 @@ func (p *Pipeline) HandleAnswer(handle string, answer Answer) bool {
 	}
 }
 
+// Drain cancels all in-flight answer windows and waits for every
+// awaitAnswer goroutine to finish so their unanswered events are
+// written before the caller closes the event store.
 func (p *Pipeline) Drain() {
 	p.mu.Lock()
 	for _, pc := range p.pending {
 		pc.cancel()
 	}
 	p.mu.Unlock()
+	p.wg.Wait()
 }

@@ -147,6 +147,7 @@ def challenge_results(events: pl.LazyFrame) -> pl.LazyFrame:
         )
     ).select(
         "challenge_id",
+        "display_name",
         pl.col("event_type").str.split("_").list.last().alias("state"),
         pl.col("metadata")
         .str.json_path_match("$.latency_ms")
@@ -161,7 +162,7 @@ def challenge_results(events: pl.LazyFrame) -> pl.LazyFrame:
     issued = (
         base.filter(pl.col("event_type") == "challenge_issued")
         .drop("event_type", "metadata")
-        .join(results, on="challenge_id", how="left")
+        .join(results, on=["challenge_id", "display_name"], how="left")
         .with_columns(
             pl.col("state").fill_null("unanswered"),
             pl.when(answered).then(pl.col("latency_ms")).alias("latency_ms"),
