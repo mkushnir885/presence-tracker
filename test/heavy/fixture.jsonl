@@ -1,0 +1,670 @@
+{"kind": "registration", "offset_ms": 100, "handle": "tg_u001", "display_name": "User 001", "language": "en"}
+{"kind": "registration", "offset_ms": 200, "handle": "tg_u002", "display_name": "User 002", "language": "en"}
+{"kind": "registration", "offset_ms": 300, "handle": "tg_u003", "display_name": "User 003", "language": "en"}
+{"kind": "registration", "offset_ms": 400, "handle": "tg_u004", "display_name": "User 004", "language": "en"}
+{"kind": "registration", "offset_ms": 500, "handle": "tg_u005", "display_name": "User 005", "language": "en"}
+{"kind": "registration", "offset_ms": 600, "handle": "tg_u006", "display_name": "User 006", "language": "en"}
+{"kind": "registration", "offset_ms": 700, "handle": "tg_u007", "display_name": "User 007", "language": "en"}
+{"kind": "registration", "offset_ms": 800, "handle": "tg_u008", "display_name": "User 008", "language": "en"}
+{"kind": "registration", "offset_ms": 900, "handle": "tg_u009", "display_name": "User 009", "language": "en"}
+{"kind": "registration", "offset_ms": 1000, "handle": "tg_u010", "display_name": "User 010", "language": "en"}
+{"kind": "registration", "offset_ms": 1100, "handle": "tg_u011", "display_name": "User 011", "language": "en"}
+{"kind": "registration", "offset_ms": 1200, "handle": "tg_u012", "display_name": "User 012", "language": "en"}
+{"kind": "registration", "offset_ms": 1300, "handle": "tg_u013", "display_name": "User 013", "language": "en"}
+{"kind": "registration", "offset_ms": 1400, "handle": "tg_u014", "display_name": "User 014", "language": "en"}
+{"kind": "registration", "offset_ms": 1500, "handle": "tg_u015", "display_name": "User 015", "language": "en"}
+{"kind": "registration", "offset_ms": 1600, "handle": "tg_u016", "display_name": "User 016", "language": "en"}
+{"kind": "registration", "offset_ms": 1700, "handle": "tg_u017", "display_name": "User 017", "language": "en"}
+{"kind": "registration", "offset_ms": 1800, "handle": "tg_u018", "display_name": "User 018", "language": "en"}
+{"kind": "registration", "offset_ms": 1900, "handle": "tg_u019", "display_name": "User 019", "language": "en"}
+{"kind": "registration", "offset_ms": 2000, "handle": "tg_u020", "display_name": "User 020", "language": "en"}
+{"kind": "registration", "offset_ms": 2100, "handle": "tg_u021", "display_name": "User 021", "language": "en"}
+{"kind": "registration", "offset_ms": 2200, "handle": "tg_u022", "display_name": "User 022", "language": "en"}
+{"kind": "registration", "offset_ms": 2300, "handle": "tg_u023", "display_name": "User 023", "language": "en"}
+{"kind": "registration", "offset_ms": 2400, "handle": "tg_u024", "display_name": "User 024", "language": "en"}
+{"kind": "registration", "offset_ms": 2500, "handle": "tg_u025", "display_name": "User 025", "language": "en"}
+{"kind": "registration", "offset_ms": 2600, "handle": "tg_u026", "display_name": "User 026", "language": "en"}
+{"kind": "registration", "offset_ms": 2700, "handle": "tg_u027", "display_name": "User 027", "language": "en"}
+{"kind": "registration", "offset_ms": 2800, "handle": "tg_u028", "display_name": "User 028", "language": "en"}
+{"kind": "registration", "offset_ms": 2900, "handle": "tg_u029", "display_name": "User 029", "language": "en"}
+{"kind": "registration", "offset_ms": 3000, "handle": "tg_u030", "display_name": "User 030", "language": "en"}
+{"kind": "registration", "offset_ms": 3100, "handle": "tg_u031", "display_name": "User 031", "language": "en"}
+{"kind": "registration", "offset_ms": 3200, "handle": "tg_u032", "display_name": "User 032", "language": "en"}
+{"kind": "registration", "offset_ms": 3300, "handle": "tg_u033", "display_name": "User 033", "language": "en"}
+{"kind": "registration", "offset_ms": 3400, "handle": "tg_u034", "display_name": "User 034", "language": "en"}
+{"kind": "registration", "offset_ms": 3500, "handle": "tg_u035", "display_name": "User 035", "language": "en"}
+{"kind": "registration", "offset_ms": 3600, "handle": "tg_u036", "display_name": "User 036", "language": "en"}
+{"kind": "registration", "offset_ms": 3700, "handle": "tg_u037", "display_name": "User 037", "language": "en"}
+{"kind": "registration", "offset_ms": 3800, "handle": "tg_u038", "display_name": "User 038", "language": "en"}
+{"kind": "registration", "offset_ms": 3900, "handle": "tg_u039", "display_name": "User 039", "language": "en"}
+{"kind": "registration", "offset_ms": 4000, "handle": "tg_u040", "display_name": "User 040", "language": "en"}
+{"kind": "registration", "offset_ms": 4100, "handle": "tg_u041", "display_name": "User 041", "language": "en"}
+{"kind": "registration", "offset_ms": 4200, "handle": "tg_u042", "display_name": "User 042", "language": "en"}
+{"kind": "registration", "offset_ms": 4300, "handle": "tg_u043", "display_name": "User 043", "language": "en"}
+{"kind": "registration", "offset_ms": 4400, "handle": "tg_u044", "display_name": "User 044", "language": "en"}
+{"kind": "registration", "offset_ms": 4500, "handle": "tg_u045", "display_name": "User 045", "language": "en"}
+{"kind": "registration", "offset_ms": 4600, "handle": "tg_u046", "display_name": "User 046", "language": "en"}
+{"kind": "registration", "offset_ms": 4700, "handle": "tg_u047", "display_name": "User 047", "language": "en"}
+{"kind": "registration", "offset_ms": 4800, "handle": "tg_u048", "display_name": "User 048", "language": "en"}
+{"kind": "registration", "offset_ms": 4900, "handle": "tg_u049", "display_name": "User 049", "language": "en"}
+{"kind": "registration", "offset_ms": 5000, "handle": "tg_u050", "display_name": "User 050", "language": "en"}
+{"kind": "registration", "offset_ms": 5100, "handle": "tg_u051", "display_name": "User 051", "language": "en"}
+{"kind": "registration", "offset_ms": 5200, "handle": "tg_u052", "display_name": "User 052", "language": "en"}
+{"kind": "registration", "offset_ms": 5300, "handle": "tg_u053", "display_name": "User 053", "language": "en"}
+{"kind": "registration", "offset_ms": 5400, "handle": "tg_u054", "display_name": "User 054", "language": "en"}
+{"kind": "registration", "offset_ms": 5500, "handle": "tg_u055", "display_name": "User 055", "language": "en"}
+{"kind": "registration", "offset_ms": 5600, "handle": "tg_u056", "display_name": "User 056", "language": "en"}
+{"kind": "registration", "offset_ms": 5700, "handle": "tg_u057", "display_name": "User 057", "language": "en"}
+{"kind": "registration", "offset_ms": 5800, "handle": "tg_u058", "display_name": "User 058", "language": "en"}
+{"kind": "registration", "offset_ms": 5900, "handle": "tg_u059", "display_name": "User 059", "language": "en"}
+{"kind": "registration", "offset_ms": 6000, "handle": "tg_u060", "display_name": "User 060", "language": "en"}
+{"kind": "registration", "offset_ms": 6100, "handle": "tg_u061", "display_name": "User 061", "language": "en"}
+{"kind": "registration", "offset_ms": 6200, "handle": "tg_u062", "display_name": "User 062", "language": "en"}
+{"kind": "registration", "offset_ms": 6300, "handle": "tg_u063", "display_name": "User 063", "language": "en"}
+{"kind": "registration", "offset_ms": 6400, "handle": "tg_u064", "display_name": "User 064", "language": "en"}
+{"kind": "registration", "offset_ms": 6500, "handle": "tg_u065", "display_name": "User 065", "language": "en"}
+{"kind": "registration", "offset_ms": 6600, "handle": "tg_u066", "display_name": "User 066", "language": "en"}
+{"kind": "registration", "offset_ms": 6700, "handle": "tg_u067", "display_name": "User 067", "language": "en"}
+{"kind": "registration", "offset_ms": 6800, "handle": "tg_u068", "display_name": "User 068", "language": "en"}
+{"kind": "registration", "offset_ms": 6900, "handle": "tg_u069", "display_name": "User 069", "language": "en"}
+{"kind": "registration", "offset_ms": 7000, "handle": "tg_u070", "display_name": "User 070", "language": "en"}
+{"kind": "registration", "offset_ms": 7100, "handle": "tg_u071", "display_name": "User 071", "language": "en"}
+{"kind": "registration", "offset_ms": 7200, "handle": "tg_u072", "display_name": "User 072", "language": "en"}
+{"kind": "registration", "offset_ms": 7300, "handle": "tg_u073", "display_name": "User 073", "language": "en"}
+{"kind": "registration", "offset_ms": 7400, "handle": "tg_u074", "display_name": "User 074", "language": "en"}
+{"kind": "registration", "offset_ms": 7500, "handle": "tg_u075", "display_name": "User 075", "language": "en"}
+{"kind": "meeting_started", "offset_ms": 80000, "extra": {"platform": "mock"}}
+{"kind": "participant_joined", "offset_ms": 200000, "platform_id": "w_u001", "display_name": "User 001", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 200200, "platform_id": "w_u002", "display_name": "User 002", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 200400, "platform_id": "w_u003", "display_name": "User 003", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 200500, "handle": "tg_u001", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 200600, "platform_id": "w_u004", "display_name": "User 004", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 200700, "handle": "tg_u002", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 200800, "platform_id": "w_u005", "display_name": "User 005", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 200900, "handle": "tg_u003", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 201000, "platform_id": "w_u006", "display_name": "User 006", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 201100, "handle": "tg_u004", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 201200, "platform_id": "w_u007", "display_name": "User 007", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 201300, "handle": "tg_u005", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 201400, "platform_id": "w_u008", "display_name": "User 008", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 201500, "handle": "tg_u006", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 201600, "platform_id": "w_u009", "display_name": "User 009", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 201700, "handle": "tg_u007", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 201800, "platform_id": "w_u010", "display_name": "User 010", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 201900, "handle": "tg_u008", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 202000, "platform_id": "w_u011", "display_name": "User 011", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 202100, "handle": "tg_u009", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 202200, "platform_id": "w_u012", "display_name": "User 012", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 202300, "handle": "tg_u010", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 202400, "platform_id": "w_u013", "display_name": "User 013", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 202500, "handle": "tg_u011", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 202600, "platform_id": "w_u014", "display_name": "User 014", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 202700, "handle": "tg_u012", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 202800, "platform_id": "w_u015", "display_name": "User 015", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 202900, "handle": "tg_u013", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 203000, "platform_id": "w_u016", "display_name": "User 016", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 203100, "handle": "tg_u014", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 203200, "platform_id": "w_u017", "display_name": "User 017", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 203300, "handle": "tg_u015", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 203400, "platform_id": "w_u018", "display_name": "User 018", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 203500, "handle": "tg_u016", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 203600, "platform_id": "w_u019", "display_name": "User 019", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 203700, "handle": "tg_u017", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 203800, "platform_id": "w_u020", "display_name": "User 020", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 203900, "handle": "tg_u018", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 204000, "platform_id": "w_u021", "display_name": "User 021", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 204100, "handle": "tg_u019", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 204200, "platform_id": "w_u022", "display_name": "User 022", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 204300, "handle": "tg_u020", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 204400, "platform_id": "w_u023", "display_name": "User 023", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 204500, "handle": "tg_u021", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 204600, "platform_id": "w_u024", "display_name": "User 024", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 204700, "handle": "tg_u022", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 204800, "platform_id": "w_u025", "display_name": "User 025", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 204900, "handle": "tg_u023", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 205000, "platform_id": "w_u026", "display_name": "User 026", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 205100, "handle": "tg_u024", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 205200, "platform_id": "w_u027", "display_name": "User 027", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 205300, "handle": "tg_u025", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 205400, "platform_id": "w_u028", "display_name": "User 028", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 205500, "handle": "tg_u026", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 205600, "platform_id": "w_u029", "display_name": "User 029", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 205700, "handle": "tg_u027", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 205800, "platform_id": "w_u030", "display_name": "User 030", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 205900, "handle": "tg_u028", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 206000, "platform_id": "w_u031", "display_name": "User 031", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 206100, "handle": "tg_u029", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 206200, "platform_id": "w_u032", "display_name": "User 032", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 206300, "handle": "tg_u030", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 206400, "platform_id": "w_u033", "display_name": "User 033", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 206500, "handle": "tg_u031", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 206600, "platform_id": "w_u034", "display_name": "User 034", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 206700, "handle": "tg_u032", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 206800, "platform_id": "w_u035", "display_name": "User 035", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 206900, "handle": "tg_u033", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 207000, "platform_id": "w_u036", "display_name": "User 036", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 207100, "handle": "tg_u034", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 207200, "platform_id": "w_u037", "display_name": "User 037", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 207300, "handle": "tg_u035", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 207400, "platform_id": "w_u038", "display_name": "User 038", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 207500, "handle": "tg_u036", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 207600, "platform_id": "w_u039", "display_name": "User 039", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 207700, "handle": "tg_u037", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 207800, "platform_id": "w_u040", "display_name": "User 040", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 207900, "handle": "tg_u038", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 208000, "platform_id": "w_u041", "display_name": "User 041", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 208100, "handle": "tg_u039", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 208200, "platform_id": "w_u042", "display_name": "User 042", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 208300, "handle": "tg_u040", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 208400, "platform_id": "w_u043", "display_name": "User 043", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 208500, "handle": "tg_u041", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 208600, "platform_id": "w_u044", "display_name": "User 044", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 208700, "handle": "tg_u042", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 208800, "platform_id": "w_u045", "display_name": "User 045", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 208900, "handle": "tg_u043", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 209000, "platform_id": "w_u046", "display_name": "User 046", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 209100, "handle": "tg_u044", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 209200, "platform_id": "w_u047", "display_name": "User 047", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 209300, "handle": "tg_u045", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 209400, "platform_id": "w_u048", "display_name": "User 048", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 209500, "handle": "tg_u046", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 209600, "platform_id": "w_u049", "display_name": "User 049", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 209700, "handle": "tg_u047", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 209800, "platform_id": "w_u050", "display_name": "User 050", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 209900, "handle": "tg_u048", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 210000, "platform_id": "w_u051", "display_name": "User 051", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 210100, "handle": "tg_u049", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 210200, "platform_id": "w_u052", "display_name": "User 052", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 210300, "handle": "tg_u050", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 210400, "platform_id": "w_u053", "display_name": "User 053", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 210500, "handle": "tg_u051", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 210600, "platform_id": "w_u054", "display_name": "User 054", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 210700, "handle": "tg_u052", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 210800, "platform_id": "w_u055", "display_name": "User 055", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 210900, "handle": "tg_u053", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 211000, "platform_id": "w_u056", "display_name": "User 056", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 211100, "handle": "tg_u054", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 211200, "platform_id": "w_u057", "display_name": "User 057", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 211300, "handle": "tg_u055", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 211400, "platform_id": "w_u058", "display_name": "User 058", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 211500, "handle": "tg_u056", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 211600, "platform_id": "w_u059", "display_name": "User 059", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 211700, "handle": "tg_u057", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 211800, "platform_id": "w_u060", "display_name": "User 060", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 211900, "handle": "tg_u058", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 212000, "platform_id": "w_u061", "display_name": "User 061", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 212100, "handle": "tg_u059", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 212200, "platform_id": "w_u062", "display_name": "User 062", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 212300, "handle": "tg_u060", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 212400, "platform_id": "w_u063", "display_name": "User 063", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 212500, "handle": "tg_u061", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 212600, "platform_id": "w_u064", "display_name": "User 064", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 212700, "handle": "tg_u062", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 212800, "platform_id": "w_u065", "display_name": "User 065", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 212900, "handle": "tg_u063", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 213000, "platform_id": "w_u066", "display_name": "User 066", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 213100, "handle": "tg_u064", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 213200, "platform_id": "w_u067", "display_name": "User 067", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 213300, "handle": "tg_u065", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 213400, "platform_id": "w_u068", "display_name": "User 068", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 213500, "handle": "tg_u066", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 213600, "platform_id": "w_u069", "display_name": "User 069", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 213700, "handle": "tg_u067", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 213800, "platform_id": "w_u070", "display_name": "User 070", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 213900, "handle": "tg_u068", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 214000, "platform_id": "w_u071", "display_name": "User 071", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 214100, "handle": "tg_u069", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 214200, "platform_id": "w_u072", "display_name": "User 072", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 214300, "handle": "tg_u070", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 214400, "platform_id": "w_u073", "display_name": "User 073", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 214500, "handle": "tg_u071", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 214600, "platform_id": "w_u074", "display_name": "User 074", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 214700, "handle": "tg_u072", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 214800, "platform_id": "w_u075", "display_name": "User 075", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 214900, "handle": "tg_u073", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 215000, "platform_id": "w_u076", "display_name": "User 076", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 215100, "handle": "tg_u074", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 215200, "platform_id": "w_u077", "display_name": "User 077", "extra": {"role": "VIEWER"}}
+{"kind": "join_confirmation", "offset_ms": 215300, "handle": "tg_u075", "confirmed": true}
+{"kind": "participant_joined", "offset_ms": 215400, "platform_id": "w_u078", "display_name": "User 078", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 215600, "platform_id": "w_u079", "display_name": "User 079", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 215800, "platform_id": "w_u080", "display_name": "User 080", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 216000, "platform_id": "w_u081", "display_name": "User 081", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 216200, "platform_id": "w_u082", "display_name": "User 082", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 216400, "platform_id": "w_u083", "display_name": "User 083", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 216600, "platform_id": "w_u084", "display_name": "User 084", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 216800, "platform_id": "w_u085", "display_name": "User 085", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 217000, "platform_id": "w_u086", "display_name": "User 086", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 217200, "platform_id": "w_u087", "display_name": "User 087", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 217400, "platform_id": "w_u088", "display_name": "User 088", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 217600, "platform_id": "w_u089", "display_name": "User 089", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 217800, "platform_id": "w_u090", "display_name": "User 090", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 218000, "platform_id": "w_u091", "display_name": "User 091", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 218200, "platform_id": "w_u092", "display_name": "User 092", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 218400, "platform_id": "w_u093", "display_name": "User 093", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 218600, "platform_id": "w_u094", "display_name": "User 094", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 218800, "platform_id": "w_u095", "display_name": "User 095", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 219000, "platform_id": "w_u096", "display_name": "User 096", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 219200, "platform_id": "w_u097", "display_name": "User 097", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 219400, "platform_id": "w_u098", "display_name": "User 098", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 219600, "platform_id": "w_u099", "display_name": "User 099", "extra": {"role": "VIEWER"}}
+{"kind": "participant_joined", "offset_ms": 219800, "platform_id": "w_u100", "display_name": "User 100", "extra": {"role": "VIEWER"}}
+{"kind": "poll", "offset_ms": 280000, "bank": {"questions": [{"prompt": "Capital of France?", "type": "multiple_choice", "choices": ["Paris", "London", "Berlin", "Rome"], "answer": ["Paris"]}, {"prompt": "Where is the Eiffel Tower?", "type": "multiple_choice", "choices": ["Paris", "London", "Berlin", "Rome"], "answer": ["Paris"]}, {"prompt": "Which city hosted the 2024 Olympics?", "type": "multiple_choice", "choices": ["Paris", "London", "Berlin", "Rome"], "answer": ["Paris"]}]}}
+{"kind": "answer_received", "offset_ms": 281000, "handle": "tg_u001", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281000, "handle": "tg_u054", "selected": ["London"]}
+{"kind": "answer_received", "offset_ms": 281020, "handle": "tg_u002", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281020, "handle": "tg_u055", "selected": ["London"]}
+{"kind": "answer_received", "offset_ms": 281040, "handle": "tg_u003", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281040, "handle": "tg_u056", "selected": ["London"]}
+{"kind": "answer_received", "offset_ms": 281060, "handle": "tg_u004", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281060, "handle": "tg_u057", "selected": ["London"]}
+{"kind": "answer_received", "offset_ms": 281080, "handle": "tg_u005", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281080, "handle": "tg_u058", "selected": ["London"]}
+{"kind": "answer_received", "offset_ms": 281100, "handle": "tg_u006", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281100, "handle": "tg_u059", "selected": ["London"]}
+{"kind": "answer_received", "offset_ms": 281120, "handle": "tg_u007", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281120, "handle": "tg_u060", "selected": ["London"]}
+{"kind": "answer_received", "offset_ms": 281140, "handle": "tg_u008", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281140, "handle": "tg_u061", "selected": ["London"]}
+{"kind": "answer_received", "offset_ms": 281160, "handle": "tg_u009", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281160, "handle": "tg_u062", "selected": ["London"]}
+{"kind": "answer_received", "offset_ms": 281180, "handle": "tg_u010", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281180, "handle": "tg_u063", "selected": ["London"]}
+{"kind": "answer_received", "offset_ms": 281200, "handle": "tg_u011", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281200, "handle": "tg_u064", "selected": ["London"]}
+{"kind": "answer_received", "offset_ms": 281220, "handle": "tg_u012", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281220, "handle": "tg_u065", "selected": ["London"]}
+{"kind": "answer_received", "offset_ms": 281240, "handle": "tg_u013", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281240, "handle": "tg_u066", "selected": ["London"]}
+{"kind": "answer_received", "offset_ms": 281260, "handle": "tg_u014", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281260, "handle": "tg_u067", "selected": ["London"]}
+{"kind": "answer_received", "offset_ms": 281280, "handle": "tg_u015", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281280, "handle": "tg_u068", "selected": ["London"]}
+{"kind": "answer_received", "offset_ms": 281300, "handle": "tg_u016", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281320, "handle": "tg_u017", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281340, "handle": "tg_u018", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281360, "handle": "tg_u019", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281380, "handle": "tg_u020", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281400, "handle": "tg_u021", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281420, "handle": "tg_u022", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281440, "handle": "tg_u023", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281460, "handle": "tg_u024", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281480, "handle": "tg_u025", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281500, "handle": "tg_u026", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281520, "handle": "tg_u027", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281540, "handle": "tg_u028", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281560, "handle": "tg_u029", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281580, "handle": "tg_u030", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281600, "handle": "tg_u031", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281620, "handle": "tg_u032", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281640, "handle": "tg_u033", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281660, "handle": "tg_u034", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281680, "handle": "tg_u035", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281700, "handle": "tg_u036", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281720, "handle": "tg_u037", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281740, "handle": "tg_u038", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281760, "handle": "tg_u039", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281780, "handle": "tg_u040", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281800, "handle": "tg_u041", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281820, "handle": "tg_u042", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281840, "handle": "tg_u043", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281860, "handle": "tg_u044", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281880, "handle": "tg_u045", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281900, "handle": "tg_u046", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281920, "handle": "tg_u047", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281940, "handle": "tg_u048", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281960, "handle": "tg_u049", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 281980, "handle": "tg_u050", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 282000, "handle": "tg_u051", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 282020, "handle": "tg_u052", "selected": ["Paris"]}
+{"kind": "answer_received", "offset_ms": 282040, "handle": "tg_u053", "selected": ["Paris"]}
+{"kind": "poll", "offset_ms": 430000, "bank": {"questions": [{"prompt": "What molecule is H2O?", "type": "short_text", "answer": ["water"]}, {"prompt": "What liquid covers 71% of Earth?", "type": "short_text", "answer": ["water"]}, {"prompt": "Name the compound formed by 2H and O.", "type": "short_text", "answer": ["water"]}]}}
+{"kind": "answer_received", "offset_ms": 431000, "handle": "tg_u001", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431000, "handle": "tg_u061", "answer": "earth"}
+{"kind": "answer_received", "offset_ms": 431020, "handle": "tg_u002", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431020, "handle": "tg_u062", "answer": "earth"}
+{"kind": "answer_received", "offset_ms": 431040, "handle": "tg_u003", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431040, "handle": "tg_u063", "answer": "earth"}
+{"kind": "answer_received", "offset_ms": 431060, "handle": "tg_u004", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431060, "handle": "tg_u064", "answer": "earth"}
+{"kind": "answer_received", "offset_ms": 431080, "handle": "tg_u005", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431080, "handle": "tg_u065", "answer": "earth"}
+{"kind": "answer_received", "offset_ms": 431100, "handle": "tg_u006", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431100, "handle": "tg_u066", "answer": "earth"}
+{"kind": "answer_received", "offset_ms": 431120, "handle": "tg_u007", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431120, "handle": "tg_u067", "answer": "earth"}
+{"kind": "answer_received", "offset_ms": 431140, "handle": "tg_u008", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431140, "handle": "tg_u068", "answer": "earth"}
+{"kind": "answer_received", "offset_ms": 431160, "handle": "tg_u009", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431180, "handle": "tg_u010", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431200, "handle": "tg_u011", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431220, "handle": "tg_u012", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431240, "handle": "tg_u013", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431260, "handle": "tg_u014", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431280, "handle": "tg_u015", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431300, "handle": "tg_u016", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431320, "handle": "tg_u017", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431340, "handle": "tg_u018", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431360, "handle": "tg_u019", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431380, "handle": "tg_u020", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431400, "handle": "tg_u021", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431420, "handle": "tg_u022", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431440, "handle": "tg_u023", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431460, "handle": "tg_u024", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431480, "handle": "tg_u025", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431500, "handle": "tg_u026", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431520, "handle": "tg_u027", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431540, "handle": "tg_u028", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431560, "handle": "tg_u029", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431580, "handle": "tg_u030", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431600, "handle": "tg_u031", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431620, "handle": "tg_u032", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431640, "handle": "tg_u033", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431660, "handle": "tg_u034", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431680, "handle": "tg_u035", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431700, "handle": "tg_u036", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431720, "handle": "tg_u037", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431740, "handle": "tg_u038", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431760, "handle": "tg_u039", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431780, "handle": "tg_u040", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431800, "handle": "tg_u041", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431820, "handle": "tg_u042", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431840, "handle": "tg_u043", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431860, "handle": "tg_u044", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431880, "handle": "tg_u045", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431900, "handle": "tg_u046", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431920, "handle": "tg_u047", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431940, "handle": "tg_u048", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431960, "handle": "tg_u049", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 431980, "handle": "tg_u050", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 432000, "handle": "tg_u051", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 432020, "handle": "tg_u052", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 432040, "handle": "tg_u053", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 432060, "handle": "tg_u054", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 432080, "handle": "tg_u055", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 432100, "handle": "tg_u056", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 432120, "handle": "tg_u057", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 432140, "handle": "tg_u058", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 432160, "handle": "tg_u059", "answer": "water"}
+{"kind": "answer_received", "offset_ms": 432180, "handle": "tg_u060", "answer": "water"}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u066", "display_name": "User 066", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u067", "display_name": "User 067", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u068", "display_name": "User 068", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u069", "display_name": "User 069", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u070", "display_name": "User 070", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u071", "display_name": "User 071", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u072", "display_name": "User 072", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u073", "display_name": "User 073", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u074", "display_name": "User 074", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u075", "display_name": "User 075", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u076", "display_name": "User 076", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u077", "display_name": "User 077", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u078", "display_name": "User 078", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u079", "display_name": "User 079", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u080", "display_name": "User 080", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u081", "display_name": "User 081", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u082", "display_name": "User 082", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u083", "display_name": "User 083", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u084", "display_name": "User 084", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u085", "display_name": "User 085", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u086", "display_name": "User 086", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u087", "display_name": "User 087", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u088", "display_name": "User 088", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u089", "display_name": "User 089", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u090", "display_name": "User 090", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u091", "display_name": "User 091", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u092", "display_name": "User 092", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u093", "display_name": "User 093", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u094", "display_name": "User 094", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u095", "display_name": "User 095", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u096", "display_name": "User 096", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u097", "display_name": "User 097", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u098", "display_name": "User 098", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u099", "display_name": "User 099", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 450000, "platform_id": "w_u100", "display_name": "User 100", "extra": {"reason": "left"}}
+{"kind": "poll", "offset_ms": 580000, "bank": {"questions": [{"prompt": "Boiling point of water in Celsius?", "type": "numeric", "answer": 100, "tolerance": 1}, {"prompt": "What is 10 squared?", "type": "numeric", "answer": 100, "tolerance": 0.5}]}}
+{"kind": "answer_received", "offset_ms": 581000, "handle": "tg_u001", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581000, "handle": "tg_u049", "answer": "0"}
+{"kind": "answer_received", "offset_ms": 581020, "handle": "tg_u002", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581020, "handle": "tg_u050", "answer": "0"}
+{"kind": "answer_received", "offset_ms": 581040, "handle": "tg_u003", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581040, "handle": "tg_u051", "answer": "0"}
+{"kind": "answer_received", "offset_ms": 581060, "handle": "tg_u004", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581060, "handle": "tg_u052", "answer": "0"}
+{"kind": "answer_received", "offset_ms": 581080, "handle": "tg_u005", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581080, "handle": "tg_u053", "answer": "0"}
+{"kind": "answer_received", "offset_ms": 581100, "handle": "tg_u006", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581100, "handle": "tg_u054", "answer": "0"}
+{"kind": "answer_received", "offset_ms": 581120, "handle": "tg_u007", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581120, "handle": "tg_u055", "answer": "0"}
+{"kind": "answer_received", "offset_ms": 581140, "handle": "tg_u008", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581140, "handle": "tg_u056", "answer": "0"}
+{"kind": "answer_received", "offset_ms": 581160, "handle": "tg_u009", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581160, "handle": "tg_u057", "answer": "0"}
+{"kind": "answer_received", "offset_ms": 581180, "handle": "tg_u010", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581180, "handle": "tg_u058", "answer": "0"}
+{"kind": "answer_received", "offset_ms": 581200, "handle": "tg_u011", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581200, "handle": "tg_u059", "answer": "0"}
+{"kind": "answer_received", "offset_ms": 581220, "handle": "tg_u012", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581240, "handle": "tg_u013", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581260, "handle": "tg_u014", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581280, "handle": "tg_u015", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581300, "handle": "tg_u016", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581320, "handle": "tg_u017", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581340, "handle": "tg_u018", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581360, "handle": "tg_u019", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581380, "handle": "tg_u020", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581400, "handle": "tg_u021", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581420, "handle": "tg_u022", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581440, "handle": "tg_u023", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581460, "handle": "tg_u024", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581480, "handle": "tg_u025", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581500, "handle": "tg_u026", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581520, "handle": "tg_u027", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581540, "handle": "tg_u028", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581560, "handle": "tg_u029", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581580, "handle": "tg_u030", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581600, "handle": "tg_u031", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581620, "handle": "tg_u032", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581640, "handle": "tg_u033", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581660, "handle": "tg_u034", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581680, "handle": "tg_u035", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581700, "handle": "tg_u036", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581720, "handle": "tg_u037", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581740, "handle": "tg_u038", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581760, "handle": "tg_u039", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581780, "handle": "tg_u040", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581800, "handle": "tg_u041", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581820, "handle": "tg_u042", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581840, "handle": "tg_u043", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581860, "handle": "tg_u044", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581880, "handle": "tg_u045", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581900, "handle": "tg_u046", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581920, "handle": "tg_u047", "answer": "100"}
+{"kind": "answer_received", "offset_ms": 581940, "handle": "tg_u048", "answer": "100"}
+{"kind": "poll", "offset_ms": 730000, "bank": {"questions": [{"prompt": "Which planet do we live on?", "type": "multiple_choice", "choices": ["Earth", "Mars", "Venus", "Jupiter"], "answer": ["Earth"]}, {"prompt": "Third planet from the Sun?", "type": "multiple_choice", "choices": ["Earth", "Mars", "Venus", "Jupiter"], "answer": ["Earth"]}, {"prompt": "Which planet has the Moon as its satellite?", "type": "multiple_choice", "choices": ["Earth", "Mars", "Venus", "Jupiter"], "answer": ["Earth"]}]}}
+{"kind": "answer_received", "offset_ms": 731000, "handle": "tg_u001", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731000, "handle": "tg_u053", "selected": ["Mars"]}
+{"kind": "answer_received", "offset_ms": 731020, "handle": "tg_u002", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731020, "handle": "tg_u054", "selected": ["Mars"]}
+{"kind": "answer_received", "offset_ms": 731040, "handle": "tg_u003", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731040, "handle": "tg_u055", "selected": ["Mars"]}
+{"kind": "answer_received", "offset_ms": 731060, "handle": "tg_u004", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731060, "handle": "tg_u056", "selected": ["Mars"]}
+{"kind": "answer_received", "offset_ms": 731080, "handle": "tg_u005", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731080, "handle": "tg_u057", "selected": ["Mars"]}
+{"kind": "answer_received", "offset_ms": 731100, "handle": "tg_u006", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731100, "handle": "tg_u058", "selected": ["Mars"]}
+{"kind": "answer_received", "offset_ms": 731120, "handle": "tg_u007", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731120, "handle": "tg_u059", "selected": ["Mars"]}
+{"kind": "answer_received", "offset_ms": 731140, "handle": "tg_u008", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731160, "handle": "tg_u009", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731180, "handle": "tg_u010", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731200, "handle": "tg_u011", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731220, "handle": "tg_u012", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731240, "handle": "tg_u013", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731260, "handle": "tg_u014", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731280, "handle": "tg_u015", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731300, "handle": "tg_u016", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731320, "handle": "tg_u017", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731340, "handle": "tg_u018", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731360, "handle": "tg_u019", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731380, "handle": "tg_u020", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731400, "handle": "tg_u021", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731420, "handle": "tg_u022", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731440, "handle": "tg_u023", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731460, "handle": "tg_u024", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731480, "handle": "tg_u025", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731500, "handle": "tg_u026", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731520, "handle": "tg_u027", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731540, "handle": "tg_u028", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731560, "handle": "tg_u029", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731580, "handle": "tg_u030", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731600, "handle": "tg_u031", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731620, "handle": "tg_u032", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731640, "handle": "tg_u033", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731660, "handle": "tg_u034", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731680, "handle": "tg_u035", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731700, "handle": "tg_u036", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731720, "handle": "tg_u037", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731740, "handle": "tg_u038", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731760, "handle": "tg_u039", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731780, "handle": "tg_u040", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731800, "handle": "tg_u041", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731820, "handle": "tg_u042", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731840, "handle": "tg_u043", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731860, "handle": "tg_u044", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731880, "handle": "tg_u045", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731900, "handle": "tg_u046", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731920, "handle": "tg_u047", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731940, "handle": "tg_u048", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731960, "handle": "tg_u049", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 731980, "handle": "tg_u050", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 732000, "handle": "tg_u051", "selected": ["Earth"]}
+{"kind": "answer_received", "offset_ms": 732020, "handle": "tg_u052", "selected": ["Earth"]}
+{"kind": "poll", "offset_ms": 880000, "bank": {"questions": [{"prompt": "How many seasons are there?", "type": "multiple_choice", "choices": ["4", "2", "6", "8"], "answer": ["4"]}, {"prompt": "How many legs does a cat have?", "type": "multiple_choice", "choices": ["4", "2", "6", "8"], "answer": ["4"]}]}}
+{"kind": "answer_received", "offset_ms": 881000, "handle": "tg_u001", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881000, "handle": "tg_u051", "selected": ["8"]}
+{"kind": "answer_received", "offset_ms": 881020, "handle": "tg_u002", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881020, "handle": "tg_u052", "selected": ["8"]}
+{"kind": "answer_received", "offset_ms": 881040, "handle": "tg_u003", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881040, "handle": "tg_u053", "selected": ["8"]}
+{"kind": "answer_received", "offset_ms": 881060, "handle": "tg_u004", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881060, "handle": "tg_u054", "selected": ["8"]}
+{"kind": "answer_received", "offset_ms": 881080, "handle": "tg_u005", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881080, "handle": "tg_u055", "selected": ["8"]}
+{"kind": "answer_received", "offset_ms": 881100, "handle": "tg_u006", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881100, "handle": "tg_u056", "selected": ["8"]}
+{"kind": "answer_received", "offset_ms": 881120, "handle": "tg_u007", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881120, "handle": "tg_u057", "selected": ["8"]}
+{"kind": "answer_received", "offset_ms": 881140, "handle": "tg_u008", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881140, "handle": "tg_u058", "selected": ["8"]}
+{"kind": "answer_received", "offset_ms": 881160, "handle": "tg_u009", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881160, "handle": "tg_u059", "selected": ["8"]}
+{"kind": "answer_received", "offset_ms": 881180, "handle": "tg_u010", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881200, "handle": "tg_u011", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881220, "handle": "tg_u012", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881240, "handle": "tg_u013", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881260, "handle": "tg_u014", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881280, "handle": "tg_u015", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881300, "handle": "tg_u016", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881320, "handle": "tg_u017", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881340, "handle": "tg_u018", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881360, "handle": "tg_u019", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881380, "handle": "tg_u020", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881400, "handle": "tg_u021", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881420, "handle": "tg_u022", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881440, "handle": "tg_u023", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881460, "handle": "tg_u024", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881480, "handle": "tg_u025", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881500, "handle": "tg_u026", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881520, "handle": "tg_u027", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881540, "handle": "tg_u028", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881560, "handle": "tg_u029", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881580, "handle": "tg_u030", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881600, "handle": "tg_u031", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881620, "handle": "tg_u032", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881640, "handle": "tg_u033", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881660, "handle": "tg_u034", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881680, "handle": "tg_u035", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881700, "handle": "tg_u036", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881720, "handle": "tg_u037", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881740, "handle": "tg_u038", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881760, "handle": "tg_u039", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881780, "handle": "tg_u040", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881800, "handle": "tg_u041", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881820, "handle": "tg_u042", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881840, "handle": "tg_u043", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881860, "handle": "tg_u044", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881880, "handle": "tg_u045", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881900, "handle": "tg_u046", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881920, "handle": "tg_u047", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881940, "handle": "tg_u048", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881960, "handle": "tg_u049", "selected": ["4"]}
+{"kind": "answer_received", "offset_ms": 881980, "handle": "tg_u050", "selected": ["4"]}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u001", "display_name": "User 001", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u002", "display_name": "User 002", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u003", "display_name": "User 003", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u004", "display_name": "User 004", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u005", "display_name": "User 005", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u006", "display_name": "User 006", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u007", "display_name": "User 007", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u008", "display_name": "User 008", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u009", "display_name": "User 009", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u010", "display_name": "User 010", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u011", "display_name": "User 011", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u012", "display_name": "User 012", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u013", "display_name": "User 013", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u014", "display_name": "User 014", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u015", "display_name": "User 015", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u016", "display_name": "User 016", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u017", "display_name": "User 017", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u018", "display_name": "User 018", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u019", "display_name": "User 019", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u020", "display_name": "User 020", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u021", "display_name": "User 021", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u022", "display_name": "User 022", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u023", "display_name": "User 023", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u024", "display_name": "User 024", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u025", "display_name": "User 025", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u026", "display_name": "User 026", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u027", "display_name": "User 027", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u028", "display_name": "User 028", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u029", "display_name": "User 029", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u030", "display_name": "User 030", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u031", "display_name": "User 031", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u032", "display_name": "User 032", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u033", "display_name": "User 033", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u034", "display_name": "User 034", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u035", "display_name": "User 035", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u036", "display_name": "User 036", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u037", "display_name": "User 037", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u038", "display_name": "User 038", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u039", "display_name": "User 039", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u040", "display_name": "User 040", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u041", "display_name": "User 041", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u042", "display_name": "User 042", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u043", "display_name": "User 043", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u044", "display_name": "User 044", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u045", "display_name": "User 045", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u046", "display_name": "User 046", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u047", "display_name": "User 047", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u048", "display_name": "User 048", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u049", "display_name": "User 049", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u050", "display_name": "User 050", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u051", "display_name": "User 051", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u052", "display_name": "User 052", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u053", "display_name": "User 053", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u054", "display_name": "User 054", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u055", "display_name": "User 055", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u056", "display_name": "User 056", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u057", "display_name": "User 057", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u058", "display_name": "User 058", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u059", "display_name": "User 059", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u060", "display_name": "User 060", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u061", "display_name": "User 061", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u062", "display_name": "User 062", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u063", "display_name": "User 063", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u064", "display_name": "User 064", "extra": {"reason": "left"}}
+{"kind": "participant_left", "offset_ms": 890000, "platform_id": "w_u065", "display_name": "User 065", "extra": {"reason": "left"}}
+{"kind": "meeting_ended", "offset_ms": 900000}

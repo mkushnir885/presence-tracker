@@ -1,0 +1,10 @@
+{
+  "session_started": 1,
+  "session_ended": 1,
+  "participant_joined": 75,
+  "participant_left": 75,
+  "challenge_issued": 345,
+  "challenge_answered_correct": 263,
+  "challenge_answered_incorrect": 50,
+  "challenge_unanswered": 32
+}
