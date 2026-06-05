@@ -97,7 +97,7 @@ func runScenario(t *testing.T, dir string) {
 	if err != nil {
 		t.Fatalf("OpenBolt: %v", err)
 	}
-	defer registry.Close()
+	defer registry.Close() //nolint:errcheck // test cleanup
 
 	tmpl, err := eventstore.ParseDirTemplate(cfg.Get().MeetingDirFormat)
 	if err != nil {
@@ -216,7 +216,7 @@ func eventCounts(t *testing.T, meetingDir string) map[string]int {
 	if err != nil {
 		t.Fatalf("open events.parquet: %v", err)
 	}
-	defer pf.Close()
+	defer pf.Close() //nolint:errcheck // test cleanup
 
 	reader, err := pqarrow.NewFileReader(pf, pqarrow.ArrowReadProperties{}, memory.NewGoAllocator())
 	if err != nil {
@@ -231,7 +231,10 @@ func eventCounts(t *testing.T, meetingDir string) map[string]int {
 	counts := make(map[string]int)
 	// event_type is column 2 per the canonical schema.
 	for _, chunk := range tbl.Column(2).Data().Chunks() {
-		arr := chunk.(*array.String)
+		arr, ok := chunk.(*array.String)
+		if !ok {
+			t.Fatalf("unexpected chunk type %T", chunk)
+		}
 		for i := range arr.Len() {
 			counts[arr.Value(i)]++
 		}
