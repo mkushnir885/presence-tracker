@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import datetime
 from typing import cast
 
 import polars as pl
+
+
+def _naive_local(dt: datetime.datetime) -> datetime.datetime:
+    """Strip timezone from a datetime after converting to local wall time."""
+    if dt.tzinfo is not None:
+        dt = dt.astimezone().replace(tzinfo=None)
+    return dt
 
 
 def plot_concurrent_participants(
@@ -20,6 +28,7 @@ def plot_concurrent_participants(
         plot_concurrent_participants(presence, meetings)
     """
     import matplotlib.pyplot as plt
+    import matplotlib.ticker as ticker
 
     bands = cast(
         pl.DataFrame,
@@ -30,8 +39,15 @@ def plot_concurrent_participants(
     )
     schedule = cast(
         pl.DataFrame,
-        meetings.select("meeting_id", "started_at", "ended_at").collect(),
+        meetings.select("meeting_id", "started_at", "ended_at")
+        .sort("started_at")
+        .collect(),
     )
+
+    def _fmt_offset(seconds: float, _: object) -> str:
+        m, s = divmod(int(seconds), 60)
+        h, m = divmod(m, 60)
+        return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
     for row in schedule.iter_rows(named=True):
         m = bands.filter(pl.col("meeting_id") == row["meeting_id"])
@@ -52,16 +68,32 @@ def plot_concurrent_participants(
             .with_columns(pl.col("d").cum_sum().alias("count"))
         )
 
-        times = [row["started_at"], *deltas["t"].to_list(), row["ended_at"]]
+        started_at = _naive_local(row["started_at"])
+        ended_at = _naive_local(row["ended_at"])
+        abs_times = [
+            started_at,
+            *(_naive_local(t) for t in deltas["t"].to_list()),
+            ended_at,
+        ]
+        rel_seconds = [(t - started_at).total_seconds() for t in abs_times]
+        duration = (ended_at - started_at).total_seconds()
         counts = [0, *deltas["count"].to_list(), 0]
 
         fig, ax = plt.subplots(figsize=(10, 3))
-        ax.step(times, counts, where="post")
-        ax.set_title(f"Concurrent participants — {row['meeting_id']}")
+        ax.step(rel_seconds, counts, where="post")
+        ax.set_xlim(0, duration)
+        ticks = [t for t in ax.get_xticks() if 0 <= t < duration]
+        ticks.append(duration)
+        ax.set_xticks(ticks)
+        ax.xaxis.set_major_formatter(ticker.FuncFormatter(_fmt_offset))
+        ax.set_title(
+            f"Concurrent participants — {started_at.strftime('%Y-%m-%d %H:%M')}"
+        )
         ax.set_xlabel("time")
         ax.set_ylabel("participants")
         ax.set_ylim(bottom=0)
-        fig.autofmt_xdate()
+        ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+        fig.tight_layout()
         plt.show()
 
 
@@ -116,7 +148,10 @@ def plot_presence_heatmap(
         meetings.select("meeting_id", "started_at").sort("started_at").collect(),
     )
     meeting_ids = schedule["meeting_id"].to_list()
-    labels = [t.strftime("%Y-%m-%d %H:%M") for t in schedule["started_at"].to_list()]
+    labels = [
+        _naive_local(t).strftime("%Y-%m-%d %H:%M")
+        for t in schedule["started_at"].to_list()
+    ]
 
     rows = presence.select("display_name", "meeting_id", "ratio")
     if display_name is not None:
@@ -147,6 +182,6 @@ def plot_presence_heatmap(
     for i in range(len(names)):
         for j in range(len(meeting_ids)):
             ax.text(j, i, f"{data[i][j]:.2f}", ha="center", va="center", fontsize=8)
-    fig.colorbar(im, ax=ax, label="presence ratio")
+
     fig.tight_layout()
     plt.show()
