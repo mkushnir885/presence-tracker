@@ -362,14 +362,17 @@ func (s *Server) handleStatusStream(w http.ResponseWriter, r *http.Request) {
 		return "live"
 	}
 
-	// Seed each region with the initial render so the first tick only emits
-	// real changes (the page already holds this HTML).
+	// Seed each region and push the initial body immediately: if the
+	// coordinator sets meetingStartedAt between the page render ("waiting")
+	// and this seed ("live"), the phase transition is otherwise never sent.
 	var lastStarted, lastRoster, lastLog, lastPhase string
 	if data, ok := s.statusData(); ok {
 		lastPhase = phaseOf(data)
 		lastStarted = render(views.StatusStartedRow(data, locale))
 		lastRoster = render(views.StatusRosters(data, locale))
 		lastLog = render(views.StatusLog(data, locale))
+		writeSSEEvent(w, "body", render(views.StatusBodyInner(data, locale)))
+		flusher.Flush()
 	}
 
 	push := func() bool {

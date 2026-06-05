@@ -11,7 +11,7 @@
   "dashboard.connect.provider": "Провайдер",
   "dashboard.connect.meeting_id.bbb.label": "Посилання на кімнату Greenlight або ID зустрічі BBB",
   "dashboard.connect.meeting_id.bbb.placeholder": "https://bbb.example.com/rooms/abc-def-ghi/join",
-  "dashboard.connect.meeting_id.bbb.hint": "Посилання на кімнату Greenlight (/rooms/<id>[/join] або /b/<id>), «голий» ID зустрічі BBB або URL входу з параметром ?meetingID=…",
+  "dashboard.connect.meeting_id.bbb.hint": "Посилання на кімнату Greenlight (/rooms/<id>[/join] або /b/<id>), внутрішній ID зустрічі BBB або URL входу з параметром ?meetingID=…",
   "dashboard.connect.meeting_id.meet.label": "Код зустрічі або URL",
   "dashboard.connect.meeting_id.meet.placeholder": "abc-defg-hij або https://meet.google.com/abc-defg-hij",
   "dashboard.connect.meeting_id.meet.hint": "Код Meet, ресурс spaces/<id> або посилання meet.google.com/<code>.",
