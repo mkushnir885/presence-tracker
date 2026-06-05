@@ -95,22 +95,23 @@
 	}
 
 	function handleResult(result) {
-		if (!result || result.status !== "generated" || result.auto_submit !== false) return;
-		const questions = result.questions || 0;
-		notifyDesktop(questions);
-		document.body.dispatchEvent(
-			new CustomEvent("ptrack:generated", { detail: { questions } }),
-		);
+		if (!result) return;
+		if (result.status === "generated" && result.auto_submit === false) {
+			const questions = result.questions || 0;
+			notifyDesktop(questions);
+			document.body.dispatchEvent(
+				new CustomEvent("ptrack:generated", { detail: { questions } }),
+			);
+		} else if (result.status === "failed") {
+			notifyDesktopFail();
+		}
 	}
 
-	function notifyDesktop(questions) {
+	function fireNotification(title, body, tag) {
 		if (typeof Notification === "undefined") return;
-		const title = stateEl.dataset.notifyTitle || "ptrack: questions ready";
-		const body = (stateEl.dataset.notifyBody || "Generated %d question(s)")
-			.replace("%d", questions);
 		const fire = () => {
 			try {
-				new Notification(title, { body, tag: "ptrack-generated", renotify: true });
+				new Notification(title, { body, tag, renotify: true });
 			} catch (_) {
 				/* some browsers throw outside a secure context */
 			}
@@ -119,6 +120,19 @@
 		else if (Notification.permission !== "denied") {
 			Notification.requestPermission().then((p) => p === "granted" && fire());
 		}
+	}
+
+	function notifyDesktop(questions) {
+		const title = stateEl.dataset.notifyTitle || "ptrack: questions ready";
+		const body = (stateEl.dataset.notifyBody || "Generated %d question(s)")
+			.replace("%d", questions);
+		fireNotification(title, body, "ptrack-generated");
+	}
+
+	function notifyDesktopFail() {
+		const title = stateEl.dataset.notifyFailTitle || "ptrack: generation failed";
+		const body = stateEl.dataset.notifyFailBody || "Auto-generation failed";
+		fireNotification(title, body, "ptrack-failed");
 	}
 
 	let micBtn = null;

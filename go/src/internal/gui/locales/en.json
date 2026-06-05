@@ -265,6 +265,8 @@
   "status.audio.status_idle": "Microphone off",
   "status.audio.notify_title": "ptrack: questions ready",
   "status.audio.notify_body": "Generated %d question(s) — review and dispatch",
+  "status.audio.notify_fail_title": "ptrack: generation failed",
+  "status.audio.notify_fail_body": "Auto-generation failed",
   "nav.shutdown": "Shut down",
   "nav.shutdown_confirm": "Shut down ptrack? This stops the daemon process.",
   "nav.stopped.title_suffix": " has stopped",

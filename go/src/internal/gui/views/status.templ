@@ -43,6 +43,8 @@ templ Status(data StatusData, locale Locale) {
 			data-poll-interval={ strconv.Itoa(data.AutoGenIntervalS) }
 			data-notify-title={ locale.T("status.audio.notify_title") }
 			data-notify-body={ locale.T("status.audio.notify_body") }
+			data-notify-fail-title={ locale.T("status.audio.notify_fail_title") }
+			data-notify-fail-body={ locale.T("status.audio.notify_fail_body") }
 			hidden
 		></div>
 		<script src="/assets/challenger.js" defer></script>

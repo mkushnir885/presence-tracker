@@ -265,6 +265,8 @@
   "status.audio.status_idle": "Мікрофон вимкнено",
   "status.audio.notify_title": "ptrack: запитання готові",
   "status.audio.notify_body": "Згенеровано %d запитань — перевірте та надішліть",
+  "status.audio.notify_fail_title": "ptrack: помилка генерації",
+  "status.audio.notify_fail_body": "Автогенерацію не вдалося виконати",
   "nav.shutdown": "Завершити роботу",
   "nav.shutdown_confirm": "Завершити роботу ptrack? Це зупинить процес.",
   "nav.stopped.title_suffix": " зупинено",
