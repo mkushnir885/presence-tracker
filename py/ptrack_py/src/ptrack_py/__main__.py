@@ -8,7 +8,6 @@ from pathlib import Path
 
 import polars as pl
 import typer
-
 from ptrack_analytics.frames import collect_df
 from ptrack_analytics.load import (
     EVENTS_FILE,

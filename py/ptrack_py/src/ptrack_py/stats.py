@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 import polars as pl
-
 from ptrack_analytics.frames import (
     challenge_results,
     collect_df,

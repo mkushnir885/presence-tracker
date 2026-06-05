@@ -2,14 +2,14 @@
 
 Quick start::
 
-    from ptrack_analytics import load, meetings, presence, challenges, questions
+    import ptrack_analytics as pt
     import polars as pl
 
-    load("~/Documents/ptrack/meetings/spring-2026-*")
+    pt.load("~/Documents/ptrack/meetings/spring-2026-*")
 
     # Every frame is a polars LazyFrame — call .collect() when you want
     # a concrete DataFrame back.
-    presence.filter(pl.col("ratio") > 0.8).collect()
+    pt.presence.filter(pl.col("ratio") > 0.8).collect()
 
 After calling :func:`load`, the four module-level frames are populated:
 
@@ -21,6 +21,13 @@ After calling :func:`load`, the four module-level frames are populated:
   ``challenges``).
 
 Use ``.schema`` on any frame to see its columns.
+
+If you prefer individual names, import them *after* calling :func:`load`::
+
+    from ptrack_analytics import load
+    load("~/Documents/ptrack/meetings/spring-2026-*")
+    from ptrack_analytics import meetings, presence
+    meetings.sort("started_at").collect()
 """
 
 from __future__ import annotations
@@ -31,8 +38,11 @@ import types
 import polars as pl
 
 from . import frames
-from .load import load_events, load_questions, resolve_meetings
-from .views import challenges_view, meetings_view, presence_view
+from .analysis import (
+    challenge_accuracy,
+    plot_concurrent_participants,
+    plot_presence_heatmap,
+)
 
 
 class _Module(types.ModuleType):
@@ -60,10 +70,13 @@ __all__ = [
     "presence",
     "challenges",
     "questions",
+    "plot_concurrent_participants",
+    "challenge_accuracy",
+    "plot_presence_heatmap",
 ]
 
-meetings: pl.LazyFrame | None = None
-"""One row per meeting. ``None`` until :func:`load` is called.
+meetings: pl.LazyFrame
+"""One row per meeting. Available after :func:`load` is called.
 
 Columns:
 
@@ -78,8 +91,8 @@ Example::
     meetings.sort("started_at").collect()
 """
 
-presence: pl.LazyFrame | None = None
-"""One row per (participant, meeting). ``None`` until :func:`load` is called.
+presence: pl.LazyFrame
+"""One row per (participant, meeting). Available after :func:`load` is called.
 
 Columns:
 
@@ -102,8 +115,8 @@ Example::
     presence.filter(pl.col("ratio") > 0.8).collect()
 """
 
-challenges: pl.LazyFrame | None = None
-"""One row per issued or skipped challenge. ``None`` until :func:`load`
+challenges: pl.LazyFrame
+"""One row per issued or skipped challenge. Available after :func:`load`
 is called.
 
 Columns:
@@ -138,9 +151,9 @@ Example::
     )
 """
 
-questions: pl.LazyFrame | None = None
+questions: pl.LazyFrame
 """One row per unique ``question_id`` seen across the loaded meetings.
-``None`` until :func:`load` is called.
+Available after :func:`load` is called.
 
 Columns:
 
@@ -176,6 +189,9 @@ def load(*patterns: str) -> None:
         load("meetings/a", "meetings/b/*")    # mix paths and globs
     """
     global meetings, presence, challenges, questions
+
+    from .load import load_events, load_questions, resolve_meetings
+    from .views import challenges_view, meetings_view, presence_view
 
     dirs = resolve_meetings(*patterns)
     events = load_events(dirs)

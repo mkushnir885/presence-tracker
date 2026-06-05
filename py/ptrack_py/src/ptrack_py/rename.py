@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import polars as pl
-
 from ptrack_analytics.schema import EVENT_SCHEMA
 
 

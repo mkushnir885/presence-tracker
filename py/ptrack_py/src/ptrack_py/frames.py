@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import polars as pl
-
 from ptrack_analytics.frames import challenge_results, presence_bands
 
 
