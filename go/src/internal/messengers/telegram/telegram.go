@@ -634,9 +634,9 @@ func buildMCQMessage(chatID int64, c messengers.ChallengePrompt, locale i18n.Loc
 func renderMCQKeyboard(choices []string, selected []bool, locale i18n.Locale) tgbotapi.InlineKeyboardMarkup {
 	rows := make([][]tgbotapi.InlineKeyboardButton, 0, len(choices)+1)
 	for i, choice := range choices {
-		prefix := "☐ "
+		prefix := "⬜ "
 		if selected[i] {
-			prefix = "☑ "
+			prefix = "✅ "
 		}
 		rows = append(rows, []tgbotapi.InlineKeyboardButton{
 			tgbotapi.NewInlineKeyboardButtonData(prefix+choice, "mcq:t:"+strconv.Itoa(i)),
