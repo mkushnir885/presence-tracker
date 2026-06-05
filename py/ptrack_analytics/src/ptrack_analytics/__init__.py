@@ -46,11 +46,6 @@ from .analysis import (
 
 
 class _Module(types.ModuleType):
-    """Module subclass so ``ptrack_analytics.TZ = "..."`` writes through
-    to :data:`frames.TZ`, the override consulted before ``tzlocal``
-    autodetection (and ultimately ``"UTC"``).
-    """
-
     @property
     def TZ(self) -> str | None:
         return frames.TZ
@@ -74,6 +69,18 @@ __all__ = [
     "challenge_accuracy",
     "plot_presence_heatmap",
 ]
+
+TZ: str | None
+"""Local timezone override consulted before ``tzlocal`` autodetection.
+Set to an IANA name (e.g. ``"Europe/Kyiv"``) to pin all frame timestamps
+to a specific zone regardless of the machine's locale.
+
+Example::
+
+    import ptrack_analytics as pt
+    pt.TZ = "Europe/Kyiv"
+    pt.load("meetings/spring-2026-*")
+"""
 
 meetings: pl.LazyFrame
 """One row per meeting. Available after :func:`load` is called.
