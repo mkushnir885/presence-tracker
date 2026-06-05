@@ -1,7 +1,7 @@
 [project]
 name = "ptrack-analytics"
 version = "0.1.0"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "polars[pyarrow]>=1.0",
     "tzlocal>=5.3.1",
