@@ -348,7 +348,7 @@ func (c *Coordinator) markUnregistered(evt providers.Event) {
 	c.mu.Lock()
 	c.unregistered[evt.PlatformID] = evt
 	c.mu.Unlock()
-	slog.Info("session: unregistered participant joined (live-only)", "name", evt.DisplayName)
+	slog.Debug("session: unregistered participant joined (live-only)", "name", evt.DisplayName)
 }
 
 func (c *Coordinator) onLeave(ctx context.Context, evt providers.Event) {
@@ -510,7 +510,7 @@ func (c *Coordinator) onJoinConfirmation(_ context.Context, evt messengers.Event
 		DisplayName: canonicalName,
 		Metadata:    pending.metadata,
 	})
-	slog.Info("session: participant verified", "name", canonicalName)
+	slog.Debug("session: participant verified", "name", canonicalName)
 }
 
 func (c *Coordinator) onRegistration(ctx context.Context, evt messengers.Event) {
