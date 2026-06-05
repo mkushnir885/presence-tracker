@@ -1,6 +1,9 @@
 package views
 
-import "time"
+import (
+	"strconv"
+	"time"
+)
 
 func initialSortClass(field string) string {
 	if field == "created" {
@@ -98,7 +101,7 @@ templ Meetings(data MeetingsData, locale Locale) {
 					</thead>
 					<tbody>
 						for _, m := range data.Meetings {
-							<tr data-name={ m.ID }>
+							<tr data-name={ m.ID } data-created={ strconv.FormatInt(m.CreatedAt.Unix(), 10) }>
 								<td><input type="checkbox" name="dir" value={ m.ID } class="meetings-select" aria-label={ m.ID }/></td>
 								<td><a href={ templ.SafeURL("/stats?dir=" + m.ID) }>{ m.ID }</a></td>
 								<td class="text-muted">
