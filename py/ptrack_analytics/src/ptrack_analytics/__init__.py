@@ -75,6 +75,10 @@ TZ: str | None
 Set to an IANA name (e.g. ``"Europe/Kyiv"``) to pin all frame timestamps
 to a specific zone regardless of the machine's locale.
 
+Must be set **before** calling :func:`load` — the timezone is baked into
+the LazyFrame plan at load time. To change it, set ``TZ`` and call
+:func:`load` again.
+
 Example::
 
     import ptrack_analytics as pt

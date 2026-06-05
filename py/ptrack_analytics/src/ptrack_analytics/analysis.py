@@ -7,10 +7,9 @@ import polars as pl
 
 
 def _naive_local(dt: datetime.datetime) -> datetime.datetime:
-    """Strip timezone from a datetime after converting to local wall time."""
-    if dt.tzinfo is not None:
-        dt = dt.astimezone().replace(tzinfo=None)
-    return dt
+    # Polars datetimes are already in the TZ the frame was built with; just
+    # strip tzinfo so matplotlib receives naive datetimes.
+    return dt.replace(tzinfo=None)
 
 
 def plot_concurrent_participants(
