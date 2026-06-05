@@ -20,7 +20,7 @@
 	let stream = null;
 	let recorder = null;
 	let segmentTimer = null;
-	let muted = false;
+	let muted = true;
 	let inFlight = false;
 	let currentBlobs = [];
 
