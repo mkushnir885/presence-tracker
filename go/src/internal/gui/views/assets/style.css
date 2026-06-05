@@ -991,7 +991,7 @@ details.menu .menu-list button.active svg { color: var(--accent); }
     padding: 0 0.25rem;
 }
 .roster-title {
-    font-size: 0.95rem;
+    font-size: 0.75rem;
     font-weight: 700;
     letter-spacing: 0.02em;
     white-space: nowrap;
@@ -1001,7 +1001,7 @@ details.menu .menu-list button.active svg { color: var(--accent); }
 }
 .roster-tracked .roster-title { color: var(--success); }
 .roster-untracked .roster-title { color: var(--danger); }
-.roster-count { font-weight: 700; letter-spacing: 0; text-transform: none; }
+.roster-count { font-size: 0.95rem; font-weight: 700; letter-spacing: 0; text-transform: none; }
 .roster-filter {
     flex: 1;
     min-width: 0;
