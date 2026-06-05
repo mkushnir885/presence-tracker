@@ -3,16 +3,15 @@ default:
 
 build:
   mkdir -p bin
-  uv run pyinstaller --onefile --name ptrack_py \
-    --paths src --distpath bin src/ptrack_py/__main__.py
+  uv run pyinstaller ptrack_py/ptrack_py.spec --distpath bin
 
 test:
   uv run pytest
 
 lint:
-  uv run ruff check src
-  uv run ty check src
+  uv run ruff check ptrack_analytics/src ptrack_py/src
+  uv run ty check ptrack_analytics/src ptrack_py/src
 
 fmt:
-  uv run ruff format src
-  uv run ruff check --fix-only src
+  uv run ruff format ptrack_analytics/src ptrack_py/src
+  uv run ruff check --fix-only ptrack_analytics/src ptrack_py/src
