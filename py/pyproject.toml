@@ -16,7 +16,3 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "ANN"]
-
-[tool.mypy]
-strict = true
-python_version = "3.13"
