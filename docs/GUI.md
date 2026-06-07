@@ -29,16 +29,16 @@ Rendered server-side with templ; interactive bits use htmx.
 | `DELETE /session`                                    | Stop the active tracking session                                               |
 | `GET /status`                                        | Meeting status dashboard (active meeting only)                                 |
 | `GET /status/unregistered`                           | htmx fragment: list of unregistered participants                               |
-| `GET /stats?file=<a>&file=<b>…`                      | Unified stats view. One `file` value → per-meeting timeband list; more than one → paged cross-meeting container (one participant per page, search bar). `file` values are basenames in `meetings_dir`. |
-| `GET /report?file=<a>[&file=<b>…]`                | Download the CSV equivalent of the same stats request (single-file or cross-meeting, decided by the number of `file` values). |
-| `PATCH /participants/{display_name}/display-name?file=<a>[&file=<b>…]&new=<name>` | Rewrite `display_name` from the URL path to `new` in every `file` listed in the query. `{display_name}` is URL-encoded. |
+| `GET /stats?dir=<a>&dir=<b>…`                        | Unified stats view. One `dir` value → per-meeting timeband list; more than one → paged cross-meeting container (one participant per page, search bar). `dir` values are per-meeting directory names in `meetings_dir`. |
+| `GET /report?dir=<a>[&dir=<b>…]`                     | Download the CSV equivalent of the same stats request (single-meeting or cross-meeting, decided by the number of `dir` values). |
+| `PATCH /participants/{display_name}/display-name?dir=<a>[&dir=<b>…]&new=<name>` | Rewrite `display_name` from the URL path to `new` in every meeting `dir` listed in the query. `{display_name}` is URL-encoded. |
 | `GET /registry`                                      | Participant registry page — list all registered display-name entries           |
 | `DELETE /registry/{display_name}`                    | Remove one registry entry (URL-encoded display name)                           |
 | `DELETE /registry`                                   | Clear all registry entries (pairing data only; Parquet files untouched)        |
 | `POST /poll`                                         | Trigger a poll on the active session (body: `{type, bank_path}`); 409 if none  |
 | `PATCH /poll/config`                                 | Update auto-generation poll config mid-meeting                                 |
 | `GET /questions/{id}`                                | Return question text for a marker hover tooltip (reads from `.jsonl`)          |
-| `POST /audio/stream`                                 | WebSocket upgrade; browser pushes PCM/Opus frames captured via `getUserMedia`  |
+| `POST /audio/segment`                                | Multipart upload of one Opus/WebM segment captured via `getUserMedia` + `MediaRecorder` (no WebSocket; one HTTP POST per batched segment) |
 | `POST /system/shutdown`                              | Stop the active session, drain the in-process challenger, close all listeners  |
 | `GET /config`                                        | Config editor page                                                             |
 | `POST /config`                                       | Save config (validated before write)                                           |
@@ -163,10 +163,11 @@ enabled. Changes apply via `PATCH /poll/config`.
 When `challenges.auto_generation.enabled` is true, the status dashboard
 shows an **Audio** card with the microphone permission state and a
 mute/resume toggle. Audio is captured by the browser through
-`navigator.mediaDevices.getUserMedia` and streamed to the daemon over
-a WebSocket at `POST /audio/stream`; the in-process challenger batches
-the frames into short segments and POSTs each one to the configured
-OpenAI-compatible ASR backend.
+`navigator.mediaDevices.getUserMedia` and batched into short Opus/WebM
+segments with `MediaRecorder`. The browser uploads each segment to the
+daemon as a regular `POST /audio/segment` (no WebSocket — one HTTP
+request per segment); the in-process challenger consumes the segment
+and POSTs it to the configured OpenAI-compatible ASR backend.
 
 ```
 ┌──────────────────────────────┐
@@ -181,9 +182,8 @@ OpenAI-compatible ASR backend.
 - **Change device** opens the browser's native device picker via
   `enumerateDevices()`. The chosen device is remembered in
   `localStorage`.
-- **Mute** pauses the WebSocket stream; the challenger emits a silence
-  marker on resume so the ASR backend does not mis-segment around the
-  gap.
+- **Mute** stops the `MediaRecorder` and suppresses uploads; no
+  segments hit the daemon while muted.
 - The card surfaces permission-denied and device-error states with a
   short remediation hint.
 
@@ -213,29 +213,27 @@ the only graceful exit path from the GUI.
 ## Stats view
 
 `GET /stats` is the single post-meeting analysis page. It accepts one
-or more `file` query values, each a basename in `meetings_dir`:
+or more `dir` query values, each a per-meeting directory name in
+`meetings_dir`:
 
-- **One `file` value** — per-meeting mode: one row per participant in
-  that file.
-- **More than one `file` value** — cross-meeting mode: one participant
+- **One `dir` value** — per-meeting mode: one row per participant in
+  that meeting.
+- **More than one `dir` value** — cross-meeting mode: one participant
   shown at a time, with prev/next paging through all participants seen
-  across the requested files, plus a search bar to jump to a specific
-  participant by display name.
+  across the requested meetings, plus a search bar to jump to a
+  specific participant by display name.
 
 ### Data source
 
-Stats are computed by `ptrack_py stats <a.parquet> [<b.parquet> …]`,
+Stats are computed by `ptrack_py stats <meeting-dir> [<meeting-dir> …]`,
 which returns a JSON document covering everything the templ template
 needs: meeting boundaries, per-participant presence ratio, segments,
 challenge counts, and challenge markers (with `question_id` for tooltip
-lookup). Go shells out, caches the JSON on disk next to the inputs,
-and serves it from cache on subsequent requests for the same file set.
-
-Cache invalidation rule: if any of the listed input files' mtime is
-newer than the cached JSON's mtime, the JSON is regenerated. The
-display-name PATCH (below) rewrites the relevant Parquet files in
-place, which naturally bumps their mtime and triggers regeneration on
-the next view.
+lookup). Go shells out once per `GET /stats/rows` request and renders
+templ directly from the JSON; no on-disk cache. The Polars pipeline is
+cheap enough that re-running it per request is simpler than
+maintaining cache invalidation, and the stats view is not requested
+often.
 
 The same JSON powers both modes — the cross-meeting JSON simply
 includes the per-meeting block for every (participant, meeting) cell.
@@ -254,14 +252,14 @@ Meeting — 2026-05-01 23:44 – 2026-05-02 00:53    [↓ Export CSV]
 
 Title shows meeting start and end timestamps (ISO local time, no
 seconds). The "↓ Export CSV" button downloads
-`GET /report?file=<a.parquet>`.
+`GET /report?dir=<meeting-dir>`.
 
 Each participant row contains:
 
 | Element             | Details                                                                                                                 |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| **✏ Rename**        | Opens an inline edit field; saves via `PATCH /participants/{display_name}/display-name?file=<a.parquet>&new=<new-name>` |
-| **Display name**    | The canonical registered name as recorded in this Parquet file                                                          |
+| **✏ Rename**        | Opens an inline edit field; saves via `PATCH /participants/{display_name}/display-name?dir=<meeting-dir>&new=<new-name>` |
+| **Display name**    | The canonical registered name as recorded in this meeting's Parquet                                                     |
 | **Presence ratio**  | `XX% present`                                                                                                           |
 | **Challenge stats** | `N/M ✓` (correctly answered / total issued)                                                                             |
 | **Presence band**   | Inline SVG timeline bar; click opens the presence legend popup                                                          |
@@ -289,15 +287,15 @@ The cross-meeting page is a container around a single participant
   navigates to the matching entry on selection. No new HTTP request:
   search runs over the JSON already in memory.
 - **↓ Export CSV (all)** — downloads
-  `GET /report?file=<a>&file=<b>…`, the full cross-meeting CSV for
-  the same file set.
+  `GET /report?dir=<a>&dir=<b>…`, the full cross-meeting CSV for
+  the same meeting set.
 
 Each participant card contains:
 
-- **✏ Rename (all files)** — opens an inline edit field; saves via
-  `PATCH /participants/{old}/display-name?file=<a>&file=<b>…&new=<new>`,
-  which rewrites every file in the query. Files outside the current
-  request — including future meetings — are never touched.
+- **✏ Rename (all meetings)** — opens an inline edit field; saves via
+  `PATCH /participants/{old}/display-name?dir=<a>&dir=<b>…&new=<new>`,
+  which rewrites every meeting in the query. Meetings outside the
+  current request — including future ones — are never touched.
 - **↓ Export CSV** — currently a placeholder; the underlying per-
   participant CSV slice is filtered client-side from the full export.
 - **Meeting rows** — sorted chronologically. For meetings where the
@@ -305,16 +303,16 @@ Each participant card contains:
   Presence bands are scaled proportionally to meeting duration so
   longer meetings get longer bands.
 
-### Per-file rename semantics
+### Per-meeting rename semantics
 
-The rename PATCH writes only to the Parquet files explicitly listed in
-its `file` query parameters: it rewrites the `display_name` column for
-every event that currently shows the old name, replacing it with the
-new name. Other files (and the participant registry) are never
-touched.
+The rename PATCH writes only to the meeting directories explicitly
+listed in its `dir` query parameters: it rewrites the `display_name`
+column in each meeting's `events.parquet` for every event that
+currently shows the old name, replacing it with the new name. Other
+meetings (and the participant registry) are never touched.
 
 Because the session coordinator always writes the canonical registered
-name, one Parquet file normally contains exactly one variant per
+name, one meeting's Parquet normally contains exactly one variant per
 participant. Renames are useful when a teacher wants to change how a
 student appears in stats after the fact, or to merge two histories
 that should have been one. Renames never create a persistent name
@@ -399,11 +397,11 @@ dismisses the popup.
 ## CSV reports
 
 CSV generation is delegated to `ptrack_py`. Go obtains the CSV by
-calling `ptrack_py report <file> [<file> …]` and streams the stdout
-result to the response. With a single matched Parquet the report is
-per-meeting; with more, `ptrack_py` switches to the cross-meeting
-aggregate. The stats view's `↓ Export CSV` buttons hit
-`GET /report?file=…` (one or more `file` values).
+calling `ptrack_py report <meeting-dir> [<meeting-dir> …]` and streams
+the stdout result to the response. With a single matched directory the
+report is per-meeting; with more, `ptrack_py` switches to the
+cross-meeting aggregate. The stats view's `↓ Export CSV` buttons hit
+`GET /report?dir=…` (one or more `dir` values).
 
 The stats JSON returned by `ptrack_py stats` and the CSV returned by
 the report/aggregate subcommands are computed from the same Polars
@@ -440,8 +438,8 @@ Rows are sorted by `display_name` (case-insensitive) then by `meeting`
 CLI equivalents:
 
 ```
-ptrack_py report meeting.parquet > report.csv
-ptrack_py report 'meetings/*.parquet' > semester.csv
+ptrack_py report meetings/<meeting-dir> > report.csv
+ptrack_py report 'meetings/*' > semester.csv
 ```
 
 ## Registry page

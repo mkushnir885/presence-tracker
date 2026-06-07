@@ -5,13 +5,16 @@ written by `go/src/internal/eventstore/` conforms to this schema. The Go Arrow
 schema in `go/src/internal/eventstore/schema.go` and the Polars schema in
 `py/src/ptrack_analytics/schema.py` must match this document exactly.
 
-All meeting events live in a single Parquet file under `meetings_dir`,
-named after the meeting's start (and, after `session_ended`, end)
-timestamp. Question content is stored separately as a JSONL file in
-`questions_dir` whose basename mirrors the Parquet file's basename
-(so `meetings/<start>-<end>.parquet` pairs with
-`questions/<start>-<end>.jsonl`). The Parquet schema below covers all
-event types; question text is never in Parquet.
+All meeting events live in a single `events.parquet` inside the
+meeting's directory under `meetings_dir`. The directory name is
+rendered from a configurable template (typically encoding the
+meeting's start and end timestamps), and the directory itself is the
+unit of identity — Go writes events to it, Python reads from it. If
+any poll ran during the meeting, the same directory also holds
+`questions.jsonl`, which stores the full question content alongside
+the same `question_id` UUIDs that the Parquet rows reference. The
+Parquet schema below covers all event types; question text is never
+in Parquet.
 
 `display_name` is the participant identity end to end. Every
 per-participant event records the canonical registered name (the value
@@ -30,7 +33,7 @@ arrives.
 | `event_type`   | `string`             | no       | Event kind. See "Event types" below.                                                                 |
 | `display_name` | `string`             | yes      | Canonical registered name; null for meeting-scoped events.                                           |
 | `challenge_id` | `string`             | yes      | Join key threading the lifecycle of one participant's challenge; null for non-challenge events.      |
-| `question_id`  | `string` (UUIDv4)    | yes      | References a record in the meeting's paired JSONL file (same basename as the Parquet); set on `challenge_issued`. |
+| `question_id`  | `string` (UUIDv4)    | yes      | References a record in the meeting's `questions.jsonl` (sibling file in the same directory); set on `challenge_issued`. |
 | `metadata`     | `map<string,string>` | yes      | Free-form key-value bag for event-type-specific fields.                                              |
 
 The narrow schema (6 real columns + metadata map) makes multi-meeting
@@ -155,10 +158,10 @@ analytics surface unknown values verbatim. Skipped events are excluded
 from the "issued" tally (correct + incorrect + unanswered) but still
 appear as markers on the per-participant timeband.
 
-`question_id` is a UUIDv4 referencing a record in the JSONL file under
-`questions_dir` whose basename matches the meeting's Parquet basename.
-To retrieve the full question text and metadata, load that file and
-look up by `question_id`.
+`question_id` is a UUIDv4 referencing a record in `questions.jsonl`
+sitting in the same meeting directory as `events.parquet`. To retrieve
+the full question text and metadata, load that file and look up by
+`question_id`.
 The `ptrack_analytics` library does this automatically, exposing a
 `questions` lazy frame that can be joined with `challenges`.
 

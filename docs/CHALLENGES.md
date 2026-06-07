@@ -121,30 +121,25 @@ Error codes used by the poll endpoint:
 | 422  | YAML is invalid (response body lists errors with JSON pointers) |
 | 503  | Messenger is currently unavailable                            |
 
-## Review directory
+## Review file
 
-The review directory is only used when
-`challenges.auto_generation.auto_submit = false`. It holds pending
-auto-generated YAMLs that the teacher will inspect and dispatch
+The review file is only used when
+`challenges.auto_generation.auto_submit = false`. It holds the latest
+pending auto-generated YAML that the teacher will inspect and dispatch
 manually.
 
-- **Configured by** `challenges.auto_generation.review_dir`. Default:
-  `~/Documents/ptrack/pending-banks/` on Unix,
-  `%USERPROFILE%\Documents\ptrack\pending-banks\` on Windows.
+- **Configured by** `challenges.auto_generation.review_dir` and
+  `challenges.auto_generation.bank_basename`. The path is
+  `<review_dir>/<bank_basename>.yaml`. Defaults:
+  `~/Documents/ptrack/generated.yaml` on Unix,
+  `%USERPROFILE%\Documents\ptrack\generated.yaml` on Windows.
 - The directory is created on first write if it does not exist.
+- Every regeneration overwrites the same file in place — only the
+  latest pending bank ever exists; no per-run filenames, no sweep step.
 
-Files in this directory are short-lived:
-
-- The GUI's **Trigger poll** menu enables the **Auto-generated** option
-  only when at least one YAML is present here. On selection, the menu
-  dispatches the bank with `auto_submitted=false` (the teacher acted).
-- A YAML in this directory is removed in either of two events:
-  1. It has been submitted via the GUI (the file is consumed on
-     successful dispatch).
-  2. A new YAML has been generated to replace it (only the most recent
-     pending file is ever kept).
-- The directory is swept on session start so stale files from a prior
-  session do not leak into the new one.
+The GUI's **Trigger poll** menu enables the **Auto-generated** option
+only when the file is present. On selection the menu dispatches the
+bank with `auto_submitted=false` (the teacher acted).
 
 When `auto_submit = true`, the challenger never writes to disk at all:
 the generated bank is passed in-memory directly to the challenge
@@ -196,11 +191,12 @@ GUI file picker before submission.
 
 ## Question records (`.jsonl`)
 
-When a poll runs, every issued question is appended to the meeting's
-JSONL file in `questions_dir`, named after the Parquet basename so the
-two files stay paired (e.g. `meetings/<start>-<end>.parquet` ↔
-`questions/<start>-<end>.jsonl`). Each line is one JSON
-object with the full question content plus a UUIDv4 `question_id`.
+When a poll runs, every issued question is appended to
+`questions.jsonl` inside the meeting's directory, sitting next to that
+meeting's `events.parquet` (a meeting directory therefore contains
+exactly `events.parquet` and, if any polls ran, `questions.jsonl`).
+Each line is one JSON object with the full question content plus a
+UUIDv4 `question_id`.
 `challenge_issued` events in the Parquet file reference the same
 `question_id`. The `auto_submitted` marker is **not** written here —
 it lives on the event row in Parquet (`auto_submitted` metadata key).
@@ -232,8 +228,9 @@ Example file:
 {"question_id":"7d4e...","question_type":"short_text","prompt":"Name a property of isosceles triangles.","correct_answer":["two equal sides","two equal angles"],"match_mode":"substring_ci"}
 ```
 
-The `ptrack_analytics` library discovers the matching `.jsonl` file when
-loading a meeting and exposes a `questions` lazy frame. Joining
+The `ptrack_analytics` library discovers `questions.jsonl` next to the
+loaded meeting's `events.parquet` and exposes a `questions` lazy
+frame. Joining
 `challenges` with `questions` on `question_id` gives full question
 context for any challenge event.
 
@@ -257,11 +254,11 @@ interchangeable.
 
 The challenger:
 
-1. Reads PCM/Opus frames forwarded from the GUI's WebSocket
-   (`POST /audio/stream`), assembles short audio segments, and POSTs
-   them to the configured ASR endpoint as they fill. The returned
-   transcripts are appended to a rolling buffer sized per
-   `transcript_window_minutes`.
+1. Consumes Opus/WebM segments that the browser POSTs to
+   `POST /audio/segment` (one HTTP request per `MediaRecorder` chunk;
+   no WebSocket) and forwards each segment body to the configured ASR
+   endpoint. The returned transcripts are appended to a rolling buffer
+   sized per `transcript_window_minutes`.
 2. When the configured `poll_interval_seconds` elapses (or an
    early-regen condition fires), it builds a prompt from the current
    transcript window, calls the LLM's chat-completions endpoint asking
@@ -291,16 +288,18 @@ microphone input through `navigator.mediaDevices.getUserMedia`, which:
 - works on mobile browsers, which is how Android-on-Termux use is
   supported.
 
-The GUI streams PCM/Opus audio frames over a WebSocket to the Go
-daemon's control plane. `internal/challenger/` receives them in-process,
-buffers a few seconds at a time, and forwards each segment to the ASR
-endpoint as a standard OpenAI-compatible `/audio/transcriptions`
-request. Frames are never written to disk by Go or the browser; the ASR
-backend's local handling of the request body is its own concern.
+The GUI batches captured audio into short Opus/WebM segments with
+`MediaRecorder` and uploads each segment to the daemon as a regular
+`POST /audio/segment` request — no WebSocket, no streaming framing.
+`internal/challenger/` receives each segment in-process and forwards it
+to the ASR endpoint as a standard OpenAI-compatible
+`/audio/transcriptions` request. Segments are never written to disk by
+Go or the browser; the ASR backend's local handling of the request body
+is its own concern.
 
 The browser exposes a mute toggle next to the meeting status panel,
-which simply pauses the WebSocket stream and synthesizes a silence
-marker on resume so the ASR backend does not mis-segment around the gap.
+which simply stops `MediaRecorder` and suppresses uploads for as long
+as it stays engaged.
 
 ### Generation prompt
 

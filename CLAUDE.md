@@ -150,10 +150,10 @@ GUI status view so the teacher can ask them to register, but no Parquet
 events are written for them.
 
 Teachers can rename a participant after the fact by rewriting the
-`display_name` column in one or more Parquet files via the stats view
-(`PATCH /participants/{display_name}/display-name?file=<a>[&file=<b>…]&new=<name>`).
-The rename is scoped to the files explicitly listed in the query and
-never propagates to future meetings.
+`display_name` column in one or more meeting directories via the stats
+view (`PATCH /participants/{display_name}/display-name?dir=<a>[&dir=<b>…]&new=<name>`).
+The rename is scoped to the directories explicitly listed in the query
+and never propagates to future meetings.
 
 ## Challenge system
 
@@ -200,16 +200,17 @@ Three result states are recorded per challenge:
 `answer_window` is the single deadline. Any answer arriving after it is
 ignored.
 
-**Questions are stored as JSON Lines files** — one `.jsonl` file per
-meeting in `<questions_dir>/`, named after the Parquet basename (so
-`meetings/<start>-<end>.parquet` pairs with
-`questions/<start>-<end>.jsonl`). Each line is a JSON
-object with the full question content (prompt, type, choices, correct
-answer, etc.) and a UUIDv4 `question_id`. `challenge_issued` events in
-the Parquet reference that UUID. `ptrack_analytics.load()` automatically
-discovers the matching `.jsonl` file and exposes a `questions` lazy
-frame for Jupyter analysis. Polars loads `.jsonl` natively with
-`read_ndjson`.
+**Questions are stored as JSON Lines files** — one `questions.jsonl`
+per meeting, sitting inside the same per-meeting directory as
+`events.parquet`. The meeting directory itself is the unit of identity:
+`<meetings_dir>/<rendered-template-name>/` contains `events.parquet`
+and (if any polls ran) `questions.jsonl`. Each line of `questions.jsonl`
+is a JSON object with the full question content (prompt, type, choices,
+correct answer, etc.) and a UUIDv4 `question_id`. `challenge_issued`
+events in the Parquet reference that UUID. `ptrack_analytics.load()`
+automatically discovers the JSONL file next to the Parquet and exposes
+a `questions` lazy frame for Jupyter analysis. Polars loads `.jsonl`
+natively with `read_ndjson`.
 
 Question bank files (teacher-prepared YAML) are not stored by the
 system. When a poll runs, questions are written to the meeting's
@@ -218,16 +219,18 @@ to keep.
 
 When `auto_submit` is true the generated bank is dispatched in-process
 and never touches disk. When `auto_submit` is false the bank is written
-to a user-configurable review directory
-(`challenges.auto_generation.review_dir`, defaults under
-`~/Documents/ptrack/pending-banks/`); older auto-generated files in that
-directory are swept on each new write so only the latest pending bank
-exists. Audio for the generator is captured by the **browser** through
+as a single file at
+`<challenges.auto_generation.review_dir>/<challenges.auto_generation.bank_basename>.yaml`
+(defaults: `~/Documents/ptrack/` and `generated`, i.e. `generated.yaml`).
+The file is overwritten in place on every regeneration — only the
+latest pending bank ever exists. Audio for the generator is captured by the **browser** through
 `navigator.mediaDevices.getUserMedia` (with a mute toggle and the
-browser's native device picker) and streamed to the daemon over a
-WebSocket — mobile-friendly, including Android-on-Termux. The
-`internal/challenger/` package consumes frames in-process, batches them
-into short segments, and calls an **OpenAI-compatible** ASR endpoint
+browser's native device picker). The browser uses `MediaRecorder` to
+batch frames into short Opus/WebM segments and uploads each segment to
+the daemon as a regular `POST /audio/segment` request — no
+WebSocket, mobile-friendly including Android-on-Termux. The
+`internal/challenger/` package consumes the uploaded segment
+in-process and calls an **OpenAI-compatible** ASR endpoint
 (e.g. a local LocalAI daemon, the OpenAI Whisper API, or any compatible
 gateway — ptrack ships no backend default and the teacher must configure
 one). The same compat shape is used for the LLM chat-completions call
@@ -275,16 +278,23 @@ Main views:
    menu (Custom / Auto-generated), the **Audio** card with the browser's
    microphone toggle and device picker, and the **Shut down** lifecycle
    button.
-2. **Stats view** — a single page served at `GET /stats?file=<a>&file=<b>…`.
-   With one `file` query value it shows the per-meeting timeband list
-   (one row per participant in that file). With more than one it
+2. **Stats view** — a single page served at `GET /stats?dir=<a>&dir=<b>…`.
+   With one `dir` query value it shows the per-meeting timeband list
+   (one row per participant in that meeting). With more than one it
    switches to a cross-meeting container that shows one participant per
    page, with prev/next paging and a search bar to jump to a participant
    by display name. The Parquet → stats transformation is done in
-   Python (Polars) and emitted as JSON; Go reads the JSON, caches it on
-   disk, and renders templ.
+   Python (Polars) and emitted as JSON; Go shells out per request and
+   renders templ directly from the JSON.
 3. **Config editor** — schema-driven form for the JSON config, with
    validation and live reload.
+
+The stats view is computed on demand: each `GET /stats/rows` request
+shells out to `ptrack_py stats` and renders the returned JSON into
+templ. There is no on-disk cache — the Polars pipeline is cheap enough
+that re-running it per request is simpler than maintaining cache
+invalidation, and stats are not requested often enough for the cost to
+matter.
 
 The stats view is the only statistics surface the GUI offers; there is
 no in-GUI custom-analysis panel. Anything beyond it — ad-hoc
@@ -327,13 +337,11 @@ Go and Python never share a process. They communicate via:
 
 1. **Parquet files** for event data — schema in `@docs/EVENT_SCHEMA.md`.
 2. **One-shot subprocess invocation** for analytics — Go invokes
-   `ptrack_py report <paths…>` to obtain CSV output on stdout (single
-   matched file → per-meeting; multiple → aggregate), and
-   `ptrack_py stats <paths…>` to obtain the GUI stats JSON on stdout.
-   No Python process is kept alive in
-   either case. The stats JSON is cached by Go alongside the input
-   files; cache entries are invalidated when any input's mtime advances
-   (e.g. after the display-name rewrite PATCH).
+   `ptrack_py report <meeting-dirs…>` to obtain CSV output on stdout
+   (single matched dir → per-meeting; multiple → aggregate), and
+   `ptrack_py stats <meeting-dirs…>` to obtain the GUI stats JSON on
+   stdout. No Python process is kept alive in either case, and neither
+   stdout payload is cached — each GUI request reruns the subprocess.
 
 That is the entire Go ↔ Python surface. Auto-generation (ASR + LLM) is
 an in-process Go feature that talks to external OpenAI-compatible
@@ -431,18 +439,18 @@ audio capture, and the BBB/Zoom polling rewrite are still pending.
 
 - Replace the GUI's single Trigger Poll button with the Custom /
   Auto-generated menu; add the Audio card and the Shut down control.
-- Browser-side audio capture via `getUserMedia` and a WebSocket to the
-  daemon.
+- Browser-side audio capture via `getUserMedia` with `MediaRecorder`,
+  uploading each batched segment as a regular `POST /audio/segment`.
 - `internal/challenger/` package: rolling audio buffer, ASR client
   (OpenAI-compatible `/v1/audio/transcriptions`), transcript window,
   LLM client (OpenAI-compatible `/v1/chat/completions`), YAML producer,
   in-process dispatch into `challenges.Pipeline.RunPoll` when
   `auto_submit` is true.
-- GUI stats backend rewrite — `ptrack_py stats` subcommand, on-disk
-  JSON cache, unified `/stats?file=…` route in Go, paged
-  one-participant-per-page cross-meeting container. Replaces the
-  current `internal/gui/timeline.go` Go-side computation and the
-  separate `/meetings/{id}` and `/participants/{display_name}` routes.
+- GUI stats backend rewrite — `ptrack_py stats` subcommand, unified
+  `/stats?dir=…` route in Go, paged one-participant-per-page
+  cross-meeting container. Replaces the current `internal/gui/timeline.go`
+  Go-side computation and the separate `/meetings/{id}` and
+  `/participants/{display_name}` routes.
 
 When adding code, confirm the module layout in this file and
 `@docs/ARCHITECTURE.md` are still current, and prefer updating docs
