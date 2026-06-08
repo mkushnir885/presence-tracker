@@ -80,17 +80,18 @@ templ Layout(title string, locale Locale, navExtras templ.Component) {
 						document.body.className = 'stopped-body';
 						document.body.innerHTML = tmpl.innerHTML;
 					}
-					document.body.addEventListener('htmx:sendError', showStopped);
 					document.body.addEventListener('ptrack-shutdown', showStopped);
 					if (typeof EventSource !== 'undefined') {
 						es = new EventSource('/events');
 						var connected = false;
 						es.addEventListener('open', function() { connected = true; });
 						es.addEventListener('error', function() {
-							if (connected) {
-								es.close();
-								showStopped();
-							}
+							if (!connected || unloading) return;
+							// Verify the server is actually down before showing stopped.
+							fetch('/', { method: 'HEAD', cache: 'no-store',
+								signal: AbortSignal.timeout(3000) })
+								.then(function() { /* server still up; let browser auto-reconnect */ })
+								.catch(function() { es.close(); showStopped(); });
 						});
 					}
 				})();
